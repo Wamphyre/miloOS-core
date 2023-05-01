@@ -1,28 +1,11 @@
-# macOS Skinpack for XFCE4
+# Core configuration for miloOS
 
-A custom skinpack of macOS 10.15 Catalina for **Debian** and **Ubuntu** based distros using **XFCE4 Desktop Environment**. It is a pack of multiple resources such as GTK+ theme, Full icon theme, Plank theme, Wallpapers, Custom settings among others. That will be installed through a BASH script.
+Contains the base desktop configuration and system core elements.
 
 ## Screenshot
 
-![Screenshot](https://raw.githubusercontent.com/libredeb/xfce4-macOS_skinpack/master/images/screenshot.png)
-
-## Usage
-
-This script can be used through subcommands. For example:
-
-* **To do a resource installation and apply custom settings:**
-```
-$ ./skinpack.sh install
-```
-
-* **To undo the changes and remove the installed resources:**
-```
-$ ./skinpack.sh remove
-```
-
-> **Notice:** run this script with your user (without sudo or root) and follow the instructions.
+![Screenshot]()
 
 ## Notes
 
-* **For LightDM Webkit:** download DEB file of version 2
-* **For Plymouth:** download next packages from backports: `firmware-linux-nonfree firmware-misc-nonfree firmware-amd-graphics`
+* **Intended for use only on miloOS Development system.
