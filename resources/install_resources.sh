@@ -14,7 +14,7 @@ CURRENT_DIR=$PWD
 install_debian_packages() {
     echo -e "Installing required packages..."
     apt-get update
-    apt-get install cifs-utils smbclient winbind gtk2-engines-murrine gtk2-engines-pixbuf gnome-icon-theme plank catfish appmenu-gtk2-module appmenu-gtk3-module vala-panel-appmenu xfce4-appmenu-plugin xfce4-statusnotifier-plugin xfce4-notifyd meson ninja-build libgee-0.8-dev libgnome-menu-3-dev cdbs valac git libglib2.0-dev libwnck-3-dev libgtk-3-dev xterm python3 python3-wheel python3-setuptools gnome-menus gnome-maps shotwell gnome-calendar gedit zenity
+    apt-get install firmware-linux gmtp cifs-utils smbclient winbind gtk2-engines-murrine gtk2-engines-pixbuf gnome-icon-theme plank catfish appmenu-gtk2-module appmenu-gtk3-module vala-panel-appmenu xfce4-appmenu-plugin xfce4-statusnotifier-plugin xfce4-notifyd meson ninja-build libgee-0.8-dev libgnome-menu-3-dev cdbs valac git libglib2.0-dev libwnck-3-dev libgtk-3-dev xterm python3 python3-wheel python3-setuptools gnome-menus gnome-maps shotwell gnome-calendar gedit zenity
 }
 
 
