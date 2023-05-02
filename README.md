@@ -8,4 +8,4 @@ Contains the base desktop configuration and system core elements.
 
 ## Notes
 
-* **Intended for use only on miloOS Development system.
+* **Files intended for use only on miloOS Development system.
