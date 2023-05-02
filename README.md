@@ -4,7 +4,7 @@ Contains the base desktop configuration and system core elements.
 
 ## Screenshot
 
-![Screenshot]()
+![Screenshot](https://github.com/Wamphyre/miloOS-core/blob/main/miloOS-desktop.png)
 
 ## Notes
 
