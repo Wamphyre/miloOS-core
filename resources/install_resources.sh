@@ -22,6 +22,9 @@ install_gtk_themes() {
     echo -e "Installing Gtk+ themes..."
     cp -R resources/theme/miloOS /usr/share/themes/
     chown root:root -R /usr/share/themes/miloOS/
+    
+    cp -R resources/milk /usr/share/slim/themes/
+    chown root:root -R /usr/share/slim/themes/
 }
 
 install_icon_themes() {
