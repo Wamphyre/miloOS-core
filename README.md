@@ -2,6 +2,8 @@
 
 Contains the base desktop configuration and system core elements.
 
+Releases of the installer ISO are available too.
+
 ## Screenshot
 
 ![Screenshot](https://github.com/Wamphyre/miloOS-core/blob/main/miloOS-desktop.png)
