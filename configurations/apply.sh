@@ -166,6 +166,7 @@ if [ -d "configurations/xfce4/terminal" ]; then
     cp -R configurations/xfce4/terminal/* "$USER_HOME/.config/xfce4/terminal/"
     find "$USER_HOME/.config/xfce4/terminal" -type f -exec chmod 644 {} \;
     chown -R "$EXEC_USER:$EXEC_USER" "$USER_HOME/.config/xfce4/terminal"
+    log_info "Terminal configured with SF Mono font"
 else
     log_warn "XFCE4 terminal configuration not found, skipping"
 fi
@@ -239,9 +240,9 @@ xfconf-query -c xfwm4 -p /general/title_alignment -n -t string -s center 2>/dev/
 xfconf-query -c xfwm4 -p /general/button_layout -n -t string -s "CHM|" 2>/dev/null || \
     xfconf-query -c xfwm4 -p /general/button_layout -t string -s "CHM|"
 
-# Icon theme (WhiteSur)
-xfconf-query -c xsettings -p /Net/IconThemeName -n -t string -s WhiteSur 2>/dev/null || \
-    xfconf-query -c xsettings -p /Net/IconThemeName -t string -s WhiteSur
+# Icon theme (WhiteSur-light)
+xfconf-query -c xsettings -p /Net/IconThemeName -n -t string -s WhiteSur-light 2>/dev/null || \
+    xfconf-query -c xsettings -p /Net/IconThemeName -t string -s WhiteSur-light
 
 # Cursor theme (using default Adwaita as Cocoa doesn't include cursors)
 xfconf-query -c xsettings -p /Gtk/CursorThemeName -n -t string -s Adwaita 2>/dev/null || \

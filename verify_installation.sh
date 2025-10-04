@@ -232,10 +232,16 @@ echo ""
 
 # Check real-time audio optimizations
 echo -e "${BLUE}[10] Real-Time Audio Optimizations${NC}"
-if [ -f "/etc/security/limits.d/audio.conf" ]; then
-    check_pass "Audio limits configured"
+if [ -f "/etc/security/limits.d/99-audio-production.conf" ]; then
+    check_pass "Audio production limits configured"
 else
-    check_warn "Audio limits not configured"
+    check_warn "Audio production limits not configured"
+fi
+
+if [ -f "/etc/sysctl.d/99-audio-production.conf" ]; then
+    check_pass "Sysctl audio optimizations configured"
+else
+    check_warn "Sysctl optimizations not found"
 fi
 
 if [ -f "/usr/local/bin/miloOS-audio-optimize.sh" ]; then
@@ -256,6 +262,31 @@ if [ -f "/etc/default/grub" ]; then
     else
         check_warn "Real-time kernel parameters not found"
     fi
+fi
+
+# Check if current user is in audio group
+if [ "$EUID" -ne 0 ] && [ -n "$USER" ]; then
+    if groups "$USER" | grep -q audio; then
+        check_pass "User $USER is in audio group"
+    else
+        check_warn "User $USER not in audio group"
+    fi
+fi
+echo ""
+
+# Check Plymouth
+echo -e "${BLUE}[11] Plymouth Boot Theme${NC}"
+if command -v plymouth &> /dev/null; then
+    check_pass "Plymouth installed"
+    
+    CURRENT_THEME=$(plymouth-set-default-theme 2>/dev/null)
+    if [ -n "$CURRENT_THEME" ]; then
+        check_pass "Plymouth theme: $CURRENT_THEME"
+    else
+        check_warn "No Plymouth theme set"
+    fi
+else
+    check_warn "Plymouth not installed"
 fi
 echo ""
 

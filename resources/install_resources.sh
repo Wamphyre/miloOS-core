@@ -44,7 +44,7 @@ if [ "$EUID" -ne 0 ]; then
 fi
 
 CURRENT_DIR="$PWD"
-TOTAL_STEPS=10
+TOTAL_STEPS=11
 
 # Verify we're on Debian
 verify_system() {
@@ -732,16 +732,145 @@ EOF
     log_info "Applying runtime optimizations..."
     /usr/local/bin/miloOS-audio-optimize.sh
     
-    # 6. Configure audio group limits
-    log_info "Configuring audio group permissions..."
+    # 6. Configure audio group limits and system limits
+    log_info "Configuring system limits for audio production..."
     
     # Ensure audio group exists
     groupadd -f audio 2>/dev/null || true
     
+    # Enhanced audio limits
+    cat > /etc/security/limits.d/99-audio-production.conf << 'EOF'
+# Audio production limits for miloOS
+@audio   -  rtprio     99
+@audio   -  memlock    unlimited
+@audio   -  nice      -20
+@audio   -  nofile     524288
+@audio   soft  nproc      unlimited
+@audio   hard  nproc      unlimited
+
+# For all users (general improvements)
+*        -  nofile     524288
+*        soft  nproc      65536
+*        hard  nproc      65536
+EOF
+    
+    # Configure sysctl for audio production
+    cat > /etc/sysctl.d/99-audio-production.conf << 'EOF'
+# Audio production optimizations for miloOS
+vm.swappiness = 10
+fs.inotify.max_user_watches = 524288
+kernel.shmmax = 2147483648
+kernel.shmall = 2147483648
+fs.file-max = 524288
+EOF
+    
+    # Apply sysctl settings
+    sysctl -p /etc/sysctl.d/99-audio-production.conf 2>/dev/null || true
+    
+    # 7. Add all existing users to audio and necessary groups
+    log_info "Adding users to audio and production groups..."
+    
+    # Get all regular users (UID >= 1000, excluding nobody)
+    for user in $(awk -F: '$3 >= 1000 && $3 < 65534 {print $1}' /etc/passwd); do
+        if [ "$user" != "nobody" ]; then
+            log_info "Adding $user to audio, video, and realtime groups..."
+            usermod -aG audio,video "$user" 2>/dev/null || true
+        fi
+    done
+    
+    # Add SUDO_USER if available
+    if [ -n "$SUDO_USER" ] && [ "$SUDO_USER" != "root" ]; then
+        usermod -aG audio,video "$SUDO_USER" 2>/dev/null || true
+        log_info "Added $SUDO_USER to audio and video groups"
+    fi
+    
     log_info "Real-time audio optimization completed!"
-    log_warn "IMPORTANT: Users need to be in the 'audio' group for real-time privileges"
-    log_warn "Run: sudo usermod -aG audio \$USER (then logout/login)"
+    log_warn "Users have been added to audio group automatically"
     log_warn "Kernel parameters will be active after reboot"
+}
+
+install_plymouth_theme() {
+    log_step 10 $TOTAL_STEPS "Installing Plymouth boot theme..."
+    
+    # Install Plymouth if not present
+    if ! command -v plymouth &> /dev/null; then
+        log_info "Installing Plymouth..."
+        apt-get install -y plymouth plymouth-themes 2>/dev/null || {
+            log_warn "Failed to install Plymouth, skipping theme"
+            return 0
+        }
+    fi
+    
+    # Download macOS-style Plymouth theme
+    local TEMP_DIR="/tmp/plymouth-theme-$$"
+    log_info "Downloading macOS-style Plymouth theme..."
+    
+    mkdir -p "$TEMP_DIR"
+    
+    # Try to download apple-mac-plymouth theme
+    if git clone --depth=1 https://github.com/krishnan793/apple-mac-plymouth.git "$TEMP_DIR" 2>/dev/null; then
+        log_info "Installing Plymouth theme..."
+        
+        # Copy theme to Plymouth themes directory
+        if [ -d "$TEMP_DIR/apple-mac" ]; then
+            cp -R "$TEMP_DIR/apple-mac" /usr/share/plymouth/themes/
+            
+            # Set as default theme
+            if command -v plymouth-set-default-theme &> /dev/null; then
+                plymouth-set-default-theme -R apple-mac 2>/dev/null && \
+                    log_info "Plymouth theme set to apple-mac" || \
+                    log_warn "Failed to set Plymouth theme"
+            fi
+            
+            # Update initramfs
+            if command -v update-initramfs &> /dev/null; then
+                log_info "Updating initramfs..."
+                update-initramfs -u 2>/dev/null || log_warn "Failed to update initramfs"
+            fi
+        else
+            log_warn "Theme directory not found in repository"
+        fi
+        
+        rm -rf "$TEMP_DIR"
+    else
+        log_warn "Failed to download Plymouth theme"
+        log_info "Creating simple miloOS Plymouth theme..."
+        
+        # Create a simple miloOS theme as fallback
+        mkdir -p /usr/share/plymouth/themes/miloOS
+        
+        cat > /usr/share/plymouth/themes/miloOS/miloOS.plymouth << 'EOF'
+[Plymouth Theme]
+Name=miloOS
+Description=miloOS Boot Theme
+ModuleName=script
+
+[script]
+ImageDir=/usr/share/plymouth/themes/miloOS
+ScriptFile=/usr/share/plymouth/themes/miloOS/miloOS.script
+EOF
+        
+        cat > /usr/share/plymouth/themes/miloOS/miloOS.script << 'EOF'
+# Simple miloOS boot animation
+Window.SetBackgroundTopColor(0.16, 0.16, 0.16);
+Window.SetBackgroundBottomColor(0.16, 0.16, 0.16);
+
+message_sprite = Sprite();
+message_sprite.SetPosition(Window.GetX() + Window.GetWidth() / 2, Window.GetY() + Window.GetHeight() / 2, 10000);
+
+fun message_callback(text) {
+    message_sprite.SetImage(Image.Text(text, 1, 1, 1));
+}
+Plymouth.SetMessageFunction(message_callback);
+EOF
+        
+        # Set as default
+        if command -v plymouth-set-default-theme &> /dev/null; then
+            plymouth-set-default-theme -R miloOS 2>/dev/null || true
+        fi
+    fi
+    
+    log_info "Plymouth theme installation completed"
 }
 
 # Main execution
@@ -759,6 +888,7 @@ install_plank_theme
 install_menus
 rebrand_system
 optimize_realtime_audio
+install_plymouth_theme
 
 echo ""
 log_info "========================================="

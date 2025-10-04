@@ -26,6 +26,6 @@ MiscSlimTabs=FALSE
 MiscNewTabAdjacent=FALSE
 MiscSearchDialogOpacity=100
 MiscShowUnsafePasteDialog=TRUE
-FontName=Noto Mono 12
+FontName=SF Mono 11
 ColorForeground=#17f018
 
