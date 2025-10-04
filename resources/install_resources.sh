@@ -183,38 +183,120 @@ install_gtk_themes() {
 }
 
 install_icon_themes() {
-    log_step 3 $TOTAL_STEPS "Installing icon themes..."
+    log_step 3 $TOTAL_STEPS "Installing WhiteSur icon theme..."
     
-    if [ ! -d "resources/icons/Cocoa" ]; then
-        error_exit "Icon theme resources/icons/Cocoa not found!"
+    # Install git if not present (needed to clone)
+    if ! command -v git &> /dev/null; then
+        log_info "Installing git..."
+        apt-get install -y git 2>/dev/null || log_warn "Could not install git"
     fi
     
-    cp -R resources/icons/Cocoa /usr/share/icons/
-    chown -R root:root /usr/share/icons/Cocoa/
+    # Clone WhiteSur icon theme
+    local TEMP_DIR="/tmp/WhiteSur-icon-theme-$$"
+    log_info "Downloading WhiteSur icon theme..."
     
+    if git clone --depth=1 https://github.com/vinceliuice/WhiteSur-icon-theme.git "$TEMP_DIR" 2>/dev/null; then
+        log_info "Installing WhiteSur icon theme..."
+        cd "$TEMP_DIR"
+        
+        # Install with options: -b (bold icons), -a (all alternatives), -d (destination)
+        if ./install.sh -b -a -d /usr/local/share/icons 2>/dev/null; then
+            log_info "WhiteSur icon theme installed successfully"
+        else
+            log_warn "WhiteSur installation script failed, trying manual installation..."
+            # Fallback: copy manually
+            mkdir -p /usr/local/share/icons
+            cp -R src/WhiteSur* /usr/local/share/icons/ 2>/dev/null || true
+        fi
+        
+        cd "$CURRENT_DIR"
+        rm -rf "$TEMP_DIR"
+    else
+        log_error "Failed to download WhiteSur icon theme"
+        log_warn "Continuing without icon theme..."
+    fi
+    
+    # Install catfish icon if available
     if [ -f "resources/icons/catfish-symbolic.png" ]; then
         cp resources/icons/catfish-symbolic.png /usr/share/pixmaps/
         log_info "Catfish icon installed"
     fi
     
-    # Update icon cache at the end
+    # Update icon cache
     if command -v gtk-update-icon-cache &> /dev/null; then
         log_info "Updating icon cache..."
-        gtk-update-icon-cache -f /usr/share/icons/Cocoa/ 2>/dev/null || log_warn "Icon cache update failed"
+        for theme_dir in /usr/local/share/icons/WhiteSur*; do
+            if [ -d "$theme_dir" ]; then
+                gtk-update-icon-cache -f "$theme_dir" 2>/dev/null || true
+            fi
+        done
     fi
     
-    log_info "Icon themes installed"
+    log_info "Icon theme installation completed"
 }
 
 install_fonts() {
-    log_step 4 $TOTAL_STEPS "Installing fonts..."
+    log_step 4 $TOTAL_STEPS "Installing San Francisco Pro fonts..."
     
-    if [ ! -d "resources/fonts/Inter-Desktop" ]; then
-        error_exit "Font directory resources/fonts/Inter-Desktop not found!"
+    # Install unzip if not present
+    if ! command -v unzip &> /dev/null; then
+        log_info "Installing unzip..."
+        apt-get install -y unzip 2>/dev/null || log_warn "Could not install unzip"
     fi
     
-    cp -R resources/fonts/Inter-Desktop /usr/share/fonts/
-    chown -R root:root /usr/share/fonts/Inter-Desktop/
+    # Download San Francisco Pro fonts
+    local TEMP_DIR="/tmp/sf-fonts-$$"
+    local FONT_DIR="/usr/share/fonts/truetype/san-francisco"
+    
+    log_info "Downloading San Francisco Pro fonts..."
+    mkdir -p "$TEMP_DIR"
+    
+    # Download from GitHub
+    if command -v wget &> /dev/null; then
+        wget -q -O "$TEMP_DIR/sf-fonts.zip" "https://github.com/sahibjotsaggu/San-Francisco-Pro-Fonts/archive/master.zip" 2>/dev/null || {
+            log_warn "Failed to download fonts with wget, trying curl..."
+            curl -sL -o "$TEMP_DIR/sf-fonts.zip" "https://github.com/sahibjotsaggu/San-Francisco-Pro-Fonts/archive/master.zip" 2>/dev/null || {
+                log_error "Failed to download San Francisco Pro fonts"
+                log_warn "Continuing without custom fonts..."
+                rm -rf "$TEMP_DIR"
+                return 0
+            }
+        }
+    elif command -v curl &> /dev/null; then
+        curl -sL -o "$TEMP_DIR/sf-fonts.zip" "https://github.com/sahibjotsaggu/San-Francisco-Pro-Fonts/archive/master.zip" 2>/dev/null || {
+            log_error "Failed to download San Francisco Pro fonts"
+            log_warn "Continuing without custom fonts..."
+            rm -rf "$TEMP_DIR"
+            return 0
+        }
+    else
+        log_error "Neither wget nor curl available"
+        log_warn "Continuing without custom fonts..."
+        rm -rf "$TEMP_DIR"
+        return 0
+    fi
+    
+    # Extract fonts
+    log_info "Extracting fonts..."
+    cd "$TEMP_DIR"
+    if unzip -q sf-fonts.zip 2>/dev/null; then
+        # Create font directory
+        mkdir -p "$FONT_DIR"
+        
+        # Copy all OTF and TTF files
+        find San-Francisco-Pro-Fonts-master -type f \( -name "*.otf" -o -name "*.ttf" \) -exec cp {} "$FONT_DIR/" \; 2>/dev/null
+        
+        # Set permissions
+        chown -R root:root "$FONT_DIR"
+        chmod 644 "$FONT_DIR"/*.{otf,ttf} 2>/dev/null || true
+        
+        log_info "San Francisco Pro fonts installed"
+    else
+        log_warn "Failed to extract fonts"
+    fi
+    
+    cd "$CURRENT_DIR"
+    rm -rf "$TEMP_DIR"
     
     # Update font cache
     if command -v fc-cache &> /dev/null; then
@@ -222,7 +304,7 @@ install_fonts() {
         fc-cache -f 2>/dev/null || log_warn "Font cache update failed"
     fi
     
-    log_info "Fonts installed"
+    log_info "Font installation completed"
 }
 
 install_wallpaper() {

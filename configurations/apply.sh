@@ -218,12 +218,16 @@ xfconf-query -c xsettings -p /Xft/RGBA -n -t string -s "rgb" 2>/dev/null || \
 xfconf-query -c xsettings -p /Xft/Lcdfilter -n -t string -s "lcddefault" 2>/dev/null || \
     xfconf-query -c xsettings -p /Xft/Lcdfilter -t string -s "lcddefault"
 
-# Font names
-xfconf-query -c xsettings -p /Gtk/FontName -n -t string -s "Inter 10" 2>/dev/null || \
-    xfconf-query -c xsettings -p /Gtk/FontName -t string -s "Inter 10"
+# Font names (San Francisco Pro)
+xfconf-query -c xsettings -p /Gtk/FontName -n -t string -s "SF Pro Text 10" 2>/dev/null || \
+    xfconf-query -c xsettings -p /Gtk/FontName -t string -s "SF Pro Text 10"
 
-xfconf-query -c xsettings -p /Gtk/MonospaceFontName -n -t string -s "Inter Medium 10" 2>/dev/null || \
-    xfconf-query -c xsettings -p /Gtk/MonospaceFontName -t string -s "Inter Medium 10"
+xfconf-query -c xsettings -p /Gtk/MonospaceFontName -n -t string -s "SF Mono 10" 2>/dev/null || \
+    xfconf-query -c xsettings -p /Gtk/MonospaceFontName -t string -s "SF Mono 10"
+
+# Window title font
+xfconf-query -c xfwm4 -p /general/title_font -n -t string -s "SF Pro Display Medium 9" 2>/dev/null || \
+    xfconf-query -c xfwm4 -p /general/title_font -t string -s "SF Pro Display Medium 9"
 
 # GTK settings
 xfconf-query -c xsettings -p /Gtk/ShellShowsMenubar -n -t bool -s true 2>/dev/null || \
@@ -249,9 +253,9 @@ xfconf-query -c xfwm4 -p /general/title_alignment -n -t string -s center 2>/dev/
 xfconf-query -c xfwm4 -p /general/button_layout -n -t string -s "CHM|" 2>/dev/null || \
     xfconf-query -c xfwm4 -p /general/button_layout -t string -s "CHM|"
 
-# Icon theme
-xfconf-query -c xsettings -p /Net/IconThemeName -n -t string -s Cocoa 2>/dev/null || \
-    xfconf-query -c xsettings -p /Net/IconThemeName -t string -s Cocoa
+# Icon theme (WhiteSur)
+xfconf-query -c xsettings -p /Net/IconThemeName -n -t string -s WhiteSur 2>/dev/null || \
+    xfconf-query -c xsettings -p /Net/IconThemeName -t string -s WhiteSur
 
 # Cursor theme (using default Adwaita as Cocoa doesn't include cursors)
 xfconf-query -c xsettings -p /Gtk/CursorThemeName -n -t string -s Adwaita 2>/dev/null || \

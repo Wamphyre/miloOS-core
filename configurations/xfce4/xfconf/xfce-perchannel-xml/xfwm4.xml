@@ -62,7 +62,7 @@
     <property name="theme" type="string" value="miloOS"/>
     <property name="tile_on_move" type="empty"/>
     <property name="title_alignment" type="empty"/>
-    <property name="title_font" type="string" value="Inter 9"/>
+    <property name="title_font" type="string" value="SF Pro Display Medium 9"/>
     <property name="title_horizontal_offset" type="empty"/>
     <property name="titleless_maximize" type="empty"/>
     <property name="title_shadow_active" type="empty"/>

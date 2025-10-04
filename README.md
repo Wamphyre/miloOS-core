@@ -47,12 +47,14 @@ cd miloOS-core
 The installation script will:
 - ✅ Install required packages and dependencies
 - ✅ Install miloOS GTK+ themes
-- ✅ Install Cocoa icon theme and Luna cursor theme
-- ✅ Install Inter font family
+- ✅ Install WhiteSur icon theme (macOS Big Sur style)
+- ✅ Install San Francisco Pro fonts (Apple's official fonts)
+- ✅ Install and configure PipeWire for real-time audio
 - ✅ Install custom wallpapers
 - ✅ Install Plank dock theme
-- ✅ Configure XFCE4 panel and settings
+- ✅ Configure XFCE4 panel and settings with macOS-like font rendering
 - ✅ Install custom menu items
+- ✅ Optimize system for real-time audio production
 - ✅ **Rebrand system from Debian to miloOS**
 
 ### System Rebranding

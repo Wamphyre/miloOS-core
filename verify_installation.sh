@@ -62,19 +62,26 @@ else
     check_fail "miloOS GTK theme not found"
 fi
 
-if [ -d "/usr/share/icons/Cocoa" ]; then
-    check_pass "Cocoa icon theme installed"
+if [ -d "/usr/local/share/icons/WhiteSur" ] || [ -d "/usr/local/share/icons/WhiteSur-dark" ]; then
+    check_pass "WhiteSur icon theme installed"
 else
-    check_fail "Cocoa icon theme not found"
+    check_fail "WhiteSur icon theme not found"
 fi
 echo ""
 
 # Check fonts
 echo -e "${BLUE}[3] Fonts${NC}"
-if [ -d "/usr/share/fonts/Inter-Desktop" ]; then
-    check_pass "Inter fonts installed"
+if [ -d "/usr/share/fonts/truetype/san-francisco" ]; then
+    check_pass "San Francisco Pro fonts installed"
+    
+    # Check specific font files
+    if fc-list | grep -q "SF Pro"; then
+        check_pass "SF Pro fonts available in system"
+    else
+        check_warn "SF Pro fonts not detected by fontconfig"
+    fi
 else
-    check_fail "Inter fonts not found"
+    check_fail "San Francisco Pro fonts not found"
 fi
 echo ""
 
