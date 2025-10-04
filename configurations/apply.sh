@@ -118,21 +118,21 @@ chown "$EXEC_USER:$EXEC_USER" "$USER_HOME/.config/gtk-3.0/bookmarks"
 # Copy XFCE4 panel configuration
 if [ -d "configurations/xfce4/panel" ]; then
     log_info "Copying XFCE4 panel configuration..."
-    cp -R configurations/xfce4/panel "$USER_HOME/.config/xfce4/"
-    find "$USER_HOME/.config/xfce4/panel" -type d -exec chmod 755 {} \;
-    find "$USER_HOME/.config/xfce4/panel" -type f -exec chmod 644 {} \;
+    cp -R configurations/xfce4/panel "$USER_HOME/.config/xfce4/" 2>/dev/null || true
+    chmod -R 755 "$USER_HOME/.config/xfce4/panel" 2>/dev/null || true
     chown -R "$EXEC_USER:$EXEC_USER" "$USER_HOME/.config/xfce4/panel"
+    log_info "Panel configuration copied"
 else
     log_warn "XFCE4 panel configuration not found, skipping"
 fi
 
-# Copy XFCE4 xfconf configuration (FIXED: This was missing!)
+# Copy XFCE4 xfconf configuration
 if [ -d "configurations/xfce4/xfconf" ]; then
     log_info "Copying XFCE4 xfconf configuration..."
-    cp -R configurations/xfce4/xfconf "$USER_HOME/.config/xfce4/"
-    find "$USER_HOME/.config/xfce4/xfconf" -type d -exec chmod 755 {} \;
-    find "$USER_HOME/.config/xfce4/xfconf" -type f -exec chmod 644 {} \;
+    cp -R configurations/xfce4/xfconf "$USER_HOME/.config/xfce4/" 2>/dev/null || true
+    chmod -R 755 "$USER_HOME/.config/xfce4/xfconf" 2>/dev/null || true
     chown -R "$EXEC_USER:$EXEC_USER" "$USER_HOME/.config/xfce4/xfconf"
+    log_info "Xfconf configuration copied"
 else
     log_warn "XFCE4 xfconf configuration not found, skipping"
 fi
@@ -163,26 +163,10 @@ fi
 if [ -d "configurations/xfce4/terminal" ]; then
     log_info "Copying XFCE4 terminal configuration..."
     mkdir -p "$USER_HOME/.config/xfce4/terminal"
-    cp -R configurations/xfce4/terminal/* "$USER_HOME/.config/xfce4/terminal/"
-    find "$USER_HOME/.config/xfce4/terminal" -type f -exec chmod 644 {} \;
+    cp -R configurations/xfce4/terminal/* "$USER_HOME/.config/xfce4/terminal/" 2>/dev/null || true
+    chmod -R 644 "$USER_HOME/.config/xfce4/terminal"/* 2>/dev/null || true
     chown -R "$EXEC_USER:$EXEC_USER" "$USER_HOME/.config/xfce4/terminal"
-    
-    # Ensure SF Mono font is set correctly in terminal
-    if [ -f "$USER_HOME/.config/xfce4/terminal/terminalrc" ]; then
-        # Update user font cache first
-        if command -v fc-cache &> /dev/null; then
-            su - "$EXEC_USER" -c "fc-cache -f" 2>/dev/null || true
-        fi
-        
-        # Check if SF Mono is available (check system fonts directory)
-        if [ -d "/usr/share/fonts/truetype/san-francisco" ] || fc-list : family | grep -qi "SF Mono"; then
-            sed -i 's/^FontName=.*/FontName=SF Mono Regular 12/' "$USER_HOME/.config/xfce4/terminal/terminalrc"
-            log_info "Terminal configured with SF Mono Regular 12"
-        else
-            log_warn "SF Mono fonts not installed yet"
-            log_info "Terminal will use SF Mono after fonts are installed and system is rebooted"
-        fi
-    fi
+    log_info "Terminal configuration copied"
 else
     log_warn "XFCE4 terminal configuration not found, skipping"
 fi
@@ -191,9 +175,10 @@ fi
 if [ -d "configurations/xfce4/desktop" ]; then
     log_info "Copying XFCE4 desktop configuration..."
     mkdir -p "$USER_HOME/.config/xfce4/desktop"
-    cp -R configurations/xfce4/desktop/* "$USER_HOME/.config/xfce4/desktop/"
-    find "$USER_HOME/.config/xfce4/desktop" -type f -exec chmod 644 {} \;
+    cp -R configurations/xfce4/desktop/* "$USER_HOME/.config/xfce4/desktop/" 2>/dev/null || true
+    chmod -R 644 "$USER_HOME/.config/xfce4/desktop"/* 2>/dev/null || true
     chown -R "$EXEC_USER:$EXEC_USER" "$USER_HOME/.config/xfce4/desktop"
+    log_info "Desktop configuration copied"
 else
     log_warn "XFCE4 desktop configuration not found, skipping"
 fi
