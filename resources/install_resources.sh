@@ -805,39 +805,57 @@ install_plymouth_theme() {
     local TEMP_DIR="/tmp/plymouth-theme-$$"
     log_info "Downloading Apple Mac Plymouth theme..."
     
-    mkdir -p "$TEMP_DIR"
-    cd "$TEMP_DIR"
+    mkdir -p "$TEMP_DIR" || {
+        log_warn "Failed to create temp directory, skipping Plymouth theme"
+        return 0
+    }
     
-    # Download the theme from GitHub (with progress)
+    cd "$TEMP_DIR" || {
+        log_warn "Failed to access temp directory, skipping Plymouth theme"
+        rm -rf "$TEMP_DIR"
+        return 0
+    }
+    
+    # Download the theme from GitHub
     local DOWNLOAD_URL="https://github.com/navisjayaseelan/apple-mac-plymouth/archive/refs/heads/master.tar.gz"
     
+    log_info "Downloading theme (this may take a moment)..."
+    
     if command -v wget &> /dev/null; then
-        log_info "Downloading theme (this may take a moment)..."
-        wget --show-progress --progress=bar:force -q "$DOWNLOAD_URL" -O apple-mac-plymouth.tar.gz 2>&1 | \
-            grep --line-buffered "%" | sed -u 's/.*\[\(.*\)\].*/\1/' | \
-            while read line; do echo -ne "\r  Progress: $line"; done
-        echo ""
-        
-        if [ ! -f apple-mac-plymouth.tar.gz ] || [ ! -s apple-mac-plymouth.tar.gz ]; then
+        wget -q --timeout=30 "$DOWNLOAD_URL" -O apple-mac-plymouth.tar.gz 2>/dev/null || {
             log_warn "Download failed with wget, trying curl..."
-            curl -L --progress-bar "$DOWNLOAD_URL" -o apple-mac-plymouth.tar.gz 2>/dev/null || {
-                log_error "Failed to download Plymouth theme"
-                cd "$CURRENT_DIR"
+            if command -v curl &> /dev/null; then
+                curl -L --max-time 30 -s "$DOWNLOAD_URL" -o apple-mac-plymouth.tar.gz 2>/dev/null || {
+                    log_warn "Failed to download Plymouth theme, skipping"
+                    cd "$CURRENT_DIR" || true
+                    rm -rf "$TEMP_DIR"
+                    return 0
+                }
+            else
+                log_warn "Failed to download Plymouth theme, skipping"
+                cd "$CURRENT_DIR" || true
                 rm -rf "$TEMP_DIR"
                 return 0
-            }
-        fi
+            fi
+        }
     elif command -v curl &> /dev/null; then
-        log_info "Downloading theme (this may take a moment)..."
-        curl -L --progress-bar "$DOWNLOAD_URL" -o apple-mac-plymouth.tar.gz || {
-            log_error "Failed to download Plymouth theme"
-            cd "$CURRENT_DIR"
+        curl -L --max-time 30 -s "$DOWNLOAD_URL" -o apple-mac-plymouth.tar.gz 2>/dev/null || {
+            log_warn "Failed to download Plymouth theme, skipping"
+            cd "$CURRENT_DIR" || true
             rm -rf "$TEMP_DIR"
             return 0
         }
     else
-        log_error "Neither wget nor curl available"
-        cd "$CURRENT_DIR"
+        log_warn "Neither wget nor curl available, skipping Plymouth theme"
+        cd "$CURRENT_DIR" || true
+        rm -rf "$TEMP_DIR"
+        return 0
+    fi
+    
+    # Verify download
+    if [ ! -f apple-mac-plymouth.tar.gz ] || [ ! -s apple-mac-plymouth.tar.gz ]; then
+        log_warn "Downloaded file is empty or missing, skipping Plymouth theme"
+        cd "$CURRENT_DIR" || true
         rm -rf "$TEMP_DIR"
         return 0
     fi
@@ -847,14 +865,43 @@ install_plymouth_theme() {
     # Extract the theme
     log_info "Extracting Plymouth theme..."
     if tar -xzf apple-mac-plymouth.tar.gz 2>/dev/null; then
-        cd apple-mac-plymouth-master 2>/dev/null || cd apple-mac-plymouth-* 2>/dev/null
+        # Try to find the extracted directory
+        if [ -d "apple-mac-plymouth-master" ]; then
+            cd apple-mac-plymouth-master || {
+                log_warn "Failed to access extracted directory"
+                cd "$CURRENT_DIR" || true
+                rm -rf "$TEMP_DIR"
+                return 0
+            }
+        else
+            # Try wildcard match
+            local EXTRACTED_DIR=$(ls -d apple-mac-plymouth-* 2>/dev/null | head -1)
+            if [ -n "$EXTRACTED_DIR" ] && [ -d "$EXTRACTED_DIR" ]; then
+                cd "$EXTRACTED_DIR" || {
+                    log_warn "Failed to access extracted directory"
+                    cd "$CURRENT_DIR" || true
+                    rm -rf "$TEMP_DIR"
+                    return 0
+                }
+            else
+                log_warn "Could not find extracted Plymouth theme directory"
+                cd "$CURRENT_DIR" || true
+                rm -rf "$TEMP_DIR"
+                return 0
+            fi
+        fi
         
         # Manual installation (faster and more reliable than running install.sh)
         log_info "Installing Apple Mac Plymouth theme..."
         
         if [ -d "apple-mac" ]; then
             # Copy theme files
-            cp -R apple-mac /usr/share/plymouth/themes/ 2>/dev/null
+            cp -R apple-mac /usr/share/plymouth/themes/ 2>/dev/null || {
+                log_warn "Failed to copy Plymouth theme files"
+                cd "$CURRENT_DIR" || true
+                rm -rf "$TEMP_DIR"
+                return 0
+            }
             
             # Set permissions
             chmod -R 755 /usr/share/plymouth/themes/apple-mac 2>/dev/null || true
@@ -870,7 +917,7 @@ install_plymouth_theme() {
             # Update initramfs (this can take time)
             if command -v update-initramfs &> /dev/null; then
                 log_info "Updating initramfs (this may take a minute)..."
-                update-initramfs -u -k all 2>&1 | grep -v "^update-initramfs:" || true
+                update-initramfs -u -k all 2>&1 | grep -v "^update-initramfs:" | head -20 || true
                 log_info "Initramfs updated"
             fi
             
@@ -883,8 +930,9 @@ install_plymouth_theme() {
         log_warn "Failed to extract Plymouth theme archive"
     fi
     
-    cd "$CURRENT_DIR"
-    rm -rf "$TEMP_DIR"
+    # Always return to original directory and cleanup
+    cd "$CURRENT_DIR" || true
+    rm -rf "$TEMP_DIR" 2>/dev/null || true
     
     log_info "Plymouth theme installation completed"
 }
