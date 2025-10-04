@@ -161,6 +161,12 @@ if command -v pipewire &> /dev/null; then
     else
         check_warn "Low-latency configuration not found"
     fi
+    
+    if [ -f "/etc/wireplumber/policy.lua.d/99-pro-audio.lua" ]; then
+        check_pass "Pro-audio profile configured"
+    else
+        check_warn "Pro-audio profile not configured"
+    fi
 else
     check_fail "PipeWire not installed"
 fi

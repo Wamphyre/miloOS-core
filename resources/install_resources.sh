@@ -582,8 +582,10 @@ context.modules = [
 ]
 EOF
     
-    # Create WirePlumber low-latency configuration
+    # Create WirePlumber low-latency and pro-audio configuration
     mkdir -p /etc/wireplumber/main.lua.d
+    mkdir -p /etc/wireplumber/policy.lua.d
+    
     cat > /etc/wireplumber/main.lua.d/99-lowlatency.lua << 'EOF'
 -- Low-latency audio configuration for miloOS
 alsa_monitor.rules = {
@@ -602,6 +604,25 @@ alsa_monitor.rules = {
   },
 }
 EOF
+    
+    # Set pro-audio profile as default
+    cat > /etc/wireplumber/policy.lua.d/99-pro-audio.lua << 'EOF'
+-- Set pro-audio profile as default for miloOS
+alsa_monitor.rules = {
+  {
+    matches = {
+      {
+        { "device.name", "matches", "alsa_card.*" },
+      },
+    },
+    apply_properties = {
+      ["device.profile"] = "pro-audio",
+    },
+  },
+}
+EOF
+    
+    log_info "Pro-audio profile set as default"
     
     # Enable PipeWire services for all users
     log_info "Enabling PipeWire services..."
