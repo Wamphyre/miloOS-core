@@ -63,21 +63,7 @@ pkill plank 2>/dev/null || true
 pkill xfce4-panel 2>/dev/null || true
 sleep 1
 
-# Create backup of existing configurations
-BACKUP_DIR="$USER_HOME/.config/miloOS-backup-$(date +%Y%m%d-%H%M%S)"
-log_info "Creating backup at: $BACKUP_DIR"
-mkdir -p "$BACKUP_DIR"
-
-# Backup existing configurations
-[ -f "$USER_HOME/.gtkrc-2.0" ] && cp "$USER_HOME/.gtkrc-2.0" "$BACKUP_DIR/"
-[ -f "$USER_HOME/.config/gtk-3.0/gtk.css" ] && cp "$USER_HOME/.config/gtk-3.0/gtk.css" "$BACKUP_DIR/"
-[ -d "$USER_HOME/.config/xfce4/panel" ] && cp -R "$USER_HOME/.config/xfce4/panel" "$BACKUP_DIR/"
-[ -d "$USER_HOME/.config/xfce4/xfconf" ] && cp -R "$USER_HOME/.config/xfce4/xfconf" "$BACKUP_DIR/"
-[ -d "$USER_HOME/.config/plank/dock1" ] && cp -R "$USER_HOME/.config/plank/dock1" "$BACKUP_DIR/"
-
-log_info "Backup completed"
-
-# Remove old Configurations
+# Remove old configurations (no backup needed)
 log_info "Removing old configurations..."
 rm -f "$USER_HOME/.gtkrc-2.0"
 rm -f "$USER_HOME/.config/gtk-3.0/gtk.css"
@@ -297,6 +283,5 @@ chown -R "$EXEC_USER:$EXEC_USER" "$USER_HOME/.config/xfce4"
 chown -R "$EXEC_USER:$EXEC_USER" "$USER_HOME/.config/plank"
 
 log_info "Configuration applied successfully!"
-log_info "Backup saved at: $BACKUP_DIR"
-log_info "Please log out and log back in for all changes to take effect."
+log_warn "Please log out and log back in for all changes to take effect."
 

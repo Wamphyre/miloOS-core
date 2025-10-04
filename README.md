@@ -46,6 +46,7 @@ cd miloOS-core
 
 The installation script will:
 - ✅ Install required packages and dependencies
+- ✅ Install and configure SLiM display manager with custom theme
 - ✅ Install miloOS GTK+ themes
 - ✅ Install WhiteSur icon theme (macOS Big Sur style)
 - ✅ Install San Francisco Pro fonts (Apple's official fonts)

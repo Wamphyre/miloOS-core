@@ -67,6 +67,25 @@ if [ -d "/usr/local/share/icons/WhiteSur" ] || [ -d "/usr/local/share/icons/Whit
 else
     check_fail "WhiteSur icon theme not found"
 fi
+
+# Check SLiM
+if command -v slim &> /dev/null; then
+    check_pass "SLiM display manager installed"
+    
+    if [ -d "/usr/share/slim/themes/milk" ]; then
+        check_pass "SLiM milk theme installed"
+    else
+        check_warn "SLiM milk theme not found"
+    fi
+    
+    if systemctl is-enabled slim.service &>/dev/null; then
+        check_pass "SLiM enabled as display manager"
+    else
+        check_warn "SLiM not enabled"
+    fi
+else
+    check_warn "SLiM not installed"
+fi
 echo ""
 
 # Check fonts

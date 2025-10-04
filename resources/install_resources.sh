@@ -97,7 +97,7 @@ install_debian_packages() {
     
     for pkg in gtk2-engines-murrine gtk2-engines-pixbuf plank catfish \
                appmenu-gtk3-module dconf-cli vala-panel-appmenu \
-               xfce4-appmenu-plugin xfce4-notifyd cifs-utils smbclient; do
+               xfce4-appmenu-plugin xfce4-notifyd cifs-utils smbclient slim; do
         if apt-get install -y "$pkg" 2>/dev/null; then
             log_info "✓ $pkg installed"
         else
@@ -174,8 +174,32 @@ install_gtk_themes() {
                 echo "current_theme milk" >> /etc/slim.conf
             fi
             log_info "SLiM configured to use milk theme"
+            
+            # Set SLiM as default display manager
+            log_info "Setting SLiM as default display manager..."
+            
+            # Disable other display managers
+            systemctl disable lightdm.service 2>/dev/null || true
+            systemctl disable gdm.service 2>/dev/null || true
+            systemctl disable gdm3.service 2>/dev/null || true
+            systemctl disable sddm.service 2>/dev/null || true
+            
+            # Enable SLiM
+            systemctl enable slim.service 2>/dev/null || log_warn "Could not enable SLiM service"
+            
+            # Configure default display manager via debconf
+            if command -v debconf-set-selections &> /dev/null; then
+                echo "slim shared/default-x-display-manager select slim" | debconf-set-selections
+                log_info "SLiM set as default display manager"
+            fi
+            
+            # Update alternatives
+            if command -v update-alternatives &> /dev/null; then
+                update-alternatives --set x-session-manager /usr/bin/xfce4-session 2>/dev/null || true
+            fi
         else
-            log_warn "SLiM not installed, theme will not be activated"
+            log_warn "SLiM configuration file not found"
+            log_warn "SLiM may not be installed correctly"
         fi
     else
         log_warn "SLiM theme directory not found, skipping"
