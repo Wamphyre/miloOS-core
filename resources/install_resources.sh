@@ -808,19 +808,28 @@ install_plymouth_theme() {
     mkdir -p "$TEMP_DIR"
     cd "$TEMP_DIR"
     
-    # Download the theme from GitHub
+    # Download the theme from GitHub (with progress)
+    local DOWNLOAD_URL="https://github.com/navisjayaseelan/apple-mac-plymouth/archive/refs/heads/master.tar.gz"
+    
     if command -v wget &> /dev/null; then
-        wget -q "https://github.com/navisjayaseelan/apple-mac-plymouth/archive/refs/heads/master.tar.gz" -O apple-mac-plymouth.tar.gz 2>/dev/null || {
-            log_warn "Failed to download with wget, trying curl..."
-            curl -sL "https://github.com/navisjayaseelan/apple-mac-plymouth/archive/refs/heads/master.tar.gz" -o apple-mac-plymouth.tar.gz 2>/dev/null || {
+        log_info "Downloading theme (this may take a moment)..."
+        wget --show-progress --progress=bar:force -q "$DOWNLOAD_URL" -O apple-mac-plymouth.tar.gz 2>&1 | \
+            grep --line-buffered "%" | sed -u 's/.*\[\(.*\)\].*/\1/' | \
+            while read line; do echo -ne "\r  Progress: $line"; done
+        echo ""
+        
+        if [ ! -f apple-mac-plymouth.tar.gz ] || [ ! -s apple-mac-plymouth.tar.gz ]; then
+            log_warn "Download failed with wget, trying curl..."
+            curl -L --progress-bar "$DOWNLOAD_URL" -o apple-mac-plymouth.tar.gz 2>/dev/null || {
                 log_error "Failed to download Plymouth theme"
                 cd "$CURRENT_DIR"
                 rm -rf "$TEMP_DIR"
                 return 0
             }
-        }
+        fi
     elif command -v curl &> /dev/null; then
-        curl -sL "https://github.com/navisjayaseelan/apple-mac-plymouth/archive/refs/heads/master.tar.gz" -o apple-mac-plymouth.tar.gz 2>/dev/null || {
+        log_info "Downloading theme (this may take a moment)..."
+        curl -L --progress-bar "$DOWNLOAD_URL" -o apple-mac-plymouth.tar.gz || {
             log_error "Failed to download Plymouth theme"
             cd "$CURRENT_DIR"
             rm -rf "$TEMP_DIR"
@@ -833,43 +842,45 @@ install_plymouth_theme() {
         return 0
     fi
     
+    log_info "Download completed"
+    
     # Extract the theme
     log_info "Extracting Plymouth theme..."
     if tar -xzf apple-mac-plymouth.tar.gz 2>/dev/null; then
-        cd apple-mac-plymouth-master
+        cd apple-mac-plymouth-master 2>/dev/null || cd apple-mac-plymouth-* 2>/dev/null
         
-        # Make install script executable
-        chmod +x install.sh 2>/dev/null || true
-        
-        # Run the installation script
+        # Manual installation (faster and more reliable than running install.sh)
         log_info "Installing Apple Mac Plymouth theme..."
-        if ./install.sh 2>/dev/null; then
+        
+        if [ -d "apple-mac" ]; then
+            # Copy theme files
+            cp -R apple-mac /usr/share/plymouth/themes/ 2>/dev/null
+            
+            # Set permissions
+            chmod -R 755 /usr/share/plymouth/themes/apple-mac 2>/dev/null || true
+            
+            # Set as default theme
+            if command -v plymouth-set-default-theme &> /dev/null; then
+                log_info "Setting apple-mac as default Plymouth theme..."
+                plymouth-set-default-theme apple-mac 2>/dev/null && \
+                    log_info "Plymouth theme set successfully" || \
+                    log_warn "Failed to set Plymouth theme as default"
+            fi
+            
+            # Update initramfs (this can take time)
+            if command -v update-initramfs &> /dev/null; then
+                log_info "Updating initramfs (this may take a minute)..."
+                update-initramfs -u -k all 2>&1 | grep -v "^update-initramfs:" || true
+                log_info "Initramfs updated"
+            fi
+            
             log_info "Plymouth theme installed successfully"
         else
-            log_warn "Installation script failed, trying manual installation..."
-            
-            # Manual installation as fallback
-            if [ -d "apple-mac" ]; then
-                cp -R apple-mac /usr/share/plymouth/themes/
-                
-                # Set as default theme
-                if command -v plymouth-set-default-theme &> /dev/null; then
-                    plymouth-set-default-theme apple-mac 2>/dev/null && \
-                        log_info "Plymouth theme set to apple-mac" || \
-                        log_warn "Failed to set Plymouth theme"
-                    
-                    # Update initramfs
-                    if command -v update-initramfs &> /dev/null; then
-                        log_info "Updating initramfs..."
-                        update-initramfs -u 2>/dev/null || log_warn "Failed to update initramfs"
-                    fi
-                fi
-            else
-                log_warn "Theme directory not found"
-            fi
+            log_warn "Theme directory 'apple-mac' not found in archive"
+            log_warn "Skipping Plymouth theme installation"
         fi
     else
-        log_warn "Failed to extract Plymouth theme"
+        log_warn "Failed to extract Plymouth theme archive"
     fi
     
     cd "$CURRENT_DIR"
