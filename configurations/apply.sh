@@ -50,7 +50,7 @@ if [ ! -d "$USER_HOME" ]; then
 fi
 
 # Verify required commands
-for cmd in xfconf-query gsettings; do
+for cmd in xfconf-query dconf; do
     if ! command -v "$cmd" &> /dev/null; then
         log_error "Required command not found: $cmd"
         exit 1
@@ -95,6 +95,13 @@ mkdir -p "$USER_HOME/.config/plank/dock1/launchers"
 log_info "Applying GTK configurations..."
 echo "#xfce4-power-manager-plugin * { -gtk-icon-transform: scale(1.2); }" > "$USER_HOME/.config/gtk-3.0/gtk.css"
 
+# Copy GTK bookmarks if available
+if [ -f "configurations/gtk-3.0/bookmarks" ]; then
+    cp configurations/gtk-3.0/bookmarks "$USER_HOME/.config/gtk-3.0/"
+    chmod 644 "$USER_HOME/.config/gtk-3.0/bookmarks"
+    chown "$EXEC_USER:$EXEC_USER" "$USER_HOME/.config/gtk-3.0/bookmarks"
+fi
+
 # Copy XFCE4 panel configuration
 if [ -d "configurations/xfce4/panel" ]; then
     log_info "Copying XFCE4 panel configuration..."
@@ -117,15 +124,48 @@ else
     log_warn "XFCE4 xfconf configuration not found, skipping"
 fi
 
-# Copy Plank launchers (FIXED: This was missing!)
+# Copy Plank launchers
 if [ -d "configurations/plank/dock1/launchers" ]; then
     log_info "Copying Plank launchers..."
-    cp -R configurations/plank/dock1/launchers "$USER_HOME/.config/plank/dock1/"
+    cp configurations/plank/dock1/launchers/*.dockitem "$USER_HOME/.config/plank/dock1/launchers/" 2>/dev/null || log_warn "No dockitems found in configurations"
     chmod 755 "$USER_HOME/.config/plank/dock1/launchers"
     chmod 644 "$USER_HOME/.config/plank/dock1/launchers"/*.dockitem 2>/dev/null || true
     chown -R "$EXEC_USER:$EXEC_USER" "$USER_HOME/.config/plank/dock1/"
 else
     log_warn "Plank launchers not found, skipping"
+fi
+
+# Copy autostart configuration for Plank
+if [ -f "configurations/autostart/Dock.desktop" ]; then
+    log_info "Copying autostart configuration..."
+    mkdir -p "$USER_HOME/.config/autostart"
+    cp configurations/autostart/Dock.desktop "$USER_HOME/.config/autostart/"
+    chmod 644 "$USER_HOME/.config/autostart/Dock.desktop"
+    chown "$EXEC_USER:$EXEC_USER" "$USER_HOME/.config/autostart/Dock.desktop"
+else
+    log_warn "Autostart configuration not found, skipping"
+fi
+
+# Copy XFCE4 terminal configuration
+if [ -d "configurations/xfce4/terminal" ]; then
+    log_info "Copying XFCE4 terminal configuration..."
+    mkdir -p "$USER_HOME/.config/xfce4/terminal"
+    cp -R configurations/xfce4/terminal/* "$USER_HOME/.config/xfce4/terminal/"
+    find "$USER_HOME/.config/xfce4/terminal" -type f -exec chmod 644 {} \;
+    chown -R "$EXEC_USER:$EXEC_USER" "$USER_HOME/.config/xfce4/terminal"
+else
+    log_warn "XFCE4 terminal configuration not found, skipping"
+fi
+
+# Copy XFCE4 desktop configuration
+if [ -d "configurations/xfce4/desktop" ]; then
+    log_info "Copying XFCE4 desktop configuration..."
+    mkdir -p "$USER_HOME/.config/xfce4/desktop"
+    cp -R configurations/xfce4/desktop/* "$USER_HOME/.config/xfce4/desktop/"
+    find "$USER_HOME/.config/xfce4/desktop" -type f -exec chmod 644 {} \;
+    chown -R "$EXEC_USER:$EXEC_USER" "$USER_HOME/.config/xfce4/desktop"
+else
+    log_warn "XFCE4 desktop configuration not found, skipping"
 fi
 
 # Apply xfconf settings
@@ -155,24 +195,25 @@ xfconf-query -c xfwm4 -p /general/title_alignment -n -t string -s center 2>/dev/
 xfconf-query -c xfwm4 -p /general/button_layout -n -t string -s "CHM|" 2>/dev/null || \
     xfconf-query -c xfwm4 -p /general/button_layout -t string -s "CHM|"
 
-# Icon and cursor themes
+# Icon theme
 xfconf-query -c xsettings -p /Net/IconThemeName -n -t string -s Cocoa 2>/dev/null || \
     xfconf-query -c xsettings -p /Net/IconThemeName -t string -s Cocoa
 
-xfconf-query -c xsettings -p /Gtk/CursorThemeName -n -t string -s Luna 2>/dev/null || \
-    xfconf-query -c xsettings -p /Gtk/CursorThemeName -t string -s Luna
+# Cursor theme (using default Adwaita as Cocoa doesn't include cursors)
+xfconf-query -c xsettings -p /Gtk/CursorThemeName -n -t string -s Adwaita 2>/dev/null || \
+    xfconf-query -c xsettings -p /Gtk/CursorThemeName -t string -s Adwaita
 
 # Desktop wallpaper
 xfconf-query -c xfce4-desktop -p /backdrop/screen0/monitor0/workspace0/last-image -n -t string -s /usr/share/backgrounds/blue-mountain.jpg 2>/dev/null || \
     xfconf-query -c xfce4-desktop -p /backdrop/screen0/monitor0/workspace0/last-image -t string -s /usr/share/backgrounds/blue-mountain.jpg
 
-# Apply Plank settings
+# Apply Plank settings using dconf directly
 log_info "Applying Plank settings..."
-gsettings set net.launchpad.plank.dock.settings:/net/launchpad/plank/docks/dock1/ theme milo
-
-# Note: Using the physical dockitems instead of hardcoded list
-# If you want specific apps, update the launchers directory
-gsettings set net.launchpad.plank.dock.settings:/net/launchpad/plank/docks/dock1/ dock-items "['thunar.dockitem', 'firefox-esr.dockitem', 'xfce4-terminal.dockitem', 'mousepad.dockitem']"
+dconf write /net/launchpad/plank/docks/dock1/theme "'milo'"
+dconf write /net/launchpad/plank/docks/dock1/icon-size 48
+dconf write /net/launchpad/plank/docks/dock1/hide-mode "'intelligent'"
+dconf write /net/launchpad/plank/docks/dock1/position "'bottom'"
+dconf write /net/launchpad/plank/docks/dock1/alignment "'center'"
 
 # Set proper ownership
 log_info "Setting proper ownership..."

@@ -1,9 +1,11 @@
 #!/bin/bash
 # Author: Wamphyre
 # Description: Customized skinpack for XFCE4 to look like macOS
-# Version: 2.0 (Fixed and improved)
+# Version: 2.1 (Fixed critical issues)
 
-set -e  # Exit on error
+# Exit on error but handle it properly
+set -e
+set -o pipefail
 
 # Colors for output
 RED='\033[0;31m'
@@ -29,42 +31,77 @@ log_step() {
     echo -e "${BLUE}[STEP $1/$2]${NC} $3"
 }
 
+# Error handler
+error_exit() {
+    log_error "$1"
+    log_error "Installation failed. Check the errors above."
+    exit 1
+}
+
 # Ensure execution as root
 if [ "$EUID" -ne 0 ]; then
-    log_error "This script must be run as root"
-    exit 1
+    error_exit "This script must be run as root (use sudo)"
 fi
 
 CURRENT_DIR="$PWD"
-TOTAL_STEPS=8
+TOTAL_STEPS=9
+
+# Verify we're on Debian
+verify_system() {
+    log_step 0 $TOTAL_STEPS "Verifying system requirements..."
+    
+    if [ ! -f "/etc/debian_version" ]; then
+        error_exit "This script is designed for Debian systems only"
+    fi
+    
+    # Check if XFCE4 is installed
+    if ! command -v xfce4-session &> /dev/null; then
+        log_warn "XFCE4 doesn't appear to be installed"
+        log_warn "This theme is designed for XFCE4 desktop environment"
+        read -p "Continue anyway? (y/N): " -n 1 -r
+        echo
+        if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+            exit 0
+        fi
+    fi
+    
+    # Check disk space (need at least 500MB)
+    available_space=$(df -m "$CURRENT_DIR" | awk 'NR==2 {print $4}')
+    if [ "$available_space" -lt 500 ]; then
+        error_exit "Insufficient disk space. Need at least 500MB free"
+    fi
+    
+    log_info "System verification passed"
+}
 
 install_debian_packages() {
     log_step 1 $TOTAL_STEPS "Installing required packages..."
     
     # Check internet connectivity
-    if ! ping -c 1 debian.org &> /dev/null; then
+    if ! ping -c 1 -W 3 debian.org &> /dev/null; then
         log_warn "Cannot reach debian.org, network might be down"
-        log_warn "Continuing anyway..."
+        log_warn "Package installation may fail"
     fi
     
-    if apt-get update; then
-        log_info "Package lists updated"
-    else
-        log_error "Failed to update package lists"
-        return 1
+    if ! apt-get update; then
+        error_exit "Failed to update package lists. Check your internet connection"
     fi
+    
+    log_info "Package lists updated"
     
     # Install packages with error handling
-    apt-get install -y \
+    if ! apt-get install -y \
         gufw firmware-linux gmtp cifs-utils smbclient winbind \
         gtk2-engines-murrine gtk2-engines-pixbuf gnome-icon-theme \
-        plank catfish appmenu-gtk2-module appmenu-gtk3-module \
-        vala-panel-appmenu xfce4-appmenu-plugin xfce4-statusnotifier-plugin \
+        plank catfish appmenu-gtk3-module dconf-cli \
+        vala-panel-appmenu xfce4-appmenu-plugin \
         xfce4-notifyd meson ninja-build libgee-0.8-dev libgnome-menu-3-dev \
         cdbs valac git libglib2.0-dev libwnck-3-dev libgtk-3-dev xterm \
         python3 python3-full python3-wheel python3-setuptools \
-        gnome-menus gnome-maps shotwell gnome-calendar gedit zenity \
-        || log_warn "Some packages may have failed to install"
+        gnome-menus gnome-maps shotwell gnome-calendar gedit zenity; then
+        log_warn "Some packages may have failed to install"
+        log_warn "Continuing anyway, but some features may not work"
+    fi
     
     log_info "Package installation completed"
 }
@@ -73,21 +110,17 @@ install_gtk_themes() {
     log_step 2 $TOTAL_STEPS "Installing Gtk+ themes..."
     
     if [ ! -d "resources/theme/miloOS" ]; then
-        log_error "Theme directory resources/theme/miloOS not found!"
-        return 1
+        error_exit "Theme directory resources/theme/miloOS not found!"
     fi
     
     cp -R resources/theme/miloOS /usr/share/themes/
-    chown root:root -R /usr/share/themes/miloOS/
+    chown -R root:root /usr/share/themes/miloOS/
     log_info "Gtk+ themes installed"
     
     if [ -d "resources/milk" ]; then
-        if [ ! -d "/usr/share/slim/themes" ]; then
-            log_warn "SLiM themes directory doesn't exist, creating it..."
-            mkdir -p /usr/share/slim/themes
-        fi
+        mkdir -p /usr/share/slim/themes
         cp -R resources/milk /usr/share/slim/themes/
-        chown root:root -R /usr/share/slim/themes/milk
+        chown -R root:root /usr/share/slim/themes/milk
         log_info "SLiM theme installed"
     else
         log_warn "SLiM theme directory not found, skipping"
@@ -95,82 +128,86 @@ install_gtk_themes() {
 }
 
 install_icon_themes() {
-    log_step 3 $TOTAL_STEPS "Installing cursor and icon themes..."
+    log_step 3 $TOTAL_STEPS "Installing icon themes..."
     
     if [ ! -d "resources/icons/Cocoa" ]; then
-        log_error "Icon theme resources/icons/Cocoa not found!"
-        return 1
+        error_exit "Icon theme resources/icons/Cocoa not found!"
     fi
     
     cp -R resources/icons/Cocoa /usr/share/icons/
-    chown root:root -R /usr/share/icons/Cocoa/
-    
-    if command -v gtk-update-icon-cache &> /dev/null; then
-        gtk-update-icon-cache -f /usr/share/icons/Cocoa/
-        log_info "Icon cache updated"
-    else
-        log_warn "gtk-update-icon-cache not found, skipping cache update"
-    fi
+    chown -R root:root /usr/share/icons/Cocoa/
     
     if [ -f "resources/icons/catfish-symbolic.png" ]; then
         cp resources/icons/catfish-symbolic.png /usr/share/pixmaps/
         log_info "Catfish icon installed"
     fi
+    
+    # Update icon cache at the end
+    if command -v gtk-update-icon-cache &> /dev/null; then
+        log_info "Updating icon cache..."
+        gtk-update-icon-cache -f /usr/share/icons/Cocoa/ 2>/dev/null || log_warn "Icon cache update failed"
+    fi
+    
+    log_info "Icon themes installed"
 }
 
 install_fonts() {
     log_step 4 $TOTAL_STEPS "Installing fonts..."
     
     if [ ! -d "resources/fonts/Inter-Desktop" ]; then
-        log_error "Font directory resources/fonts/Inter-Desktop not found!"
-        return 1
+        error_exit "Font directory resources/fonts/Inter-Desktop not found!"
     fi
     
     cp -R resources/fonts/Inter-Desktop /usr/share/fonts/
-    chown root:root -R /usr/share/fonts/Inter-Desktop/
+    chown -R root:root /usr/share/fonts/Inter-Desktop/
     
+    # Update font cache
     if command -v fc-cache &> /dev/null; then
-        fc-cache -f
-        log_info "Font cache updated"
-    else
-        log_warn "fc-cache not found, skipping cache update"
+        log_info "Updating font cache..."
+        fc-cache -f 2>/dev/null || log_warn "Font cache update failed"
     fi
+    
+    log_info "Fonts installed"
 }
 
 install_wallpaper() {
     log_step 5 $TOTAL_STEPS "Installing wallpapers..."
     
     if [ ! -d "resources/backgrounds" ]; then
-        log_error "Backgrounds directory not found!"
-        return 1
+        error_exit "Backgrounds directory not found!"
     fi
     
-    if [ ! -d "/usr/share/backgrounds" ]; then
-        mkdir -p /usr/share/backgrounds
-    fi
+    # Create miloOS subdirectory to avoid conflicts
+    mkdir -p /usr/share/backgrounds/miloOS
     
-    cp resources/backgrounds/* /usr/share/backgrounds/ 2>/dev/null || log_warn "No wallpapers found"
-    chmod 644 /usr/share/backgrounds/* 2>/dev/null
-    chown root:root /usr/share/backgrounds/* 2>/dev/null
-    log_info "Wallpapers installed"
+    # Copy only our wallpapers
+    if ls resources/backgrounds/*.jpg &> /dev/null || ls resources/backgrounds/*.png &> /dev/null; then
+        cp resources/backgrounds/*.{jpg,png} /usr/share/backgrounds/miloOS/ 2>/dev/null || true
+        chmod 644 /usr/share/backgrounds/miloOS/*
+        chown root:root /usr/share/backgrounds/miloOS/*
+        
+        # Create symlinks in main backgrounds dir for compatibility
+        ln -sf /usr/share/backgrounds/miloOS/blue-mountain.jpg /usr/share/backgrounds/blue-mountain.jpg 2>/dev/null || true
+        ln -sf /usr/share/backgrounds/miloOS/dusk.jpg /usr/share/backgrounds/dusk.jpg 2>/dev/null || true
+        
+        log_info "Wallpapers installed"
+    else
+        log_warn "No wallpapers found in resources/backgrounds/"
+    fi
 }
 
 install_plank_theme() {
     log_step 6 $TOTAL_STEPS "Installing Plank theme..."
     
     if [ ! -d "resources/plank/milo" ]; then
-        log_error "Plank theme resources/plank/milo not found!"
-        return 1
+        error_exit "Plank theme resources/plank/milo not found!"
     fi
     
-    if [ ! -d "/usr/share/plank/themes" ]; then
-        mkdir -p /usr/share/plank/themes
-    fi
-    
+    mkdir -p /usr/share/plank/themes
     cp -R resources/plank/milo /usr/share/plank/themes/
     chmod 755 /usr/share/plank/themes/milo
     chmod 644 /usr/share/plank/themes/milo/*.theme 2>/dev/null || true
-    chown root:root -R /usr/share/plank/themes/milo
+    chown -R root:root /usr/share/plank/themes/milo
     log_info "Plank theme installed"
 }
 
@@ -193,21 +230,21 @@ install_menus() {
         "milo-sleep" "milo-settings" "milo-about"
     )
     
+    local installed_count=0
     for item in "${menu_items[@]}"; do
         if [ -f "resources/menus/items/${item}.desktop" ]; then
             cp "resources/menus/items/${item}.desktop" /usr/share/applications/
             chmod 644 "/usr/share/applications/${item}.desktop"
             chown root:root "/usr/share/applications/${item}.desktop"
-        else
-            log_warn "Menu item ${item}.desktop not found, skipping"
+            ((installed_count++))
         fi
     done
     
+    log_info "Installed $installed_count menu items"
+    
     # Menu XDG for XFCE4
     if [ -f "resources/menus/xdg/milo.menu" ]; then
-        if [ ! -d "/etc/xdg/menus" ]; then
-            mkdir -p /etc/xdg/menus
-        fi
+        mkdir -p /etc/xdg/menus
         cp resources/menus/xdg/milo.menu /etc/xdg/menus/
         chmod 644 /etc/xdg/menus/milo.menu
         chown root:root /etc/xdg/menus/milo.menu
@@ -224,6 +261,9 @@ rebrand_system() {
     local backup_dir="/root/debian-backup-$(date +%Y%m%d-%H%M%S)"
     mkdir -p "$backup_dir"
     log_info "Creating backup at: $backup_dir"
+    
+    # Save backup location for later reference
+    echo "$backup_dir" > /root/.miloOS-last-backup
     
     # 1. /etc/os-release - System identification
     if [ -f "/etc/os-release" ]; then
@@ -274,7 +314,7 @@ DISTRIB_DESCRIPTION="miloOS 1.0"
 EOF
     log_info "Updated /etc/lsb-release"
     
-    # 5. /etc/debian_version - Keep for compatibility but update
+    # 5. /etc/debian_version - Keep for compatibility
     if [ -f "/etc/debian_version" ]; then
         cp /etc/debian_version "$backup_dir/debian_version.bak"
         echo "miloOS/1.0" > /etc/debian_version
@@ -283,6 +323,10 @@ EOF
     
     # 6. MOTD (Message of the Day)
     if [ -d "/etc/update-motd.d" ]; then
+        # Backup existing MOTD scripts
+        mkdir -p "$backup_dir/update-motd.d"
+        cp -R /etc/update-motd.d/* "$backup_dir/update-motd.d/" 2>/dev/null || true
+        
         # Disable default Debian MOTD scripts
         chmod -x /etc/update-motd.d/* 2>/dev/null || true
         
@@ -303,17 +347,7 @@ EOF
         log_info "Created custom MOTD"
     fi
     
-    # 7. Hostname display in terminal (optional)
-    # Update /etc/hostname if user wants (commented out for safety)
-    # read -p "Do you want to change hostname to 'miloos'? (y/N): " -n 1 -r
-    # if [[ $REPLY =~ ^[Yy]$ ]]; then
-    #     cp /etc/hostname "$backup_dir/hostname.bak"
-    #     echo "miloos" > /etc/hostname
-    #     hostnamectl set-hostname miloos 2>/dev/null || true
-    #     log_info "Updated hostname"
-    # fi
-    
-    # 8. Update GRUB bootloader (if exists)
+    # 7. Update GRUB bootloader (if exists)
     if [ -f "/etc/default/grub" ]; then
         cp /etc/default/grub "$backup_dir/grub.bak"
         sed -i 's/GRUB_DISTRIBUTOR=.*/GRUB_DISTRIBUTOR="miloOS"/' /etc/default/grub
@@ -326,17 +360,22 @@ EOF
         log_info "Updated GRUB distributor name"
     fi
     
-    # 9. Plymouth theme (boot splash) - if plymouth is installed
+    # 8. Plymouth theme (boot splash) - if plymouth is installed
     if command -v plymouth-set-default-theme &> /dev/null; then
         log_info "Plymouth detected, you may want to install a custom miloOS theme"
     fi
     
-    # 10. LightDM/GDM greeter configuration
+    # 9. LightDM/GDM greeter configuration
     if [ -f "/etc/lightdm/lightdm-gtk-greeter.conf" ]; then
         cp /etc/lightdm/lightdm-gtk-greeter.conf "$backup_dir/lightdm-gtk-greeter.conf.bak"
-        # Add or update the theme
+        
+        # Add or update the theme in [greeter] section
+        if ! grep -q "^\[greeter\]" /etc/lightdm/lightdm-gtk-greeter.conf; then
+            echo "[greeter]" >> /etc/lightdm/lightdm-gtk-greeter.conf
+        fi
+        
         if ! grep -q "^theme-name" /etc/lightdm/lightdm-gtk-greeter.conf; then
-            echo "theme-name=miloOS" >> /etc/lightdm/lightdm-gtk-greeter.conf
+            sed -i '/^\[greeter\]/a theme-name=miloOS' /etc/lightdm/lightdm-gtk-greeter.conf
         else
             sed -i 's/^theme-name=.*/theme-name=miloOS/' /etc/lightdm/lightdm-gtk-greeter.conf
         fi
@@ -351,7 +390,9 @@ EOF
 # Main execution
 log_info "Starting miloOS resources installation..."
 log_info "Current directory: $CURRENT_DIR"
+echo ""
 
+verify_system
 install_debian_packages
 install_gtk_themes
 install_icon_themes
@@ -361,6 +402,11 @@ install_plank_theme
 install_menus
 rebrand_system
 
+echo ""
+log_info "========================================="
 log_info "All resources installed successfully!"
 log_info "System has been rebranded to miloOS"
-log_warn "Please reboot your system for all changes to take effect"
+log_info "========================================="
+log_warn "IMPORTANT: Please reboot your system for all changes to take effect"
+log_info "Backup location: $(cat /root/.miloOS-last-backup 2>/dev/null || echo 'Unknown')"
+echo ""
