@@ -26,6 +26,7 @@ MiscSlimTabs=FALSE
 MiscNewTabAdjacent=FALSE
 MiscSearchDialogOpacity=100
 MiscShowUnsafePasteDialog=TRUE
-FontName=SF Mono 11
+FontName=SF Mono Regular 12
+FontAllowBold=TRUE
 ColorForeground=#17f018
 

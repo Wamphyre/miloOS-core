@@ -8,4 +8,6 @@ Terminal=false
 Categories=Utility;X-XFCE;X-Xfce-Toplevel;
 OnlyShowIn=XFCE;
 Name=System Preferences
+Name[es]=Preferencias del Sistema
 Comment=Settings Manager
+Comment[es]=Gestor de configuración

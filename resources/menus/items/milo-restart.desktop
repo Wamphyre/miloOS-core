@@ -8,4 +8,6 @@ Terminal=false
 Categories=System;X-XFCE;X-Xfce-Toplevel;
 OnlyShowIn=XFCE;
 Name=Restart
+Name[es]=Reiniciar
 Comment=Restart your computer now
+Comment[es]=Reiniciar tu equipo ahora

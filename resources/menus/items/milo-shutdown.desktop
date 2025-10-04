@@ -8,4 +8,6 @@ Terminal=false
 Categories=System;X-XFCE;X-Xfce-Toplevel;
 OnlyShowIn=XFCE;
 Name=Shut Down
+Name[es]=Apagar
 Comment=Shut down your computer
+Comment[es]=Apagar tu equipo

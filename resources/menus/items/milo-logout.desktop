@@ -8,4 +8,6 @@ Terminal=false
 Categories=System;X-XFCE;X-Xfce-Toplevel;
 OnlyShowIn=XFCE;
 Name=Log Out
+Name[es]=Cerrar sesión
 Comment=Quit all applications and log out now
+Comment[es]=Cerrar todas las aplicaciones y salir

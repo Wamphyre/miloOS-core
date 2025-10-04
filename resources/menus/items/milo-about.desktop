@@ -8,4 +8,6 @@ Terminal=false
 Categories=Utility;X-XFCE;X-Xfce-Toplevel;
 OnlyShowIn=XFCE;
 Name=About this computer
+Name[es]=Acerca de este equipo
 Comment=Information about your computer
+Comment[es]=Información sobre tu equipo

@@ -166,7 +166,17 @@ if [ -d "configurations/xfce4/terminal" ]; then
     cp -R configurations/xfce4/terminal/* "$USER_HOME/.config/xfce4/terminal/"
     find "$USER_HOME/.config/xfce4/terminal" -type f -exec chmod 644 {} \;
     chown -R "$EXEC_USER:$EXEC_USER" "$USER_HOME/.config/xfce4/terminal"
-    log_info "Terminal configured with SF Mono font"
+    
+    # Ensure SF Mono font is set correctly in terminal
+    if [ -f "$USER_HOME/.config/xfce4/terminal/terminalrc" ]; then
+        # Update font if SF Mono is available
+        if fc-list | grep -q "SF Mono"; then
+            sed -i 's/^FontName=.*/FontName=SF Mono Regular 12/' "$USER_HOME/.config/xfce4/terminal/terminalrc"
+            log_info "Terminal configured with SF Mono Regular 12"
+        else
+            log_warn "SF Mono not found, terminal will use fallback font"
+        fi
+    fi
 else
     log_warn "XFCE4 terminal configuration not found, skipping"
 fi
@@ -209,8 +219,8 @@ xfconf-query -c xsettings -p /Xft/Lcdfilter -n -t string -s "lcddefault" 2>/dev/
 xfconf-query -c xsettings -p /Gtk/FontName -n -t string -s "SF Pro Text 10" 2>/dev/null || \
     xfconf-query -c xsettings -p /Gtk/FontName -t string -s "SF Pro Text 10"
 
-xfconf-query -c xsettings -p /Gtk/MonospaceFontName -n -t string -s "SF Mono 10" 2>/dev/null || \
-    xfconf-query -c xsettings -p /Gtk/MonospaceFontName -t string -s "SF Mono 10"
+xfconf-query -c xsettings -p /Gtk/MonospaceFontName -n -t string -s "SF Mono Regular 11" 2>/dev/null || \
+    xfconf-query -c xsettings -p /Gtk/MonospaceFontName -t string -s "SF Mono Regular 11"
 
 # Window title font
 xfconf-query -c xfwm4 -p /general/title_font -n -t string -s "SF Pro Display Medium 9" 2>/dev/null || \
@@ -282,6 +292,37 @@ log_info "Setting proper ownership..."
 chown -R "$EXEC_USER:$EXEC_USER" "$USER_HOME/.config/gtk-3.0"
 chown -R "$EXEC_USER:$EXEC_USER" "$USER_HOME/.config/xfce4"
 chown -R "$EXEC_USER:$EXEC_USER" "$USER_HOME/.config/plank"
+
+# Hide default system menu items (logout, restart, shutdown, sleep)
+log_info "Hiding default system menu items..."
+mkdir -p "$USER_HOME/.local/share/applications"
+
+# Create override files to hide default XFCE system actions
+for action in xfce4-session-logout xfce4-session-shutdown xfce4-session-reboot xfce4-session-suspend xfce4-session-hibernate; do
+    cat > "$USER_HOME/.local/share/applications/${action}.desktop" << 'EOF'
+[Desktop Entry]
+Type=Application
+NoDisplay=true
+Hidden=true
+EOF
+    chmod 644 "$USER_HOME/.local/share/applications/${action}.desktop"
+    chown "$EXEC_USER:$EXEC_USER" "$USER_HOME/.local/share/applications/${action}.desktop"
+done
+
+# Also hide other common system actions
+for action in system-shutdown system-restart system-log-out system-suspend system-hibernate; do
+    cat > "$USER_HOME/.local/share/applications/${action}.desktop" << 'EOF'
+[Desktop Entry]
+Type=Application
+NoDisplay=true
+Hidden=true
+EOF
+    chmod 644 "$USER_HOME/.local/share/applications/${action}.desktop"
+    chown "$EXEC_USER:$EXEC_USER" "$USER_HOME/.local/share/applications/${action}.desktop"
+done
+
+chown -R "$EXEC_USER:$EXEC_USER" "$USER_HOME/.local/share/applications"
+log_info "Default system menu items hidden (only miloOS menu items will show)"
 
 log_info "Configuration applied successfully!"
 log_warn "Please log out and log back in for all changes to take effect."

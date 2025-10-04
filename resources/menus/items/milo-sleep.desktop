@@ -8,4 +8,6 @@ Terminal=false
 Categories=System;X-XFCE;X-Xfce-Toplevel;
 OnlyShowIn=XFCE;
 Name=Sleep
+Name[es]=Suspender
 Comment=Suspend your computer
+Comment[es]=Suspender tu equipo
