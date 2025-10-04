@@ -91,38 +91,51 @@ install_debian_packages() {
     
     # Install only essential packages for miloOS
     log_info "Installing packages..."
-    apt-get install -y \
-        gtk2-engines-murrine gtk2-engines-pixbuf \
-        plank catfish appmenu-gtk3-module dconf-cli \
-        vala-panel-appmenu xfce4-appmenu-plugin \
-        xfce4-notifyd \
-        cifs-utils smbclient || {
-        log_error "Package installation failed"
-        log_error "Please check the error messages above"
-        log_error "Common issues:"
-        log_error "  - No internet connection"
-        log_error "  - Repository not available"
-        log_error "  - Package name changed in Debian 13"
-        return 1
-    }
+    
+    # Try to install packages, but don't fail if some are missing
+    local FAILED_PKGS=""
+    
+    for pkg in gtk2-engines-murrine gtk2-engines-pixbuf plank catfish \
+               appmenu-gtk3-module dconf-cli vala-panel-appmenu \
+               xfce4-appmenu-plugin xfce4-notifyd cifs-utils smbclient; do
+        if apt-get install -y "$pkg" 2>/dev/null; then
+            log_info "✓ $pkg installed"
+        else
+            log_warn "✗ $pkg failed to install"
+            FAILED_PKGS="$FAILED_PKGS $pkg"
+        fi
+    done
+    
+    if [ -n "$FAILED_PKGS" ]; then
+        log_warn "Some packages failed to install:$FAILED_PKGS"
+        log_warn "Continuing anyway, but some features may not work"
+    fi
     
     # Check and install PipeWire if not present
     log_info "Checking PipeWire installation..."
     if ! command -v pipewire &> /dev/null; then
         log_info "PipeWire not found, installing complete PipeWire stack..."
-        apt-get install -y \
-            pipewire pipewire-audio-client-libraries \
-            pipewire-pulse pipewire-alsa pipewire-jack \
-            wireplumber libspa-0.2-bluetooth libspa-0.2-jack \
-            rtkit || {
-            log_warn "PipeWire installation failed, continuing anyway"
-        }
+        
+        local PW_FAILED=""
+        for pkg in pipewire pipewire-audio-client-libraries pipewire-pulse \
+                   pipewire-alsa pipewire-jack wireplumber \
+                   libspa-0.2-bluetooth libspa-0.2-jack rtkit; do
+            if apt-get install -y "$pkg" 2>/dev/null; then
+                log_info "✓ $pkg installed"
+            else
+                log_warn "✗ $pkg failed to install"
+                PW_FAILED="$PW_FAILED $pkg"
+            fi
+        done
+        
+        if [ -n "$PW_FAILED" ]; then
+            log_warn "Some PipeWire packages failed:$PW_FAILED"
+        fi
     else
-        log_info "PipeWire already installed"
-        # Ensure all components are installed
-        apt-get install -y \
-            pipewire-pulse pipewire-alsa pipewire-jack \
-            wireplumber rtkit 2>/dev/null || true
+        log_info "PipeWire already installed, ensuring components..."
+        for pkg in pipewire-pulse pipewire-alsa pipewire-jack wireplumber rtkit; do
+            apt-get install -y "$pkg" 2>/dev/null || log_warn "Could not install $pkg"
+        done
     fi
     
     log_info "Package installation completed"
@@ -258,7 +271,7 @@ install_menus() {
             cp "resources/menus/items/${item}.desktop" /usr/share/applications/
             chmod 644 "/usr/share/applications/${item}.desktop"
             chown root:root "/usr/share/applications/${item}.desktop"
-            ((installed_count++))
+            installed_count=$((installed_count + 1))
         fi
     done
     
