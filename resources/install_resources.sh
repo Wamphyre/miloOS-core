@@ -801,74 +801,79 @@ install_plymouth_theme() {
         }
     fi
     
-    # Download macOS-style Plymouth theme
+    # Download Apple Mac Plymouth theme by Navis Michael Bearly
     local TEMP_DIR="/tmp/plymouth-theme-$$"
-    log_info "Downloading macOS-style Plymouth theme..."
+    log_info "Downloading Apple Mac Plymouth theme..."
     
     mkdir -p "$TEMP_DIR"
+    cd "$TEMP_DIR"
     
-    # Try to download apple-mac-plymouth theme
-    if git clone --depth=1 https://github.com/krishnan793/apple-mac-plymouth.git "$TEMP_DIR" 2>/dev/null; then
-        log_info "Installing Plymouth theme..."
-        
-        # Copy theme to Plymouth themes directory
-        if [ -d "$TEMP_DIR/apple-mac" ]; then
-            cp -R "$TEMP_DIR/apple-mac" /usr/share/plymouth/themes/
-            
-            # Set as default theme
-            if command -v plymouth-set-default-theme &> /dev/null; then
-                plymouth-set-default-theme -R apple-mac 2>/dev/null && \
-                    log_info "Plymouth theme set to apple-mac" || \
-                    log_warn "Failed to set Plymouth theme"
-            fi
-            
-            # Update initramfs
-            if command -v update-initramfs &> /dev/null; then
-                log_info "Updating initramfs..."
-                update-initramfs -u 2>/dev/null || log_warn "Failed to update initramfs"
-            fi
-        else
-            log_warn "Theme directory not found in repository"
-        fi
-        
-        rm -rf "$TEMP_DIR"
+    # Download the theme from GitHub
+    if command -v wget &> /dev/null; then
+        wget -q "https://github.com/navisjayaseelan/apple-mac-plymouth/archive/refs/heads/master.tar.gz" -O apple-mac-plymouth.tar.gz 2>/dev/null || {
+            log_warn "Failed to download with wget, trying curl..."
+            curl -sL "https://github.com/navisjayaseelan/apple-mac-plymouth/archive/refs/heads/master.tar.gz" -o apple-mac-plymouth.tar.gz 2>/dev/null || {
+                log_error "Failed to download Plymouth theme"
+                cd "$CURRENT_DIR"
+                rm -rf "$TEMP_DIR"
+                return 0
+            }
+        }
+    elif command -v curl &> /dev/null; then
+        curl -sL "https://github.com/navisjayaseelan/apple-mac-plymouth/archive/refs/heads/master.tar.gz" -o apple-mac-plymouth.tar.gz 2>/dev/null || {
+            log_error "Failed to download Plymouth theme"
+            cd "$CURRENT_DIR"
+            rm -rf "$TEMP_DIR"
+            return 0
+        }
     else
-        log_warn "Failed to download Plymouth theme"
-        log_info "Creating simple miloOS Plymouth theme..."
-        
-        # Create a simple miloOS theme as fallback
-        mkdir -p /usr/share/plymouth/themes/miloOS
-        
-        cat > /usr/share/plymouth/themes/miloOS/miloOS.plymouth << 'EOF'
-[Plymouth Theme]
-Name=miloOS
-Description=miloOS Boot Theme
-ModuleName=script
-
-[script]
-ImageDir=/usr/share/plymouth/themes/miloOS
-ScriptFile=/usr/share/plymouth/themes/miloOS/miloOS.script
-EOF
-        
-        cat > /usr/share/plymouth/themes/miloOS/miloOS.script << 'EOF'
-# Simple miloOS boot animation
-Window.SetBackgroundTopColor(0.16, 0.16, 0.16);
-Window.SetBackgroundBottomColor(0.16, 0.16, 0.16);
-
-message_sprite = Sprite();
-message_sprite.SetPosition(Window.GetX() + Window.GetWidth() / 2, Window.GetY() + Window.GetHeight() / 2, 10000);
-
-fun message_callback(text) {
-    message_sprite.SetImage(Image.Text(text, 1, 1, 1));
-}
-Plymouth.SetMessageFunction(message_callback);
-EOF
-        
-        # Set as default
-        if command -v plymouth-set-default-theme &> /dev/null; then
-            plymouth-set-default-theme -R miloOS 2>/dev/null || true
-        fi
+        log_error "Neither wget nor curl available"
+        cd "$CURRENT_DIR"
+        rm -rf "$TEMP_DIR"
+        return 0
     fi
+    
+    # Extract the theme
+    log_info "Extracting Plymouth theme..."
+    if tar -xzf apple-mac-plymouth.tar.gz 2>/dev/null; then
+        cd apple-mac-plymouth-master
+        
+        # Make install script executable
+        chmod +x install.sh 2>/dev/null || true
+        
+        # Run the installation script
+        log_info "Installing Apple Mac Plymouth theme..."
+        if ./install.sh 2>/dev/null; then
+            log_info "Plymouth theme installed successfully"
+        else
+            log_warn "Installation script failed, trying manual installation..."
+            
+            # Manual installation as fallback
+            if [ -d "apple-mac" ]; then
+                cp -R apple-mac /usr/share/plymouth/themes/
+                
+                # Set as default theme
+                if command -v plymouth-set-default-theme &> /dev/null; then
+                    plymouth-set-default-theme apple-mac 2>/dev/null && \
+                        log_info "Plymouth theme set to apple-mac" || \
+                        log_warn "Failed to set Plymouth theme"
+                    
+                    # Update initramfs
+                    if command -v update-initramfs &> /dev/null; then
+                        log_info "Updating initramfs..."
+                        update-initramfs -u 2>/dev/null || log_warn "Failed to update initramfs"
+                    fi
+                fi
+            else
+                log_warn "Theme directory not found"
+            fi
+        fi
+    else
+        log_warn "Failed to extract Plymouth theme"
+    fi
+    
+    cd "$CURRENT_DIR"
+    rm -rf "$TEMP_DIR"
     
     log_info "Plymouth theme installation completed"
 }
