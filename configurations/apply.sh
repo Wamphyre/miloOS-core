@@ -288,32 +288,49 @@ chown -R "$EXEC_USER:$EXEC_USER" "$USER_HOME/.config/plank"
 log_info "Hiding default system menu items..."
 mkdir -p "$USER_HOME/.local/share/applications"
 
-# Create override files to hide default XFCE system actions
-for action in xfce4-session-logout xfce4-session-shutdown xfce4-session-reboot xfce4-session-suspend xfce4-session-hibernate; do
+# List of system actions to hide (XFCE and generic)
+ACTIONS_TO_HIDE=(
+    # XFCE session actions
+    "xfce4-session-logout"
+    "xfce4-session-shutdown"
+    "xfce4-session-reboot"
+    "xfce4-session-suspend"
+    "xfce4-session-hibernate"
+    # Generic system actions
+    "system-shutdown"
+    "system-restart"
+    "system-reboot"
+    "system-log-out"
+    "system-suspend"
+    "system-hibernate"
+    # Additional XFCE actions
+    "xfce4-logout"
+    "xfce4-shutdown"
+    "xfce4-reboot"
+    "xfce4-suspend"
+    "xfce4-hibernate"
+    # Systemd actions
+    "systemd-reboot"
+    "systemd-shutdown"
+    "systemd-suspend"
+    "systemd-hibernate"
+)
+
+# Create override files to hide all system actions
+for action in "${ACTIONS_TO_HIDE[@]}"; do
     cat > "$USER_HOME/.local/share/applications/${action}.desktop" << 'EOF'
 [Desktop Entry]
 Type=Application
 NoDisplay=true
 Hidden=true
+OnlyShowIn=
 EOF
-    chmod 644 "$USER_HOME/.local/share/applications/${action}.desktop"
-    chown "$EXEC_USER:$EXEC_USER" "$USER_HOME/.local/share/applications/${action}.desktop"
+    chmod 644 "$USER_HOME/.local/share/applications/${action}.desktop" 2>/dev/null || true
+    chown "$EXEC_USER:$EXEC_USER" "$USER_HOME/.local/share/applications/${action}.desktop" 2>/dev/null || true
 done
 
-# Also hide other common system actions
-for action in system-shutdown system-restart system-log-out system-suspend system-hibernate; do
-    cat > "$USER_HOME/.local/share/applications/${action}.desktop" << 'EOF'
-[Desktop Entry]
-Type=Application
-NoDisplay=true
-Hidden=true
-EOF
-    chmod 644 "$USER_HOME/.local/share/applications/${action}.desktop"
-    chown "$EXEC_USER:$EXEC_USER" "$USER_HOME/.local/share/applications/${action}.desktop"
-done
-
-chown -R "$EXEC_USER:$EXEC_USER" "$USER_HOME/.local/share/applications"
-log_info "Default system menu items hidden (only miloOS menu items will show)"
+chown -R "$EXEC_USER:$EXEC_USER" "$USER_HOME/.local/share/applications" 2>/dev/null || true
+log_info "Default system menu items hidden (only miloOS custom menu will show)"
 
 log_info "Configuration applied successfully!"
 log_warn "Please log out and log back in for all changes to take effect."

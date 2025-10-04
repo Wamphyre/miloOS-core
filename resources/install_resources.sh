@@ -805,6 +805,26 @@ EOF
         log_info "Added $SUDO_USER to audio and video groups"
     fi
     
+    # 8. Configure sudo for power management commands (no password required)
+    log_info "Configuring sudo for power management..."
+    
+    cat > /etc/sudoers.d/miloOS-power << 'EOF'
+# Allow users to shutdown, reboot, and suspend without password
+# This is required for the miloOS menu system to work properly
+%sudo ALL=(ALL) NOPASSWD: /usr/sbin/poweroff, /usr/sbin/reboot, /usr/sbin/pm-suspend
+%users ALL=(ALL) NOPASSWD: /usr/sbin/poweroff, /usr/sbin/reboot, /usr/sbin/pm-suspend
+EOF
+    
+    chmod 440 /etc/sudoers.d/miloOS-power
+    
+    # Verify sudoers file is valid
+    if visudo -c -f /etc/sudoers.d/miloOS-power 2>/dev/null; then
+        log_info "Sudo configuration for power management completed"
+    else
+        log_warn "Sudo configuration may have issues, removing file"
+        rm -f /etc/sudoers.d/miloOS-power
+    fi
+    
     log_info "Real-time audio optimization completed!"
     log_warn "Users have been added to audio group automatically"
     log_warn "Kernel parameters will be active after reboot"
