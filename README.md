@@ -20,6 +20,101 @@ As a GNU/Linux distribution, miloOS benefits from the vast software ecosystem of
 
 ![Screenshot](https://github.com/Wamphyre/miloOS-core/blob/main/miloOS-desktop.png)
 
+## Installation
+
+### Quick Start
+
+1. Clone this repository:
+```bash
+git clone https://github.com/Wamphyre/miloOS-core.git
+cd miloOS-core
+```
+
+2. Make scripts executable:
+```bash
+./make_scripts_executable.sh
+```
+
+3. Run the installation:
+```bash
+./core_install.sh install
+```
+
+4. Reboot your system for all changes to take effect
+
+### What Gets Installed
+
+The installation script will:
+- ✅ Install required packages and dependencies
+- ✅ Install miloOS GTK+ themes
+- ✅ Install Cocoa icon theme and Luna cursor theme
+- ✅ Install Inter font family
+- ✅ Install custom wallpapers
+- ✅ Install Plank dock theme
+- ✅ Configure XFCE4 panel and settings
+- ✅ Install custom menu items
+- ✅ **Rebrand system from Debian to miloOS**
+
+### System Rebranding
+
+The installation automatically rebrands your Debian system to miloOS by modifying:
+- System identification files (`/etc/os-release`, `/etc/lsb-release`)
+- Login banners (`/etc/issue`, `/etc/issue.net`)
+- GRUB bootloader configuration
+- Message of the Day (MOTD)
+- LightDM greeter theme
+
+**Important:** 
+- A backup is automatically created in `/root/debian-backup-YYYYMMDD-HHMMSS/`
+- The system maintains full compatibility with Debian packages
+- You can restore the original Debian branding using `sudo ./resources/restore_debian_branding.sh`
+
+### Verification
+
+After installation and reboot, verify the system:
+
+```bash
+# Check system information
+cat /etc/os-release
+lsb_release -a
+
+# Check installed theme
+xfconf-query -c xfwm4 -p /general/theme
+
+# Check icon theme
+xfconf-query -c xsettings -p /Net/IconThemeName
+```
+
+## Restoring Debian Branding
+
+If you need to restore the original Debian branding:
+
+```bash
+sudo ./resources/restore_debian_branding.sh
+```
+
+This will restore all original system files from the backup.
+
+## Features
+
+- ✅ Complete system rebranding from Debian to miloOS
+- ✅ macOS-like XFCE4 desktop environment
+- ✅ Custom GTK+ themes and icon sets
+- ✅ Plank dock with custom theme
+- ✅ Automatic backup of original system files
+- ✅ Full compatibility with Debian packages
+- ✅ Reversible installation
+
+## Requirements
+
+- Debian 12 (Bookworm) base system
+- XFCE4 desktop environment
+- Root/sudo access
+- Internet connection for package installation
+
 ## Notes
 
-* **For now just the core system ISO and config files are available
+* The system is fully compatible with Debian packages and repositories
+* All changes are reversible with automatic backups
+* Backup location: `/root/debian-backup-YYYYMMDD-HHMMSS/`
+* Reboot required after installation

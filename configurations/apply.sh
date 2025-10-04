@@ -1,0 +1,186 @@
+#!/bin/bash
+# Author: Wamphyre
+# Description: Customized skinpack for XFCE4 to look like macOS
+# Version: 2.0 (Fixed and improved)
+
+set -e  # Exit on error
+
+# Colors for output
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+NC='\033[0m' # No Color
+
+# Logging functions
+log_info() {
+    echo -e "${GREEN}[INFO]${NC} $1"
+}
+
+log_warn() {
+    echo -e "${YELLOW}[WARN]${NC} $1"
+}
+
+log_error() {
+    echo -e "${RED}[ERROR]${NC} $1"
+}
+
+# Prevents execution with root user
+if [ "$EUID" -eq 0 ]; then
+    log_error "Don't run this script with root user"
+    exit 1
+fi
+
+# Validate arguments
+if [ -z "$1" ] || [ -z "$2" ]; then
+    log_error "Usage: $0 <user_home> <username>"
+    exit 1
+fi
+
+USER_HOME="$1"
+EXEC_USER="$2"
+
+log_info "Applying configurations for user: $EXEC_USER"
+log_info "Home directory: $USER_HOME"
+
+# Verify user home exists
+if [ ! -d "$USER_HOME" ]; then
+    log_error "User home directory does not exist: $USER_HOME"
+    exit 1
+fi
+
+# Verify required commands
+for cmd in xfconf-query gsettings; do
+    if ! command -v "$cmd" &> /dev/null; then
+        log_error "Required command not found: $cmd"
+        exit 1
+    fi
+done
+
+# Make sure that the apps that make up the interface are not running
+log_info "Stopping running processes..."
+pkill plank 2>/dev/null || true
+pkill xfce4-panel 2>/dev/null || true
+sleep 1
+
+# Create backup of existing configurations
+BACKUP_DIR="$USER_HOME/.config/miloOS-backup-$(date +%Y%m%d-%H%M%S)"
+log_info "Creating backup at: $BACKUP_DIR"
+mkdir -p "$BACKUP_DIR"
+
+# Backup existing configurations
+[ -f "$USER_HOME/.gtkrc-2.0" ] && cp "$USER_HOME/.gtkrc-2.0" "$BACKUP_DIR/"
+[ -f "$USER_HOME/.config/gtk-3.0/gtk.css" ] && cp "$USER_HOME/.config/gtk-3.0/gtk.css" "$BACKUP_DIR/"
+[ -d "$USER_HOME/.config/xfce4/panel" ] && cp -R "$USER_HOME/.config/xfce4/panel" "$BACKUP_DIR/"
+[ -d "$USER_HOME/.config/xfce4/xfconf" ] && cp -R "$USER_HOME/.config/xfce4/xfconf" "$BACKUP_DIR/"
+[ -d "$USER_HOME/.config/plank/dock1" ] && cp -R "$USER_HOME/.config/plank/dock1" "$BACKUP_DIR/"
+
+log_info "Backup completed"
+
+# Remove old Configurations
+log_info "Removing old configurations..."
+rm -f "$USER_HOME/.gtkrc-2.0"
+rm -f "$USER_HOME/.config/gtk-3.0/gtk.css"
+rm -rf "$USER_HOME/.config/xfce4/panel"
+rm -rf "$USER_HOME/.config/xfce4/xfconf"
+rm -rf "$USER_HOME/.config/plank/dock1"
+
+# Create necessary directories
+log_info "Creating configuration directories..."
+mkdir -p "$USER_HOME/.config/gtk-3.0"
+mkdir -p "$USER_HOME/.config/xfce4"
+mkdir -p "$USER_HOME/.config/plank/dock1/launchers"
+
+# Apply new settings
+log_info "Applying GTK configurations..."
+echo "#xfce4-power-manager-plugin * { -gtk-icon-transform: scale(1.2); }" > "$USER_HOME/.config/gtk-3.0/gtk.css"
+
+# Copy XFCE4 panel configuration
+if [ -d "configurations/xfce4/panel" ]; then
+    log_info "Copying XFCE4 panel configuration..."
+    cp -R configurations/xfce4/panel "$USER_HOME/.config/xfce4/"
+    find "$USER_HOME/.config/xfce4/panel" -type d -exec chmod 755 {} \;
+    find "$USER_HOME/.config/xfce4/panel" -type f -exec chmod 644 {} \;
+    chown -R "$EXEC_USER:$EXEC_USER" "$USER_HOME/.config/xfce4/panel"
+else
+    log_warn "XFCE4 panel configuration not found, skipping"
+fi
+
+# Copy XFCE4 xfconf configuration (FIXED: This was missing!)
+if [ -d "configurations/xfce4/xfconf" ]; then
+    log_info "Copying XFCE4 xfconf configuration..."
+    cp -R configurations/xfce4/xfconf "$USER_HOME/.config/xfce4/"
+    find "$USER_HOME/.config/xfce4/xfconf" -type d -exec chmod 755 {} \;
+    find "$USER_HOME/.config/xfce4/xfconf" -type f -exec chmod 644 {} \;
+    chown -R "$EXEC_USER:$EXEC_USER" "$USER_HOME/.config/xfce4/xfconf"
+else
+    log_warn "XFCE4 xfconf configuration not found, skipping"
+fi
+
+# Copy Plank launchers (FIXED: This was missing!)
+if [ -d "configurations/plank/dock1/launchers" ]; then
+    log_info "Copying Plank launchers..."
+    cp -R configurations/plank/dock1/launchers "$USER_HOME/.config/plank/dock1/"
+    chmod 755 "$USER_HOME/.config/plank/dock1/launchers"
+    chmod 644 "$USER_HOME/.config/plank/dock1/launchers"/*.dockitem 2>/dev/null || true
+    chown -R "$EXEC_USER:$EXEC_USER" "$USER_HOME/.config/plank/dock1/"
+else
+    log_warn "Plank launchers not found, skipping"
+fi
+
+# Apply xfconf settings
+log_info "Applying xfconf settings..."
+
+# GTK settings
+xfconf-query -c xsettings -p /Gtk/ShellShowsMenubar -n -t bool -s true 2>/dev/null || \
+    xfconf-query -c xsettings -p /Gtk/ShellShowsMenubar -t bool -s true
+
+xfconf-query -c xsettings -p /Gtk/ShellShowsAppmenu -n -t bool -s true 2>/dev/null || \
+    xfconf-query -c xsettings -p /Gtk/ShellShowsAppmenu -t bool -s true
+
+xfconf-query -c xsettings -p /Gtk/Modules -n -t string -s "appmenu-gtk-module" 2>/dev/null || \
+    xfconf-query -c xsettings -p /Gtk/Modules -t string -s "appmenu-gtk-module"
+
+# Window manager theme
+xfconf-query -c xfwm4 -p /general/theme -n -t string -s miloOS 2>/dev/null || \
+    xfconf-query -c xfwm4 -p /general/theme -t string -s miloOS
+
+xfconf-query -c xsettings -p /Net/ThemeName -n -t string -s miloOS 2>/dev/null || \
+    xfconf-query -c xsettings -p /Net/ThemeName -t string -s miloOS
+
+# Window manager settings
+xfconf-query -c xfwm4 -p /general/title_alignment -n -t string -s center 2>/dev/null || \
+    xfconf-query -c xfwm4 -p /general/title_alignment -t string -s center
+
+xfconf-query -c xfwm4 -p /general/button_layout -n -t string -s "CHM|" 2>/dev/null || \
+    xfconf-query -c xfwm4 -p /general/button_layout -t string -s "CHM|"
+
+# Icon and cursor themes
+xfconf-query -c xsettings -p /Net/IconThemeName -n -t string -s Cocoa 2>/dev/null || \
+    xfconf-query -c xsettings -p /Net/IconThemeName -t string -s Cocoa
+
+xfconf-query -c xsettings -p /Gtk/CursorThemeName -n -t string -s Luna 2>/dev/null || \
+    xfconf-query -c xsettings -p /Gtk/CursorThemeName -t string -s Luna
+
+# Desktop wallpaper
+xfconf-query -c xfce4-desktop -p /backdrop/screen0/monitor0/workspace0/last-image -n -t string -s /usr/share/backgrounds/blue-mountain.jpg 2>/dev/null || \
+    xfconf-query -c xfce4-desktop -p /backdrop/screen0/monitor0/workspace0/last-image -t string -s /usr/share/backgrounds/blue-mountain.jpg
+
+# Apply Plank settings
+log_info "Applying Plank settings..."
+gsettings set net.launchpad.plank.dock.settings:/net/launchpad/plank/docks/dock1/ theme milo
+
+# Note: Using the physical dockitems instead of hardcoded list
+# If you want specific apps, update the launchers directory
+gsettings set net.launchpad.plank.dock.settings:/net/launchpad/plank/docks/dock1/ dock-items "['thunar.dockitem', 'firefox-esr.dockitem', 'xfce4-terminal.dockitem', 'mousepad.dockitem']"
+
+# Set proper ownership
+log_info "Setting proper ownership..."
+chown -R "$EXEC_USER:$EXEC_USER" "$USER_HOME/.config/gtk-3.0"
+chown -R "$EXEC_USER:$EXEC_USER" "$USER_HOME/.config/xfce4"
+chown -R "$EXEC_USER:$EXEC_USER" "$USER_HOME/.config/plank"
+
+log_info "Configuration applied successfully!"
+log_info "Backup saved at: $BACKUP_DIR"
+log_info "Please log out and log back in for all changes to take effect."
+
