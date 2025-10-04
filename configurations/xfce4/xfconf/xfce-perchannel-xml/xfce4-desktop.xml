@@ -11,7 +11,7 @@
     </property>
     <property name="icon-size" type="uint" value="48"/>
     <property name="tooltip-size" type="double" value="64.000000"/>
-    <property name="gravity" type="int" value="2"/>
+    <property name="gravity" type="int" value="1"/>
     <property name="use-custom-font-size" type="bool" value="true"/>
     <property name="font-size" type="double" value="10.000000"/>
   </property>

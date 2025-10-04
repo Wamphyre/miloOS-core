@@ -157,6 +157,26 @@ install_gtk_themes() {
         cp -R resources/milk /usr/share/slim/themes/
         chown -R root:root /usr/share/slim/themes/milk
         log_info "SLiM theme installed"
+        
+        # Configure SLiM to use milk theme
+        if [ -f "/etc/slim.conf" ]; then
+            local backup_dir=$(cat /root/.miloOS-last-backup 2>/dev/null || echo "/root/debian-backup-$(date +%Y%m%d-%H%M%S)")
+            mkdir -p "$backup_dir"
+            
+            if [ ! -f "$backup_dir/slim.conf.bak" ]; then
+                cp /etc/slim.conf "$backup_dir/slim.conf.bak"
+            fi
+            
+            # Set milk theme
+            if grep -q "^current_theme" /etc/slim.conf; then
+                sed -i 's/^current_theme.*/current_theme milk/' /etc/slim.conf
+            else
+                echo "current_theme milk" >> /etc/slim.conf
+            fi
+            log_info "SLiM configured to use milk theme"
+        else
+            log_warn "SLiM not installed, theme will not be activated"
+        fi
     else
         log_warn "SLiM theme directory not found, skipping"
     fi

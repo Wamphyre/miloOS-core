@@ -95,12 +95,39 @@ mkdir -p "$USER_HOME/.config/plank/dock1/launchers"
 log_info "Applying GTK configurations..."
 echo "#xfce4-power-manager-plugin * { -gtk-icon-transform: scale(1.2); }" > "$USER_HOME/.config/gtk-3.0/gtk.css"
 
-# Copy GTK bookmarks if available
-if [ -f "configurations/gtk-3.0/bookmarks" ]; then
-    cp configurations/gtk-3.0/bookmarks "$USER_HOME/.config/gtk-3.0/"
-    chmod 644 "$USER_HOME/.config/gtk-3.0/bookmarks"
-    chown "$EXEC_USER:$EXEC_USER" "$USER_HOME/.config/gtk-3.0/bookmarks"
+# Copy font configuration for macOS-like rendering
+if [ -f "configurations/fonts.conf" ]; then
+    log_info "Configuring font rendering..."
+    mkdir -p "$USER_HOME/.config/fontconfig"
+    cp configurations/fonts.conf "$USER_HOME/.config/fontconfig/fonts.conf"
+    chmod 644 "$USER_HOME/.config/fontconfig/fonts.conf"
+    chown "$EXEC_USER:$EXEC_USER" "$USER_HOME/.config/fontconfig/fonts.conf"
+    
+    # Update font cache
+    if command -v fc-cache &> /dev/null; then
+        fc-cache -f "$USER_HOME/.fonts" 2>/dev/null || true
+    fi
 fi
+
+# Create GTK bookmarks dynamically with correct user paths
+log_info "Creating GTK bookmarks..."
+cat > "$USER_HOME/.config/gtk-3.0/bookmarks" << EOF
+EOF
+
+# Add common directories if they exist
+[ -d "$USER_HOME/Documents" ] && echo "file://$USER_HOME/Documents" >> "$USER_HOME/.config/gtk-3.0/bookmarks"
+[ -d "$USER_HOME/Documentos" ] && echo "file://$USER_HOME/Documentos" >> "$USER_HOME/.config/gtk-3.0/bookmarks"
+[ -d "$USER_HOME/Downloads" ] && echo "file://$USER_HOME/Downloads" >> "$USER_HOME/.config/gtk-3.0/bookmarks"
+[ -d "$USER_HOME/Descargas" ] && echo "file://$USER_HOME/Descargas" >> "$USER_HOME/.config/gtk-3.0/bookmarks"
+[ -d "$USER_HOME/Music" ] && echo "file://$USER_HOME/Music" >> "$USER_HOME/.config/gtk-3.0/bookmarks"
+[ -d "$USER_HOME/Música" ] && echo "file://$USER_HOME/Música" >> "$USER_HOME/.config/gtk-3.0/bookmarks"
+[ -d "$USER_HOME/Pictures" ] && echo "file://$USER_HOME/Pictures" >> "$USER_HOME/.config/gtk-3.0/bookmarks"
+[ -d "$USER_HOME/Imágenes" ] && echo "file://$USER_HOME/Imágenes" >> "$USER_HOME/.config/gtk-3.0/bookmarks"
+[ -d "$USER_HOME/Videos" ] && echo "file://$USER_HOME/Videos" >> "$USER_HOME/.config/gtk-3.0/bookmarks"
+[ -d "$USER_HOME/Vídeos" ] && echo "file://$USER_HOME/Vídeos" >> "$USER_HOME/.config/gtk-3.0/bookmarks"
+
+chmod 644 "$USER_HOME/.config/gtk-3.0/bookmarks"
+chown "$EXEC_USER:$EXEC_USER" "$USER_HOME/.config/gtk-3.0/bookmarks"
 
 # Copy XFCE4 panel configuration
 if [ -d "configurations/xfce4/panel" ]; then
@@ -171,6 +198,33 @@ fi
 # Apply xfconf settings
 log_info "Applying xfconf settings..."
 
+# Font rendering (macOS-like)
+log_info "Configuring font rendering..."
+xfconf-query -c xsettings -p /Xft/DPI -n -t int -s 96 2>/dev/null || \
+    xfconf-query -c xsettings -p /Xft/DPI -t int -s 96
+
+xfconf-query -c xsettings -p /Xft/Antialias -n -t int -s 1 2>/dev/null || \
+    xfconf-query -c xsettings -p /Xft/Antialias -t int -s 1
+
+xfconf-query -c xsettings -p /Xft/Hinting -n -t int -s 1 2>/dev/null || \
+    xfconf-query -c xsettings -p /Xft/Hinting -t int -s 1
+
+xfconf-query -c xsettings -p /Xft/HintStyle -n -t string -s "hintslight" 2>/dev/null || \
+    xfconf-query -c xsettings -p /Xft/HintStyle -t string -s "hintslight"
+
+xfconf-query -c xsettings -p /Xft/RGBA -n -t string -s "rgb" 2>/dev/null || \
+    xfconf-query -c xsettings -p /Xft/RGBA -t string -s "rgb"
+
+xfconf-query -c xsettings -p /Xft/Lcdfilter -n -t string -s "lcddefault" 2>/dev/null || \
+    xfconf-query -c xsettings -p /Xft/Lcdfilter -t string -s "lcddefault"
+
+# Font names
+xfconf-query -c xsettings -p /Gtk/FontName -n -t string -s "Inter 10" 2>/dev/null || \
+    xfconf-query -c xsettings -p /Gtk/FontName -t string -s "Inter 10"
+
+xfconf-query -c xsettings -p /Gtk/MonospaceFontName -n -t string -s "Inter Medium 10" 2>/dev/null || \
+    xfconf-query -c xsettings -p /Gtk/MonospaceFontName -t string -s "Inter Medium 10"
+
 # GTK settings
 xfconf-query -c xsettings -p /Gtk/ShellShowsMenubar -n -t bool -s true 2>/dev/null || \
     xfconf-query -c xsettings -p /Gtk/ShellShowsMenubar -t bool -s true
@@ -202,6 +256,23 @@ xfconf-query -c xsettings -p /Net/IconThemeName -n -t string -s Cocoa 2>/dev/nul
 # Cursor theme (using default Adwaita as Cocoa doesn't include cursors)
 xfconf-query -c xsettings -p /Gtk/CursorThemeName -n -t string -s Adwaita 2>/dev/null || \
     xfconf-query -c xsettings -p /Gtk/CursorThemeName -t string -s Adwaita
+
+# Desktop icons alignment (right side, macOS style)
+xfconf-query -c xfce4-desktop -p /desktop-icons/gravity -n -t int -s 1 2>/dev/null || \
+    xfconf-query -c xfce4-desktop -p /desktop-icons/gravity -t int -s 1
+
+# Desktop icons settings
+xfconf-query -c xfce4-desktop -p /desktop-icons/file-icons/show-home -n -t bool -s false 2>/dev/null || \
+    xfconf-query -c xfce4-desktop -p /desktop-icons/file-icons/show-home -t bool -s false
+
+xfconf-query -c xfce4-desktop -p /desktop-icons/file-icons/show-filesystem -n -t bool -s true 2>/dev/null || \
+    xfconf-query -c xfce4-desktop -p /desktop-icons/file-icons/show-filesystem -t bool -s true
+
+xfconf-query -c xfce4-desktop -p /desktop-icons/file-icons/show-removable -n -t bool -s true 2>/dev/null || \
+    xfconf-query -c xfce4-desktop -p /desktop-icons/file-icons/show-removable -t bool -s true
+
+xfconf-query -c xfce4-desktop -p /desktop-icons/file-icons/show-trash -n -t bool -s false 2>/dev/null || \
+    xfconf-query -c xfce4-desktop -p /desktop-icons/file-icons/show-trash -t bool -s false
 
 # Desktop wallpaper
 xfconf-query -c xfce4-desktop -p /backdrop/screen0/monitor0/workspace0/last-image -n -t string -s /usr/share/backgrounds/blue-mountain.jpg 2>/dev/null || \
