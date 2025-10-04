@@ -36,7 +36,7 @@
       <property name="button-icon" type="string" value="/usr/share/themes/miloOS/logo.png"/>
       <property name="show-button-title" type="bool" value="false"/>
       <property name="custom-menu" type="bool" value="true"/>
-      <property name="custom-menu-file" type="string" value="/home/milo/Descargas/miloOS-core-install/resources/menus/xdg/milo.menu"/>
+      <property name="custom-menu-file" type="string" value="/etc/xdg/menus/milo.menu"/>
     </property>
     <property name="plugin-3" type="string" value="separator">
       <property name="expand" type="bool" value="false"/>

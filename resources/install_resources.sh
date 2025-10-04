@@ -89,19 +89,22 @@ install_debian_packages() {
     
     log_info "Package lists updated"
     
-    # Install packages with error handling
-    if ! apt-get install -y \
-        gufw firmware-linux gmtp cifs-utils smbclient winbind \
-        gtk2-engines-murrine gtk2-engines-pixbuf gnome-icon-theme \
+    # Install only essential packages for miloOS
+    log_info "Installing packages..."
+    apt-get install -y \
+        gtk2-engines-murrine gtk2-engines-pixbuf \
         plank catfish appmenu-gtk3-module dconf-cli \
         vala-panel-appmenu xfce4-appmenu-plugin \
-        xfce4-notifyd meson ninja-build libgee-0.8-dev libgnome-menu-3-dev \
-        cdbs valac git libglib2.0-dev libwnck-3-dev libgtk-3-dev xterm \
-        python3 python3-full python3-wheel python3-setuptools \
-        gnome-menus gnome-maps shotwell gnome-calendar gedit zenity; then
-        log_warn "Some packages may have failed to install"
-        log_warn "Continuing anyway, but some features may not work"
-    fi
+        xfce4-notifyd \
+        cifs-utils smbclient || {
+        log_error "Package installation failed"
+        log_error "Please check the error messages above"
+        log_error "Common issues:"
+        log_error "  - No internet connection"
+        log_error "  - Repository not available"
+        log_error "  - Package name changed in Debian 13"
+        return 1
+    }
     
     log_info "Package installation completed"
 }

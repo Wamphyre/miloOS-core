@@ -103,8 +103,8 @@ fi
 echo ""
 
 # Check packages
-echo -e "${BLUE}[6] Required Packages${NC}"
-REQUIRED_PKGS=("dconf-cli" "xfce4-appmenu-plugin" "plank" "catfish")
+echo -e "${BLUE}[6] Essential Packages${NC}"
+REQUIRED_PKGS=("dconf-cli" "xfce4-appmenu-plugin" "plank" "catfish" "vala-panel-appmenu")
 for pkg in "${REQUIRED_PKGS[@]}"; do
     if dpkg -l | grep -q "^ii  $pkg"; then
         check_pass "$pkg installed"
