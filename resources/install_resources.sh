@@ -106,6 +106,25 @@ install_debian_packages() {
         return 1
     }
     
+    # Check and install PipeWire if not present
+    log_info "Checking PipeWire installation..."
+    if ! command -v pipewire &> /dev/null; then
+        log_info "PipeWire not found, installing complete PipeWire stack..."
+        apt-get install -y \
+            pipewire pipewire-audio-client-libraries \
+            pipewire-pulse pipewire-alsa pipewire-jack \
+            wireplumber libspa-0.2-bluetooth libspa-0.2-jack \
+            rtkit || {
+            log_warn "PipeWire installation failed, continuing anyway"
+        }
+    else
+        log_info "PipeWire already installed"
+        # Ensure all components are installed
+        apt-get install -y \
+            pipewire-pulse pipewire-alsa pipewire-jack \
+            wireplumber rtkit 2>/dev/null || true
+    fi
+    
     log_info "Package installation completed"
 }
 
@@ -395,7 +414,72 @@ optimize_realtime_audio() {
     
     local backup_dir=$(cat /root/.miloOS-last-backup 2>/dev/null || echo "/root/debian-backup-$(date +%Y%m%d-%H%M%S)")
     
-    # 1. Configure GRUB for low-latency audio
+    # 1. Configure PipeWire for real-time audio
+    log_info "Configuring PipeWire for real-time audio production..."
+    
+    # Create PipeWire configuration directory
+    mkdir -p /etc/pipewire/pipewire.conf.d
+    
+    # Create low-latency configuration
+    cat > /etc/pipewire/pipewire.conf.d/99-lowlatency.conf << 'EOF'
+# Low-latency PipeWire configuration for miloOS
+context.properties = {
+    default.clock.rate = 48000
+    default.clock.quantum = 256
+    default.clock.min-quantum = 64
+    default.clock.max-quantum = 2048
+}
+
+context.modules = [
+    {   name = libpipewire-module-rtkit
+        args = {
+            nice.level   = -15
+            rt.prio      = 88
+            rt.time.soft = 200000
+            rt.time.hard = 200000
+        }
+        flags = [ ifexists nofail ]
+    }
+]
+EOF
+    
+    # Create WirePlumber low-latency configuration
+    mkdir -p /etc/wireplumber/main.lua.d
+    cat > /etc/wireplumber/main.lua.d/99-lowlatency.lua << 'EOF'
+-- Low-latency audio configuration for miloOS
+alsa_monitor.rules = {
+  {
+    matches = {
+      {
+        { "node.name", "matches", "alsa_output.*" },
+      },
+    },
+    apply_properties = {
+      ["audio.format"] = "S32LE",
+      ["audio.rate"] = 48000,
+      ["api.alsa.period-size"] = 256,
+      ["api.alsa.headroom"] = 1024,
+    },
+  },
+}
+EOF
+    
+    # Enable PipeWire services for all users
+    log_info "Enabling PipeWire services..."
+    systemctl --global enable pipewire.service 2>/dev/null || true
+    systemctl --global enable pipewire-pulse.service 2>/dev/null || true
+    systemctl --global enable wireplumber.service 2>/dev/null || true
+    
+    # Disable PulseAudio if present (PipeWire replaces it)
+    if systemctl is-enabled pulseaudio.service &>/dev/null; then
+        log_info "Disabling PulseAudio (replaced by PipeWire)..."
+        systemctl --global disable pulseaudio.service 2>/dev/null || true
+        systemctl --global disable pulseaudio.socket 2>/dev/null || true
+    fi
+    
+    log_info "PipeWire configured for low-latency audio production"
+    
+    # 2. Configure GRUB for low-latency audio
     if [ -f "/etc/default/grub" ]; then
         log_info "Configuring kernel parameters for real-time audio..."
         
@@ -434,7 +518,7 @@ optimize_realtime_audio() {
         fi
     fi
     
-    # 2. Create systemd service for runtime optimizations
+    # 3. Create systemd service for runtime optimizations
     log_info "Creating real-time audio optimization service..."
     
     cat > /etc/systemd/system/miloOS-audio-optimization.service << 'EOF'
@@ -451,7 +535,7 @@ ExecStart=/usr/local/bin/miloOS-audio-optimize.sh
 WantedBy=multi-user.target
 EOF
     
-    # 3. Create optimization script
+    # 4. Create optimization script
     cat > /usr/local/bin/miloOS-audio-optimize.sh << 'EOF'
 #!/bin/bash
 # miloOS Real-Time Audio Optimization Script
@@ -501,7 +585,7 @@ EOF
     
     chmod +x /usr/local/bin/miloOS-audio-optimize.sh
     
-    # 4. Enable and start the service
+    # 5. Enable and start the service
     systemctl daemon-reload
     systemctl enable miloOS-audio-optimization.service 2>/dev/null || log_warn "Failed to enable audio optimization service"
     
@@ -509,7 +593,7 @@ EOF
     log_info "Applying runtime optimizations..."
     /usr/local/bin/miloOS-audio-optimize.sh
     
-    # 5. Configure audio group limits
+    # 6. Configure audio group limits
     log_info "Configuring audio group permissions..."
     
     # Ensure audio group exists

@@ -114,9 +114,35 @@ for pkg in "${REQUIRED_PKGS[@]}"; do
 done
 echo ""
 
+# Check PipeWire
+echo -e "${BLUE}[7] PipeWire Audio System${NC}"
+if command -v pipewire &> /dev/null; then
+    check_pass "PipeWire installed"
+    
+    # Check PipeWire components
+    PIPEWIRE_PKGS=("pipewire-pulse" "pipewire-alsa" "wireplumber")
+    for pkg in "${PIPEWIRE_PKGS[@]}"; do
+        if dpkg -l | grep -q "^ii  $pkg"; then
+            check_pass "$pkg installed"
+        else
+            check_warn "$pkg not installed"
+        fi
+    done
+    
+    # Check PipeWire configuration
+    if [ -f "/etc/pipewire/pipewire.conf.d/99-lowlatency.conf" ]; then
+        check_pass "Low-latency configuration present"
+    else
+        check_warn "Low-latency configuration not found"
+    fi
+else
+    check_fail "PipeWire not installed"
+fi
+echo ""
+
 # Check user configuration (if not root)
 if [ "$EUID" -ne 0 ] && [ -n "$HOME" ]; then
-    echo -e "${BLUE}[7] User Configuration${NC}"
+    echo -e "${BLUE}[8] User Configuration${NC}"
     
     if [ -d "$HOME/.config/xfce4/xfconf" ]; then
         check_pass "XFCE4 configuration found"
@@ -163,7 +189,7 @@ if [ "$EUID" -ne 0 ] && [ -n "$HOME" ]; then
 fi
 
 # Check menus
-echo -e "${BLUE}[8] Custom Menus${NC}"
+echo -e "${BLUE}[9] Custom Menus${NC}"
 if [ -f "/usr/bin/milo-session" ]; then
     check_pass "milo-session binary installed"
 else
@@ -175,6 +201,35 @@ if [ "$MENU_COUNT" -gt 0 ]; then
     check_pass "Custom menu items installed ($MENU_COUNT items)"
 else
     check_warn "No custom menu items found"
+fi
+echo ""
+
+# Check real-time audio optimizations
+echo -e "${BLUE}[10] Real-Time Audio Optimizations${NC}"
+if [ -f "/etc/security/limits.d/audio.conf" ]; then
+    check_pass "Audio limits configured"
+else
+    check_warn "Audio limits not configured"
+fi
+
+if [ -f "/usr/local/bin/miloOS-audio-optimize.sh" ]; then
+    check_pass "Audio optimization script installed"
+else
+    check_warn "Audio optimization script not found"
+fi
+
+if systemctl is-enabled miloOS-audio-optimization.service &>/dev/null; then
+    check_pass "Audio optimization service enabled"
+else
+    check_warn "Audio optimization service not enabled"
+fi
+
+if [ -f "/etc/default/grub" ]; then
+    if grep -q "preempt=full" /etc/default/grub; then
+        check_pass "Real-time kernel parameters configured"
+    else
+        check_warn "Real-time kernel parameters not found"
+    fi
 fi
 echo ""
 
