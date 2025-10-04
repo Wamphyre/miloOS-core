@@ -169,12 +169,18 @@ if [ -d "configurations/xfce4/terminal" ]; then
     
     # Ensure SF Mono font is set correctly in terminal
     if [ -f "$USER_HOME/.config/xfce4/terminal/terminalrc" ]; then
-        # Update font if SF Mono is available
-        if fc-list | grep -q "SF Mono"; then
+        # Update user font cache first
+        if command -v fc-cache &> /dev/null; then
+            su - "$EXEC_USER" -c "fc-cache -f" 2>/dev/null || true
+        fi
+        
+        # Check if SF Mono is available (check system fonts directory)
+        if [ -d "/usr/share/fonts/truetype/san-francisco" ] || fc-list : family | grep -qi "SF Mono"; then
             sed -i 's/^FontName=.*/FontName=SF Mono Regular 12/' "$USER_HOME/.config/xfce4/terminal/terminalrc"
             log_info "Terminal configured with SF Mono Regular 12"
         else
-            log_warn "SF Mono not found, terminal will use fallback font"
+            log_warn "SF Mono fonts not installed yet"
+            log_info "Terminal will use SF Mono after fonts are installed and system is rebooted"
         fi
     fi
 else
