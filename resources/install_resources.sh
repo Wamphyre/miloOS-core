@@ -44,7 +44,7 @@ if [ "$EUID" -ne 0 ]; then
 fi
 
 CURRENT_DIR="$PWD"
-TOTAL_STEPS=9
+TOTAL_STEPS=10
 
 # Verify we're on Debian
 verify_system() {
@@ -390,6 +390,137 @@ EOF
     log_warn "Note: Some changes require a reboot to take full effect"
 }
 
+optimize_realtime_audio() {
+    log_step 9 $TOTAL_STEPS "Optimizing system for real-time audio..."
+    
+    local backup_dir=$(cat /root/.miloOS-last-backup 2>/dev/null || echo "/root/debian-backup-$(date +%Y%m%d-%H%M%S)")
+    
+    # 1. Configure GRUB for low-latency audio
+    if [ -f "/etc/default/grub" ]; then
+        log_info "Configuring kernel parameters for real-time audio..."
+        
+        # Backup if not already backed up
+        if [ ! -f "$backup_dir/grub.bak" ]; then
+            cp /etc/default/grub "$backup_dir/grub.bak"
+        fi
+        
+        # Audio profile: preempt=full nohz_full=all threadirqs
+        # This provides fully preemptible kernel + no tick on all CPUs + threaded IRQs
+        local AUDIO_PARAMS="preempt=full nohz_full=all threadirqs"
+        
+        # Check if parameters already exist
+        if grep -q "GRUB_CMDLINE_LINUX_DEFAULT=" /etc/default/grub; then
+            # Get current parameters
+            local CURRENT_PARAMS=$(grep "^GRUB_CMDLINE_LINUX_DEFAULT=" /etc/default/grub | sed 's/GRUB_CMDLINE_LINUX_DEFAULT="\(.*\)"/\1/')
+            
+            # Add audio parameters if not present
+            if ! echo "$CURRENT_PARAMS" | grep -q "preempt=full"; then
+                local NEW_PARAMS="$CURRENT_PARAMS $AUDIO_PARAMS"
+                sed -i "s|^GRUB_CMDLINE_LINUX_DEFAULT=.*|GRUB_CMDLINE_LINUX_DEFAULT=\"$NEW_PARAMS\"|" /etc/default/grub
+                log_info "Added real-time audio kernel parameters"
+            else
+                log_info "Real-time audio parameters already present"
+            fi
+        else
+            # Add the line if it doesn't exist
+            echo "GRUB_CMDLINE_LINUX_DEFAULT=\"$AUDIO_PARAMS\"" >> /etc/default/grub
+            log_info "Added real-time audio kernel parameters"
+        fi
+        
+        # Update GRUB
+        if command -v update-grub &> /dev/null; then
+            log_info "Updating GRUB configuration..."
+            update-grub 2>/dev/null || log_warn "Failed to update GRUB"
+        fi
+    fi
+    
+    # 2. Create systemd service for runtime optimizations
+    log_info "Creating real-time audio optimization service..."
+    
+    cat > /etc/systemd/system/miloOS-audio-optimization.service << 'EOF'
+[Unit]
+Description=miloOS Real-Time Audio Optimizations
+After=multi-user.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/local/bin/miloOS-audio-optimize.sh
+
+[Install]
+WantedBy=multi-user.target
+EOF
+    
+    # 3. Create optimization script
+    cat > /usr/local/bin/miloOS-audio-optimize.sh << 'EOF'
+#!/bin/bash
+# miloOS Real-Time Audio Optimization Script
+
+# Set CPU governor to performance
+for cpu in /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor; do
+    if [ -f "$cpu" ]; then
+        echo "performance" > "$cpu" 2>/dev/null || true
+    fi
+done
+
+# Disable proactive memory compaction
+echo 0 > /proc/sys/vm/compaction_proactiveness 2>/dev/null || true
+
+# Disable kernel samepage merging
+echo 0 > /sys/kernel/mm/ksm/run 2>/dev/null || true
+
+# Thrashing mitigation (prevent working set eviction for 1000ms)
+if [ -f /sys/kernel/mm/lru_gen/min_ttl_ms ]; then
+    echo 1000 > /sys/kernel/mm/lru_gen/min_ttl_ms 2>/dev/null || true
+fi
+
+# Prevent stuttering during intense I/O writes
+echo 5 > /proc/sys/vm/dirty_ratio 2>/dev/null || true
+echo 5 > /proc/sys/vm/dirty_background_ratio 2>/dev/null || true
+
+# Increase max locked memory for audio applications
+if [ -f /etc/security/limits.d/audio.conf ]; then
+    # Already configured
+    :
+else
+    cat > /etc/security/limits.d/audio.conf << 'LIMITS'
+# Real-time audio configuration
+@audio   -  rtprio     95
+@audio   -  memlock    unlimited
+@audio   -  nice      -19
+LIMITS
+fi
+
+# Add user to audio group if not already
+if [ -n "$SUDO_USER" ] && [ "$SUDO_USER" != "root" ]; then
+    usermod -aG audio "$SUDO_USER" 2>/dev/null || true
+fi
+
+exit 0
+EOF
+    
+    chmod +x /usr/local/bin/miloOS-audio-optimize.sh
+    
+    # 4. Enable and start the service
+    systemctl daemon-reload
+    systemctl enable miloOS-audio-optimization.service 2>/dev/null || log_warn "Failed to enable audio optimization service"
+    
+    # Run optimizations now
+    log_info "Applying runtime optimizations..."
+    /usr/local/bin/miloOS-audio-optimize.sh
+    
+    # 5. Configure audio group limits
+    log_info "Configuring audio group permissions..."
+    
+    # Ensure audio group exists
+    groupadd -f audio 2>/dev/null || true
+    
+    log_info "Real-time audio optimization completed!"
+    log_warn "IMPORTANT: Users need to be in the 'audio' group for real-time privileges"
+    log_warn "Run: sudo usermod -aG audio \$USER (then logout/login)"
+    log_warn "Kernel parameters will be active after reboot"
+}
+
 # Main execution
 log_info "Starting miloOS resources installation..."
 log_info "Current directory: $CURRENT_DIR"
@@ -404,6 +535,7 @@ install_wallpaper
 install_plank_theme
 install_menus
 rebrand_system
+optimize_realtime_audio
 
 echo ""
 log_info "========================================="
