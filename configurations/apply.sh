@@ -210,8 +210,8 @@ xfconf-query -c xsettings -p /Xft/Lcdfilter -n -t string -s "lcddefault" 2>/dev/
 xfconf-query -c xsettings -p /Gtk/FontName -n -t string -s "SF Pro Text 10" 2>/dev/null || \
     xfconf-query -c xsettings -p /Gtk/FontName -t string -s "SF Pro Text 10"
 
-xfconf-query -c xsettings -p /Gtk/MonospaceFontName -n -t string -s "SF Mono 11" 2>/dev/null || \
-    xfconf-query -c xsettings -p /Gtk/MonospaceFontName -t string -s "SF Mono 11"
+xfconf-query -c xsettings -p /Gtk/MonospaceFontName -n -t string -s "SF Mono 10" 2>/dev/null || \
+    xfconf-query -c xsettings -p /Gtk/MonospaceFontName -t string -s "SF Mono 10"
 
 # Window title font
 xfconf-query -c xfwm4 -p /general/title_font -n -t string -s "SF Pro Display Medium 9" 2>/dev/null || \
