@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg width="128" height="128" viewBox="0 0 128 128" xmlns="http://www.w3.org/2000/svg">
+  <!-- Background circle -->
+  <circle cx="64" cy="64" r="60" fill="#4A90E2" opacity="0.95"/>
+  
+  <!-- Waveform -->
+  <g stroke="#FFFFFF" stroke-width="4" fill="none" stroke-linecap="round">
+    <path d="M 30 64 L 35 50 L 40 70 L 45 45 L 50 75 L 55 40 L 60 80 L 65 35 L 70 85 L 75 40 L 80 75 L 85 45 L 90 70 L 95 50 L 98 64"/>
+  </g>
+  
+  <!-- Settings gear overlay -->
+  <g fill="#FFFFFF" opacity="0.9">
+    <circle cx="90" cy="90" r="18" fill="#4A90E2"/>
+    <path d="M 90 75 L 92 80 L 97 80 L 93 84 L 95 89 L 90 86 L 85 89 L 87 84 L 83 80 L 88 80 Z" fill="#FFFFFF"/>
+    <circle cx="90" cy="84" r="4" fill="#4A90E2"/>
+  </g>
+</svg>

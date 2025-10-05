@@ -68,6 +68,7 @@ def _(key):
 class AudioConfigWindow(Gtk.Window):
     def __init__(self):
         super().__init__(title=_('title'))
+        self.set_wmclass("audio-config", "audio-config")
         self.set_border_width(20)
         self.set_default_size(500, 400)
         self.set_position(Gtk.WindowPosition.CENTER)

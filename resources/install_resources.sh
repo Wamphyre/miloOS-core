@@ -1011,6 +1011,18 @@ install_audio_config() {
     log_info "Installing audio-config script..."
     install -m 755 "$CURRENT_DIR/AudioConfig/audio-config.py" /usr/local/bin/audio-config
     
+    # Install icon
+    if [ -f "$CURRENT_DIR/AudioConfig/audio-config.svg" ]; then
+        log_info "Installing icon..."
+        mkdir -p /usr/share/icons/hicolor/scalable/apps
+        install -m 644 "$CURRENT_DIR/AudioConfig/audio-config.svg" /usr/share/icons/hicolor/scalable/apps/audio-config.svg
+        
+        # Update icon cache
+        if command -v gtk-update-icon-cache &> /dev/null; then
+            gtk-update-icon-cache -f /usr/share/icons/hicolor 2>/dev/null || true
+        fi
+    fi
+    
     # Install desktop entry
     if [ -f "$CURRENT_DIR/AudioConfig/audio-config.desktop" ]; then
         log_info "Installing desktop entry..."
