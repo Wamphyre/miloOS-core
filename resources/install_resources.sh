@@ -223,8 +223,9 @@ install_icon_themes() {
         log_info "Installing WhiteSur icon theme..."
         cd "$TEMP_DIR"
         
-        # Install with options: -b (bold icons), -a (all alternatives), -d (destination)
-        if ./install.sh -b -a -d /usr/local/share/icons 2>/dev/null; then
+        # Install with options: -b (bold icons), -d (destination)
+        # Note: -a flag removed to avoid installing all alternative versions
+        if ./install.sh -b -d /usr/local/share/icons 2>/dev/null; then
             log_info "WhiteSur icon theme installed successfully"
         else
             log_warn "WhiteSur installation script failed, trying manual installation..."
