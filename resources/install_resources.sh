@@ -44,7 +44,7 @@ if [ "$EUID" -ne 0 ]; then
 fi
 
 CURRENT_DIR="$PWD"
-TOTAL_STEPS=11
+TOTAL_STEPS=12
 
 # Verify we're on Debian
 verify_system() {
@@ -979,6 +979,53 @@ install_plymouth_theme() {
     log_info "Plymouth theme installation completed"
 }
 
+install_audio_config() {
+    log_step 11 $TOTAL_STEPS "Installing AudioConfig tool..."
+    
+    if [ ! -d "$CURRENT_DIR/AudioConfig" ]; then
+        log_warn "AudioConfig directory not found, skipping"
+        return 0
+    fi
+    
+    if [ ! -f "$CURRENT_DIR/AudioConfig/audio-config.py" ]; then
+        log_warn "AudioConfig script not found, skipping"
+        return 0
+    fi
+    
+    # Install Python GTK dependencies if not present
+    log_info "Checking Python GTK dependencies..."
+    local MISSING_DEPS=""
+    
+    for pkg in python3-gi gir1.2-gtk-3.0; do
+        if ! dpkg -l | grep -q "^ii  $pkg"; then
+            MISSING_DEPS="$MISSING_DEPS $pkg"
+        fi
+    done
+    
+    if [ -n "$MISSING_DEPS" ]; then
+        log_info "Installing missing dependencies:$MISSING_DEPS"
+        apt-get install -y $MISSING_DEPS 2>/dev/null || log_warn "Some dependencies failed to install"
+    fi
+    
+    # Install the script
+    log_info "Installing audio-config script..."
+    install -m 755 "$CURRENT_DIR/AudioConfig/audio-config.py" /usr/local/bin/audio-config
+    
+    # Install desktop entry
+    if [ -f "$CURRENT_DIR/AudioConfig/audio-config.desktop" ]; then
+        log_info "Installing desktop entry..."
+        install -m 644 "$CURRENT_DIR/AudioConfig/audio-config.desktop" /usr/share/applications/
+        
+        # Update desktop database
+        if command -v update-desktop-database &> /dev/null; then
+            update-desktop-database /usr/share/applications/ 2>/dev/null || true
+        fi
+    fi
+    
+    log_info "AudioConfig tool installed successfully"
+    log_info "Users can run 'audio-config' or find it in the applications menu"
+}
+
 # Main execution
 log_info "Starting miloOS resources installation..."
 log_info "Current directory: $CURRENT_DIR"
@@ -995,6 +1042,7 @@ install_menus
 rebrand_system
 optimize_realtime_audio
 install_plymouth_theme
+install_audio_config
 
 echo ""
 log_info "========================================="

@@ -332,6 +332,13 @@ done
 chown -R "$EXEC_USER:$EXEC_USER" "$USER_HOME/.local/share/applications" 2>/dev/null || true
 log_info "Default system menu items hidden (only miloOS custom menu will show)"
 
+# Copy GRUB configuration (requires root)
+if [ -f "configurations/grub" ]; then
+    log_info "GRUB configuration found. To apply it, run as root:"
+    log_warn "  sudo cp configurations/grub /etc/default/grub"
+    log_warn "  sudo update-grub"
+fi
+
 log_info "Configuration applied successfully!"
 log_warn "Please log out and log back in for all changes to take effect."
 

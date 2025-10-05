@@ -1,0 +1,13 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=Audio Configuration
+Name[es]=Configuración de Audio
+Comment=Configure PipeWire audio settings
+Comment[es]=Configurar ajustes de audio de PipeWire
+Exec=/usr/local/bin/audio-config
+Icon=multimedia-volume-control
+Terminal=false
+Categories=Settings;Audio;AudioVideo;
+Keywords=audio;sound;pipewire;configuration;
+Keywords[es]=audio;sonido;pipewire;configuración;
