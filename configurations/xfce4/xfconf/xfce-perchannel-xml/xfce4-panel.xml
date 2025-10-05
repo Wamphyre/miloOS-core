@@ -63,7 +63,6 @@
     <property name="plugin-12" type="string" value="clock">
       <property name="digital-format" type="string" value="%a %_d %b, %R"/>
       <property name="mode" type="uint" value="2"/>
-      <property name="digital-layout" type="uint" value="3"/>
       <property name="font" type="string" value="SF Pro Text Medium 10"/>
     </property>
     <property name="plugin-2" type="string" value="appmenu">
