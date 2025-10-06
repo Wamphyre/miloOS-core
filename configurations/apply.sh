@@ -213,11 +213,13 @@ xfconf-query -c xsettings -p /Gtk/FontName -n -t string -s "SF Pro Text 10" 2>/d
 xfconf-query -c xsettings -p /Gtk/MonospaceFontName -n -t string -s "SF Pro Text Regular 10" 2>/dev/null || \
     xfconf-query -c xsettings -p /Gtk/MonospaceFontName -t string -s "SF Pro Text Regular 10"
 
-# Window title font (hidden - size 0)
-xfconf-query -c xfwm4 -p /general/title_font -n -t string -s "SF Pro Display Medium 0" 2>/dev/null || \
-    xfconf-query -c xfwm4 -p /general/title_font -t string -s "SF Pro Display Medium 0"
+# Hide window title completely
+xfconf-query -c xfwm4 -p /general/title_font -n -t string -s " " 2>/dev/null || \
+    xfconf-query -c xfwm4 -p /general/title_font -t string -s " "
 
-# Hide window title shadow
+xfconf-query -c xfwm4 -p /general/show_frame_shadow -n -t bool -s false 2>/dev/null || \
+    xfconf-query -c xfwm4 -p /general/show_frame_shadow -t bool -s false
+
 xfconf-query -c xfwm4 -p /general/title_shadow_active -n -t string -s "false" 2>/dev/null || \
     xfconf-query -c xfwm4 -p /general/title_shadow_active -t string -s "false"
 
@@ -245,8 +247,8 @@ xfconf-query -c xsettings -p /Net/ThemeName -n -t string -s miloOS 2>/dev/null |
 xfconf-query -c xfwm4 -p /general/title_alignment -n -t string -s center 2>/dev/null || \
     xfconf-query -c xfwm4 -p /general/title_alignment -t string -s center
 
-xfconf-query -c xfwm4 -p /general/button_layout -n -t string -s "CMH|" 2>/dev/null || \
-    xfconf-query -c xfwm4 -p /general/button_layout -t string -s "CMH|"
+xfconf-query -c xfwm4 -p /general/button_layout -n -t string -s "C|HM" 2>/dev/null || \
+    xfconf-query -c xfwm4 -p /general/button_layout -t string -s "C|HM"
 
 # Icon theme (WhiteSur-light)
 xfconf-query -c xsettings -p /Net/IconThemeName -n -t string -s WhiteSur-light 2>/dev/null || \

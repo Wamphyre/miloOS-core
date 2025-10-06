@@ -152,6 +152,15 @@ install_gtk_themes() {
     chown -R root:root /usr/share/themes/miloOS/
     log_info "Gtk+ themes installed"
     
+    # Configure xfwm4 theme to hide window titles
+    log_info "Configuring window manager theme..."
+    mkdir -p /usr/share/themes/miloOS/xfwm4
+    cat >> /usr/share/themes/miloOS/xfwm4/themerc << 'EOF'
+title_vertical_offset_active=-100
+title_vertical_offset_inactive=-100
+EOF
+    log_info "Window titles hidden"
+    
     if [ -d "resources/milk" ]; then
         mkdir -p /usr/share/slim/themes
         cp -R resources/milk /usr/share/slim/themes/
