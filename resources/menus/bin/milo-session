@@ -9,8 +9,8 @@ case "$1" in
             --text="<b>Are you sure you want to shut down your computer?</b>\n\nAll unsaved work will be lost." \
             --ok-label="Shut Down" \
             --cancel-label="Cancel" 2>/dev/null; then
-            # Try multiple methods to ensure shutdown works
-            systemctl poweroff || sudo poweroff || xfce4-session-logout --halt --fast
+            # Use systemctl which works with polkit
+            systemctl poweroff
         fi
         ;;
     
@@ -20,8 +20,8 @@ case "$1" in
             --text="<b>Are you sure you want to restart your computer?</b>\n\nAll unsaved work will be lost." \
             --ok-label="Restart" \
             --cancel-label="Cancel" 2>/dev/null; then
-            # Try multiple methods to ensure restart works
-            systemctl reboot || sudo reboot || xfce4-session-logout --reboot --fast
+            # Use systemctl which works with polkit
+            systemctl reboot
         fi
         ;;
     
@@ -31,8 +31,8 @@ case "$1" in
             --text="<b>Suspend your computer?</b>\n\nYour work will be saved and you can resume later." \
             --ok-label="Suspend" \
             --cancel-label="Cancel" 2>/dev/null; then
-            # Try multiple methods to ensure suspend works
-            systemctl suspend || sudo pm-suspend || xfce4-session-logout --suspend
+            # Use systemctl which works with polkit
+            systemctl suspend
         fi
         ;;
     
@@ -43,7 +43,7 @@ case "$1" in
             --ok-label="Log Out" \
             --cancel-label="Cancel" 2>/dev/null; then
             # Logout from XFCE session
-            xfce4-session-logout --logout --fast || pkill -KILL -u "$USER"
+            xfce4-session-logout --logout --fast
         fi
         ;;
     

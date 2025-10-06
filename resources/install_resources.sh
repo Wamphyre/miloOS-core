@@ -44,7 +44,7 @@ if [ "$EUID" -ne 0 ]; then
 fi
 
 CURRENT_DIR="$PWD"
-TOTAL_STEPS=12
+TOTAL_STEPS=11
 
 # Verify we're on Debian
 verify_system() {
@@ -649,9 +649,9 @@ EOF
             cp /etc/default/grub "$backup_dir/grub.bak"
         fi
         
-        # Audio profile: preempt=full nohz_full=all threadirqs
-        # This provides fully preemptible kernel + no tick on all CPUs + threaded IRQs
-        local AUDIO_PARAMS="preempt=full nohz_full=all threadirqs"
+        # Audio profile: preempt=full nohz_full=all threadirqs mitigations=off
+        # This provides fully preemptible kernel + no tick on all CPUs + threaded IRQs + disabled CPU mitigations for better performance
+        local AUDIO_PARAMS="preempt=full nohz_full=all threadirqs mitigations=off"
         
         # Check if parameters already exist
         if grep -q "GRUB_CMDLINE_LINUX_DEFAULT=" /etc/default/grub; then
@@ -806,25 +806,33 @@ EOF
         log_info "Added $SUDO_USER to audio and video groups"
     fi
     
-    # 8. Configure sudo for power management commands (no password required)
-    log_info "Configuring sudo for power management..."
+    # 8. Configure polkit for power management (no password required)
+    log_info "Configuring polkit for power management..."
     
-    cat > /etc/sudoers.d/miloOS-power << 'EOF'
-# Allow users to shutdown, reboot, and suspend without password
-# This is required for the miloOS menu system to work properly
-%sudo ALL=(ALL) NOPASSWD: /usr/sbin/poweroff, /usr/sbin/reboot, /usr/sbin/pm-suspend
-%users ALL=(ALL) NOPASSWD: /usr/sbin/poweroff, /usr/sbin/reboot, /usr/sbin/pm-suspend
+    # Install polkit if not present
+    if ! command -v pkaction &> /dev/null; then
+        apt-get install -y policykit-1 2>/dev/null || log_warn "Could not install polkit"
+    fi
+    
+    # Create polkit rule to allow power management without password
+    mkdir -p /etc/polkit-1/rules.d
+    cat > /etc/polkit-1/rules.d/50-miloOS-power.rules << 'EOF'
+/* Allow users to shutdown, reboot, and suspend without password */
+polkit.addRule(function(action, subject) {
+    if ((action.id == "org.freedesktop.login1.power-off" ||
+         action.id == "org.freedesktop.login1.power-off-multiple-sessions" ||
+         action.id == "org.freedesktop.login1.reboot" ||
+         action.id == "org.freedesktop.login1.reboot-multiple-sessions" ||
+         action.id == "org.freedesktop.login1.suspend" ||
+         action.id == "org.freedesktop.login1.suspend-multiple-sessions") &&
+        subject.isInGroup("users")) {
+        return polkit.Result.YES;
+    }
+});
 EOF
     
-    chmod 440 /etc/sudoers.d/miloOS-power
-    
-    # Verify sudoers file is valid
-    if visudo -c -f /etc/sudoers.d/miloOS-power 2>/dev/null; then
-        log_info "Sudo configuration for power management completed"
-    else
-        log_warn "Sudo configuration may have issues, removing file"
-        rm -f /etc/sudoers.d/miloOS-power
-    fi
+    chmod 644 /etc/polkit-1/rules.d/50-miloOS-power.rules
+    log_info "Polkit configuration for power management completed"
     
     log_info "Real-time audio optimization completed!"
     log_warn "Users have been added to audio group automatically"
@@ -1053,8 +1061,13 @@ install_plank_theme
 install_menus
 rebrand_system
 optimize_realtime_audio
-install_plymouth_theme
 install_audio_config
+
+# Disable Plymouth boot splash
+log_info "Disabling Plymouth boot splash..."
+systemctl disable plymouth.service 2>/dev/null || true
+systemctl mask plymouth.service 2>/dev/null || true
+log_info "Plymouth disabled"
 
 echo ""
 log_info "========================================="

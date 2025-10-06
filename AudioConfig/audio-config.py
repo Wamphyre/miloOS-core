@@ -68,7 +68,22 @@ def _(key):
 class AudioConfigWindow(Gtk.Window):
     def __init__(self):
         super().__init__(title=_('title'))
-        self.set_wmclass("audio-config", "audio-config")
+        self.set_wmclass("Audio-config", "Audio-config")
+        
+        # Set icon from theme
+        try:
+            self.set_icon_name("audio-config")
+        except:
+            # Fallback to loading icon from file
+            try:
+                icon_path = "/usr/share/icons/hicolor/scalable/apps/audio-config.svg"
+                if os.path.exists(icon_path):
+                    from gi.repository import GdkPixbuf
+                    pixbuf = GdkPixbuf.Pixbuf.new_from_file_at_size(icon_path, 48, 48)
+                    self.set_icon(pixbuf)
+            except:
+                pass
+        
         self.set_border_width(20)
         self.set_default_size(500, 400)
         self.set_position(Gtk.WindowPosition.CENTER)
@@ -175,19 +190,31 @@ class AudioConfigWindow(Gtk.Window):
             try:
                 with open(config_path, 'r') as f:
                     content = f.read()
-                    # Parse basic values (simplified)
-                    if 'default.clock.rate' in content:
-                        for line in content.split('\n'):
-                            if 'default.clock.rate' in line and '=' in line:
-                                rate = line.split('=')[1].strip()
-                                idx = self.rate_combo.get_model().get_iter_first()
-                                i = 0
-                                while idx:
-                                    if self.rate_combo.get_model().get_value(idx, 0) == rate:
-                                        self.rate_combo.set_active(i)
-                                        break
-                                    idx = self.rate_combo.get_model().iter_next(idx)
-                                    i += 1
+                    
+                    # Parse sample rate
+                    for line in content.split('\n'):
+                        if 'default.clock.rate' in line and '=' in line:
+                            rate = line.split('=')[1].strip()
+                            idx = self.rate_combo.get_model().get_iter_first()
+                            i = 0
+                            while idx:
+                                if self.rate_combo.get_model().get_value(idx, 0) == rate:
+                                    self.rate_combo.set_active(i)
+                                    break
+                                idx = self.rate_combo.get_model().iter_next(idx)
+                                i += 1
+                        
+                        # Parse buffer size (quantum)
+                        if 'default.clock.quantum' in line and '=' in line:
+                            buffer = line.split('=')[1].strip()
+                            idx = self.buffer_combo.get_model().get_iter_first()
+                            i = 0
+                            while idx:
+                                if self.buffer_combo.get_model().get_value(idx, 0) == buffer:
+                                    self.buffer_combo.set_active(i)
+                                    break
+                                idx = self.buffer_combo.get_model().iter_next(idx)
+                                i += 1
             except Exception as e:
                 print(_('error_config').format(e))
     
@@ -206,10 +233,10 @@ class AudioConfigWindow(Gtk.Window):
         config_path = os.path.join(config_dir, "99-custom.conf")
         config_content = f"""# miloOS Audio Configuration
 context.properties = {{
-    default.clock.rate = {rate}
-    default.clock.quantum = {buffer}
-    default.clock.min-quantum = {buffer}
-    default.clock.max-quantum = {buffer}
+    default.clock.rate          = {rate}
+    default.clock.quantum       = {buffer}
+    default.clock.min-quantum   = {buffer}
+    default.clock.max-quantum   = {buffer}
 }}
 """
         

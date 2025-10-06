@@ -11,4 +11,4 @@ Terminal=false
 Categories=Settings;Audio;AudioVideo;
 Keywords=audio;sound;pipewire;configuration;
 Keywords[es]=audio;sonido;pipewire;configuración;
-StartupWMClass=audio-config
+StartupWMClass=Audio-config
