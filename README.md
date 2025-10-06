@@ -331,10 +331,9 @@ fs.file-max = 524288
 - **ZynAddSubFX** - Software synthesizer
 
 ### Utilities
-- **pavucontrol** - Volume control
-- **pw-top** - PipeWire monitor
-- **QjackCtl** - JACK connection manager
-- **Catia** - JACK patchbay
+- **XFCE Audio Plugin** - Built-in volume and device control
+- **AudioConfig** - miloOS audio server configuration (included)
+- **qpwgraph** - PipeWire graph manager for audio routing
 
 ---
 
