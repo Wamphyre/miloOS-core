@@ -1,242 +1,298 @@
-# Core configuration and releases for miloOS
+# miloOS Core
 
-Contains the base desktop configuration and system core elements.
+![miloOS Desktop](miloOS-desktop.png)
 
-Releases of the final ISO are available too.
+A beautiful macOS-inspired desktop environment for Debian-based Linux distributions, built on XFCE4. Transform your Linux system into a polished, production-ready workstation with real-time audio optimization and custom applications.
 
-# About miloOS
+## Overview
 
-miloOS is a GNU/Linux operating system based on Debian 13 (Trixie), designed specifically for multimedia audio/video tasks where latency is a crucial factor. It incorporates the latest technologies while maintaining a productive workflow.
+miloOS Core provides a complete desktop transformation that combines the elegance of macOS with the power and flexibility of Linux. Built on XFCE4 for performance and stability, it includes custom applications (miloApps) designed specifically for the miloOS ecosystem.
 
-Built upon the solid foundation of Debian 13, miloOS offers a stable and reliable environment for demanding audio and video production work. It leverages the robustness and flexibility of the GNU/Linux ecosystem to provide a seamless experience tailored to the needs of multimedia professionals.
+## Features
 
-One of the standout features of miloOS is its exceptional focus on minimizing latency. Recognizing the critical importance of real-time responsiveness in audio/video production, miloOS employs optimized configurations and kernel tweaks to achieve ultra-low latency performance. This ensures that users can work with precision and accuracy, capturing and editing audio and video with minimal delay.
+### Visual Experience
+- **macOS-like Interface**: Custom XFCE4 configuration with top panel and Plank dock
+- **San Francisco Pro Typography**: System-wide macOS fonts for a cohesive look
+- **WhiteSur Icon Theme**: Beautiful macOS Big Sur-style icons
+- **Custom miloOS Theme**: GTK theme with classic macOS blue selection color (#007AFF)
+- **Optimized Font Rendering**: macOS-like antialiasing and hinting
 
-Moreover, miloOS integrates cutting-edge technologies to enhance the creative workflow. It includes advanced audio and video editing tools, along with an array of plugins and effects for professionals to achieve the desired artistic results. The user interface is thoughtfully designed to promote productivity, with intuitive controls and efficient organization of resources.
+### System Integration
+- **Complete Rebranding**: Transform Debian into miloOS (os-release, GRUB, login banners)
+- **Custom Power Menu**: Bilingual (EN/ES) shutdown, restart, suspend, and logout dialogs
+- **SLiM Display Manager**: Lightweight login manager with custom theme
+- **Polkit Integration**: Seamless power management without password prompts
 
-As a GNU/Linux distribution, miloOS benefits from the vast software ecosystem of Debian and the broader open-source community. Users can leverage a wide range of multimedia applications, libraries, and utilities, all readily available through the comprehensive package management system.
+### Audio Production Ready
+- **PipeWire Optimization**: Pre-configured for low-latency audio production
+- **Real-time Kernel Parameters**: `preempt=full`, `nohz_full=all`, `threadirqs`, `mitigations=off`
+- **Pro-Audio Profile**: Automatic device configuration for professional audio work
+- **System Tuning**: CPU governor, I/O scheduler, and memory optimizations
 
-## Screenshot
+### miloApps Suite
 
-![Screenshot](https://github.com/Wamphyre/miloOS-core/blob/main/miloOS-desktop.png)
+Custom applications designed for miloOS:
+
+#### AudioConfig
+A simple, elegant audio configuration tool for PipeWire:
+- **Sample Rate Selection**: 44.1kHz to 192kHz
+- **Buffer Size Control**: 32 to 1024 samples
+- **Device Management**: Set default input/output devices
+- **Automatic Application**: Restarts PipeWire automatically
+- **Bilingual Interface**: English and Spanish support
+- **Custom Icon**: Integrated with system theme
+
+*More miloApps coming soon!*
+
+## System Requirements
+
+- **OS**: Debian 12 (Bookworm) or Debian 13 (Trixie)
+- **Desktop**: XFCE4 Desktop Environment
+- **RAM**: 2GB minimum (4GB recommended)
+- **Storage**: 10GB free disk space
+- **Network**: Internet connection for installation
 
 ## Installation
 
 ### Quick Start
 
-1. Clone this repository:
 ```bash
+# Clone the repository
 git clone https://github.com/Wamphyre/miloOS-core.git
 cd miloOS-core
+
+# Make scripts executable
+chmod +x core_install.sh
+
+# Run the installer
+bash core_install.sh install
 ```
 
-2. Make scripts executable:
+The installer will prompt for your sudo password and guide you through the process. After installation, log out and log back in to see the changes.
+
+### Installation Process
+
+The installer performs the following steps:
+
+1. **System Verification**: Checks Debian version, XFCE4 installation, and disk space
+2. **Package Installation**: Installs required packages (GTK engines, Plank, PipeWire, etc.)
+3. **Theme Installation**: Installs miloOS GTK theme and downloads WhiteSur icons
+4. **Font Installation**: Downloads and installs San Francisco Pro fonts
+5. **Visual Resources**: Installs wallpapers, Plank theme, and custom icons
+6. **Menu System**: Installs custom application menu and power management scripts
+7. **System Rebranding**: Updates system identification files and GRUB
+8. **Audio Optimization**: Configures PipeWire and kernel parameters for real-time audio
+9. **miloApps Installation**: Installs AudioConfig and other custom applications
+10. **Service Configuration**: Disables Plymouth, configures polkit for power management
+
+### Post-Installation
+
+After installation:
+- Log out and log back in
+- The panel will appear at the top with macOS-style layout
+- Plank dock will auto-start at the bottom
+- All system branding will show "miloOS"
+- Audio system will be optimized for low-latency
+
+## Configuration
+
+### Panel Layout
+The top panel includes (left to right):
+- Application menu (miloOS logo)
+- Global menu (appmenu)
+- Window buttons
+- System tray
+- Audio controls
+- Notifications
+- Clock (24-hour format)
+- Power menu launcher
+
+### Plank Dock
+Located at the bottom center, auto-hides intelligently. Right-click for preferences.
+
+### Audio Configuration
+Use AudioConfig (in Applications menu) to adjust:
+- Sample rate
+- Buffer size
+- Default audio devices
+
+Configuration is saved to `~/.config/pipewire/pipewire.conf.d/99-custom.conf`
+
+### Fonts
+- **System**: SF Pro Text 10
+- **Window Titles**: SF Pro Display Medium 9
+- **Monospace**: SF Pro Text Regular 10
+
+## miloApps
+
+### AudioConfig
+
+**Location**: Applications → Settings → Audio Configuration
+
+**Features**:
+- Visual interface for PipeWire configuration
+- Real-time device detection
+- Automatic PipeWire restart on apply
+- Persistent settings
+- Bilingual (detects system language)
+
+**Usage**:
 ```bash
-./make_scripts_executable.sh
+audio-config
 ```
 
-3. Run the installation:
-```bash
-./core_install.sh install
-```
+**Configuration File**: `~/.config/pipewire/pipewire.conf.d/99-custom.conf`
 
-4. Reboot your system for all changes to take effect
+## Real-time Audio Details
 
-### What Gets Installed
+### PipeWire Configuration
+- **Default Sample Rate**: 48kHz
+- **Default Buffer**: 256 samples
+- **RT Priority**: 88
+- **Profile**: pro-audio (automatic)
 
-The installation script will:
+### Kernel Parameters
+Automatically configured in GRUB:
+- `preempt=full` - Fully preemptible kernel for low latency
+- `nohz_full=all` - Tickless operation on all CPUs
+- `threadirqs` - Threaded interrupt handlers
+- `mitigations=off` - Disabled CPU mitigations for better performance
 
-**Visual & Desktop Environment:**
-- ✅ Install and configure SLiM display manager with custom "milk" theme
-- ✅ Install miloOS GTK+ themes (macOS-inspired)
-- ✅ Install WhiteSur-light icon theme (macOS Big Sur style)
-- ✅ Install San Francisco Pro fonts (Apple's official typefaces: SF Pro Text, SF Pro Display, SF Mono)
-- ✅ Configure macOS-like font rendering (DPI 96, hintslight, RGB subpixel)
-- ✅ Install custom wallpapers
-- ✅ Install Plank dock with custom "milo" theme
-- ✅ Configure XFCE4 panel with top bar layout
-- ✅ Install Apple Mac Plymouth boot theme
-- ✅ Desktop icons aligned to top-right (macOS style)
+### System Optimizations
+- CPU governor: performance
+- Swappiness: 10
+- File descriptors: 524288
+- Audio group: real-time permissions
+- Memory: optimized for audio workloads
 
-**Audio Production:**
-- ✅ Install and configure PipeWire with pro-audio profile
-- ✅ Configure low-latency audio (48kHz, 256 buffer, S32LE format)
-- ✅ Set RTKit priority 88 for real-time audio
-- ✅ Configure kernel parameters (preempt=full, nohz_full=all, threadirqs)
-- ✅ Set system limits for audio production (rtprio 99, memlock unlimited)
-- ✅ Configure sysctl optimizations (swappiness, inotify, shmmax)
-- ✅ Add all users to audio group automatically
+## Verification
 
-**Custom Menu System:**
-- ✅ Install custom miloOS menu items (bilingual: English/Spanish)
-- ✅ Hide default XFCE system menu items
-- ✅ Custom actions: About, Settings, Sleep, Restart, Shutdown, Logout
-
-**System Rebranding:**
-- ✅ **Rebrand system from Debian to miloOS**
-- ✅ Update system identification files
-- ✅ Configure GRUB bootloader
-- ✅ Custom MOTD (Message of the Day)
-
-### System Rebranding
-
-The installation automatically rebrands your Debian system to miloOS by modifying:
-- System identification files (`/etc/os-release`, `/etc/lsb-release`)
-- Login banners (`/etc/issue`, `/etc/issue.net`)
-- GRUB bootloader configuration
-- Message of the Day (MOTD)
-- LightDM greeter theme
-
-**Important:** 
-- A backup is automatically created in `/root/debian-backup-YYYYMMDD-HHMMSS/`
-- The system maintains full compatibility with Debian packages
-- You can restore the original Debian branding using `sudo ./resources/restore_debian_branding.sh`
-
-### Verification
-
-After installation and reboot, verify the system:
+Check your installation:
 
 ```bash
-# Run the verification script
-./verify_installation.sh
-
-# Or manually check components:
-
-# Check system information
-cat /etc/os-release
-lsb_release -a
-
-# Check installed theme
-xfconf-query -c xfwm4 -p /general/theme
-
-# Check icon theme
-xfconf-query -c xsettings -p /Net/IconThemeName
-
-# Check fonts
-fc-list | grep "SF"
-
-# Check PipeWire
-pactl info | grep "Server Name"
-
-# Check audio limits
-cat /etc/security/limits.d/99-audio-production.conf
-
-# Check if user is in audio group
-groups $USER
+bash verify_installation.sh
 ```
 
-## Restoring Debian Branding
+This verifies:
+- Package installation
+- Theme and icon files
+- Font availability
+- Configuration files
+- System rebranding
+- Audio optimization
+- Kernel parameters
 
-If you need to restore the original Debian branding:
+## Customization
 
+### Change Wallpaper
+1. Right-click on desktop → Desktop Settings
+2. Select from `/usr/share/backgrounds/miloOS/`
+
+### Modify Panel
+1. Right-click on panel → Panel → Panel Preferences
+2. Or edit: `~/.config/xfce4/xfconf/xfce-perchannel-xml/xfce4-panel.xml`
+
+### Adjust Audio Settings
+Use AudioConfig application or manually edit:
 ```bash
-sudo ./resources/restore_debian_branding.sh
+nano ~/.config/pipewire/pipewire.conf.d/99-custom.conf
+systemctl --user restart pipewire
 ```
 
-This will restore all original system files from the backup.
-
-## Features
-
-**Desktop Experience:**
-- ✅ Complete macOS Big Sur-like appearance
-- ✅ San Francisco Pro fonts throughout the system
-- ✅ WhiteSur icon theme (light variant)
-- ✅ Custom SLiM login screen
-- ✅ Apple Mac Plymouth boot animation
-- ✅ Top panel with global menu support
-- ✅ Plank dock at bottom (intelligent hide mode)
-- ✅ Desktop icons on top-right
-
-**Audio Production:**
-- ✅ PipeWire with pro-audio profile by default
-- ✅ Ultra-low latency configuration (256 samples @ 48kHz)
-- ✅ Real-time kernel parameters
-- ✅ Optimized system limits for audio work
-- ✅ Ready for professional DAWs (Ardour, Reaper, Bitwig, etc.)
-
-**Internationalization:**
-- ✅ Bilingual menu system (English/Spanish)
-- ✅ Automatic language detection
-
-**System:**
-- ✅ Complete system rebranding from Debian to miloOS
-- ✅ Automatic backup of original system files
-- ✅ Full compatibility with Debian packages
-- ✅ Reversible installation
-- ✅ Verification script included
-
-## Requirements
-
-- **Operating System:** Debian 13 (Trixie) base system
-- **Desktop Environment:** XFCE4 (must be pre-installed)
-- **Permissions:** Root/sudo access
-- **Network:** Internet connection for downloading packages and themes
-- **Disk Space:** At least 500MB free space
-- **Tools:** wget or curl, git, unzip (will be installed if missing)
-
-## Technical Details
-
-**Fonts:**
-- SF Pro Text 10pt (UI)
-- SF Pro Display Medium 9pt (Window titles)
-- SF Mono 11pt (System monospace)
-- SF Mono 13pt (Terminal)
-
-**Audio Configuration:**
-- Sample Rate: 48kHz
-- Buffer Size: 256 samples (quantum)
-- Format: S32LE (32-bit)
-- Profile: pro-audio
-- RTKit Priority: 88
-
-**Kernel Parameters:**
-- preempt=full (Fully preemptible kernel)
-- nohz_full=all (No tick on all CPUs)
-- threadirqs (Threaded IRQs)
+### Theme Colors
+Edit theme files in `/usr/share/themes/miloOS/gtk-3.0/`
 
 ## Troubleshooting
 
-**Fonts not showing correctly:**
+### Panel Issues
 ```bash
-# Update font cache
+xfce4-panel --restart
+```
+
+### Plank Not Starting
+```bash
+plank &
+```
+
+### Font Cache
+```bash
 fc-cache -f
-# Logout and login again
 ```
 
-**Audio not working:**
+### Audio Problems
 ```bash
-# Check if user is in audio group
-groups $USER
-# If not, add user and reboot
-sudo usermod -aG audio $USER
+systemctl --user restart pipewire pipewire-pulse
 ```
 
-**Plymouth theme not showing:**
+### GRUB Changes Not Applied
 ```bash
-# Update initramfs
-sudo update-initramfs -u -k all
+sudo update-grub
+sudo update-initramfs -u
 ```
 
-## Notes
+### Power Menu Not Working
+Ensure polkit is configured:
+```bash
+ls /etc/polkit-1/rules.d/50-miloOS-power.rules
+```
 
-* The system is fully compatible with Debian packages and repositories
-* All changes are reversible with automatic backups
-* System backup location: `/root/debian-backup-YYYYMMDD-HHMMSS/`
-* User config backup: `~/.config/miloOS-backup-YYYYMMDD-HHMMSS/` (if created)
-* Reboot required after installation for all changes to take effect
-* First login after installation may take a moment as fonts are cached
+## Backup and Restore
 
-## Contributing
+### Backup Location
+Original Debian files are backed up to:
+```
+/root/debian-backup-YYYYMMDD-HHMMSS/
+```
 
-Contributions are welcome! Please feel free to submit issues or pull requests.
+### Restore System
+To revert to Debian:
+1. Restore files from backup directory
+2. Remove miloOS themes: `sudo rm -rf /usr/share/themes/miloOS`
+3. Reset XFCE4: `xfce4-panel --restart`
+4. Update GRUB: `sudo update-grub`
 
-## License
+## Development
 
-This project inherits licenses from its components. See individual component licenses for details.
+### Project Structure
+```
+miloOS-core/
+├── AudioConfig/          # AudioConfig application
+├── configurations/       # XFCE4 and system configs
+├── resources/           # Themes, icons, fonts, menus
+├── core_install.sh      # Main installer
+└── verify_installation.sh
+```
+
+### Contributing
+Contributions welcome! Please:
+1. Fork the repository
+2. Create a feature branch
+3. Submit a pull request
 
 ## Credits
 
-- **Themes:** WhiteSur by vinceliuice
-- **Fonts:** San Francisco Pro by Apple (via sahibjotsaggu)
-- **Plymouth:** Apple Mac theme by Navis Michael Bearly
-- **Base System:** Debian Project
+- **Theme Base**: Elementary OS theme
+- **Icons**: [WhiteSur Icon Theme](https://github.com/vinceliuice/WhiteSur-icon-theme) by vinceliuice
+- **Fonts**: San Francisco Pro by Apple Inc.
+- **Inspiration**: macOS design language
+
+## License
+
+MIT License - See LICENSE file for details
+
+## Disclaimer
+
+This project is not affiliated with Apple Inc. macOS is a trademark of Apple Inc. This is a fan-made project for educational and personal use only.
+
+## Author
+
+**Wamphyre**
+- GitHub: [@Wamphyre](https://github.com/Wamphyre)
+
+## Version
+
+**2.1** - Enhanced with miloApps suite, improved audio optimization, and bilingual support
+
+---
+
+*Transform your Linux experience with miloOS Core* 🚀

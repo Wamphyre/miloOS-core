@@ -62,7 +62,9 @@
     </property>
     <property name="plugin-12" type="string" value="clock">
       <property name="digital-format" type="string" value="%R"/>
-      <property name="mode" type="uint" value="3"/>
+      <property name="mode" type="uint" value="2"/>
+      <property name="show-frame" type="bool" value="false"/>
+      <property name="tooltip-format" type="string" value="%A %d %B %Y"/>
       <property name="digital-time-font" type="string" value="SF Pro Text Medium 10"/>
     </property>
     <property name="plugin-2" type="string" value="appmenu">

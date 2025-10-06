@@ -3,13 +3,8 @@
 # Handles system power actions with confirmation dialogs
 
 # Detect system language
-get_lang() {
-    local lang="${LANG%%.*}"
-    lang="${lang%%_*}"
-    echo "$lang"
-}
-
-LANG_CODE=$(get_lang)
+LANG_CODE="${LANG%%_*}"
+LANG_CODE="${LANG_CODE%%.*}"
 
 # Translations
 if [ "$LANG_CODE" = "es" ]; then
