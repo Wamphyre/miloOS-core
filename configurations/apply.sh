@@ -378,6 +378,18 @@ EOF
 chown "$EXEC_USER:$EXEC_USER" "$USER_HOME/.config/menus/xfce-applications.menu"
 log_info "Applications menu configured (miloOS items only in logo menu)"
 
+# Configure PipeWire JACK library path
+log_info "Configuring PipeWire JACK library path..."
+mkdir -p "$USER_HOME/.config/environment.d"
+cat > "$USER_HOME/.config/environment.d/pipewire-jack.conf" << 'EOF'
+# PipeWire JACK library path configuration
+# This allows JACK applications to use PipeWire's JACK implementation
+LD_LIBRARY_PATH=/usr/lib/x86_64-linux-gnu/pipewire-0.3/jack:${LD_LIBRARY_PATH}
+EOF
+chmod 644 "$USER_HOME/.config/environment.d/pipewire-jack.conf"
+chown "$EXEC_USER:$EXEC_USER" "$USER_HOME/.config/environment.d/pipewire-jack.conf"
+log_info "PipeWire JACK library path configured"
+
 # Copy GRUB configuration (requires root)
 if [ -f "configurations/grub" ]; then
     log_info "GRUB configuration found. To apply it, run as root:"
@@ -386,4 +398,5 @@ if [ -f "configurations/grub" ]; then
 fi
 
 log_info "Configuration applied successfully!"
+log_warn "IMPORTANT: Log out and log back in for JACK library path to take effect"
 

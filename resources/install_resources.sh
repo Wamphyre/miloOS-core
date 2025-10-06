@@ -582,6 +582,25 @@ jack.properties = {
 }
 EOF
     
+    # Configure JACK library path for all users
+    log_info "Configuring JACK library path..."
+    mkdir -p /etc/profile.d
+    cat > /etc/profile.d/pipewire-jack.sh << 'EOF'
+# PipeWire JACK library path configuration for miloOS
+# This allows JACK applications to use PipeWire's JACK implementation
+export LD_LIBRARY_PATH="/usr/lib/x86_64-linux-gnu/pipewire-0.3/jack:${LD_LIBRARY_PATH}"
+EOF
+    chmod 644 /etc/profile.d/pipewire-jack.sh
+    
+    # Also configure for systemd user sessions
+    mkdir -p /etc/systemd/user.conf.d
+    cat > /etc/systemd/user.conf.d/pipewire-jack.conf << 'EOF'
+[Manager]
+DefaultEnvironment="LD_LIBRARY_PATH=/usr/lib/x86_64-linux-gnu/pipewire-0.3/jack:${LD_LIBRARY_PATH}"
+EOF
+    
+    log_info "JACK library path configured globally"
+    
     # Create WirePlumber low-latency and pro-audio configuration
     mkdir -p /etc/wireplumber/main.lua.d
     mkdir -p /etc/wireplumber/policy.lua.d
