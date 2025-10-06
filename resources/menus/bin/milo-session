@@ -2,47 +2,68 @@
 # miloOS Session Manager
 # Handles system power actions with confirmation dialogs
 
+# Check if zenity is available, fallback to xfce4-session-logout
+if ! command -v zenity &> /dev/null; then
+    # No zenity, use XFCE's built-in dialog
+    case "$1" in
+        shutdown)
+            xfce4-session-logout --halt
+            ;;
+        restart)
+            xfce4-session-logout --reboot
+            ;;
+        sleep|suspend)
+            xfce4-session-logout --suspend
+            ;;
+        logout)
+            xfce4-session-logout --logout
+            ;;
+        *)
+            echo "Usage: $0 {shutdown|restart|sleep|logout}"
+            exit 1
+            ;;
+    esac
+    exit 0
+fi
+
+# Use zenity for confirmation dialogs
 case "$1" in
     shutdown)
         if zenity --question --width=350 --height=120 \
             --title="Shut Down" \
-            --text="<b>Are you sure you want to shut down your computer?</b>\n\nAll unsaved work will be lost." \
+            --text="Are you sure you want to shut down your computer?\n\nAll unsaved work will be lost." \
             --ok-label="Shut Down" \
-            --cancel-label="Cancel" 2>/dev/null; then
-            # Use systemctl which works with polkit
-            systemctl poweroff
+            --cancel-label="Cancel"; then
+            systemctl poweroff || xfce4-session-logout --halt --fast
         fi
         ;;
     
     restart)
         if zenity --question --width=350 --height=120 \
             --title="Restart" \
-            --text="<b>Are you sure you want to restart your computer?</b>\n\nAll unsaved work will be lost." \
+            --text="Are you sure you want to restart your computer?\n\nAll unsaved work will be lost." \
             --ok-label="Restart" \
-            --cancel-label="Cancel" 2>/dev/null; then
-            # Use systemctl which works with polkit
-            systemctl reboot
+            --cancel-label="Cancel"; then
+            systemctl reboot || xfce4-session-logout --reboot --fast
         fi
         ;;
     
     sleep|suspend)
         if zenity --question --width=350 --height=120 \
             --title="Suspend" \
-            --text="<b>Suspend your computer?</b>\n\nYour work will be saved and you can resume later." \
+            --text="Suspend your computer?\n\nYour work will be saved and you can resume later." \
             --ok-label="Suspend" \
-            --cancel-label="Cancel" 2>/dev/null; then
-            # Use systemctl which works with polkit
-            systemctl suspend
+            --cancel-label="Cancel"; then
+            systemctl suspend || xfce4-session-logout --suspend
         fi
         ;;
     
     logout)
         if zenity --question --width=350 --height=120 \
             --title="Log Out" \
-            --text="<b>Log out of your session?</b>\n\nAll applications will be closed." \
+            --text="Log out of your session?\n\nAll applications will be closed." \
             --ok-label="Log Out" \
-            --cancel-label="Cancel" 2>/dev/null; then
-            # Logout from XFCE session
+            --cancel-label="Cancel"; then
             xfce4-session-logout --logout --fast
         fi
         ;;

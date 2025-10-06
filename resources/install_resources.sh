@@ -97,7 +97,7 @@ install_debian_packages() {
     
     for pkg in gtk2-engines-murrine gtk2-engines-pixbuf plank catfish \
                appmenu-gtk3-module dconf-cli vala-panel-appmenu \
-               xfce4-appmenu-plugin xfce4-notifyd cifs-utils smbclient slim; do
+               xfce4-appmenu-plugin xfce4-notifyd cifs-utils smbclient slim zenity; do
         if apt-get install -y "$pkg" 2>/dev/null; then
             log_info "✓ $pkg installed"
         else
@@ -675,7 +675,14 @@ EOF
         # Update GRUB
         if command -v update-grub &> /dev/null; then
             log_info "Updating GRUB configuration..."
-            update-grub 2>/dev/null || log_warn "Failed to update GRUB"
+            update-grub 2>&1 | grep -v "^Generating" || log_warn "Failed to update GRUB"
+        fi
+        
+        # Update initramfs
+        if command -v update-initramfs &> /dev/null; then
+            log_info "Updating initramfs (this may take a moment)..."
+            update-initramfs -u -k all 2>&1 | grep -v "^update-initramfs:" | head -10 || true
+            log_info "Initramfs updated"
         fi
     fi
     
