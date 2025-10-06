@@ -247,8 +247,8 @@ xfconf-query -c xsettings -p /Net/ThemeName -n -t string -s miloOS 2>/dev/null |
 xfconf-query -c xfwm4 -p /general/title_alignment -n -t string -s center 2>/dev/null || \
     xfconf-query -c xfwm4 -p /general/title_alignment -t string -s center
 
-xfconf-query -c xfwm4 -p /general/button_layout -n -t string -s "C|HM" 2>/dev/null || \
-    xfconf-query -c xfwm4 -p /general/button_layout -t string -s "C|HM"
+xfconf-query -c xfwm4 -p /general/button_layout -n -t string -s "CHM|" 2>/dev/null || \
+    xfconf-query -c xfwm4 -p /general/button_layout -t string -s "CHM|"
 
 # Icon theme (WhiteSur-light)
 xfconf-query -c xsettings -p /Net/IconThemeName -n -t string -s WhiteSur-light 2>/dev/null || \

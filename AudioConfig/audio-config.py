@@ -110,11 +110,14 @@ class AudioConfigWindow(Gtk.Window):
         
         # Main container with padding
         main_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
-        main_box.set_margin_top(20)
-        main_box.set_margin_bottom(20)
+        main_box.set_margin_top(15)
+        main_box.set_margin_bottom(15)
         main_box.set_margin_start(20)
         main_box.set_margin_end(20)
         self.add(main_box)
+        
+        self.current_output = None
+        self.current_input = None
         
         # OUTPUT SECTION
         output_label = Gtk.Label(label=_('output'))
@@ -126,8 +129,22 @@ class AudioConfigWindow(Gtk.Window):
         self.output_listbox = Gtk.ListBox()
         self.output_listbox.set_selection_mode(Gtk.SelectionMode.SINGLE)
         self.output_listbox.get_style_context().add_class("device-list")
-        self.output_listbox.set_size_request(-1, 120)
+        self.output_listbox.set_size_request(-1, 100)
         main_box.pack_start(self.output_listbox, False, False, 5)
+        
+        # Output volume
+        volume_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
+        volume_box.set_margin_top(8)
+        volume_label = Gtk.Label(label=_('output_volume'))
+        volume_label.set_size_request(120, -1)
+        volume_label.set_halign(Gtk.Align.START)
+        self.output_volume = Gtk.Scale.new_with_range(Gtk.Orientation.HORIZONTAL, 0, 100, 1)
+        self.output_volume.set_value(75)
+        self.output_volume.set_draw_value(False)
+        self.output_volume.connect("value-changed", self.on_output_volume_changed)
+        volume_box.pack_start(volume_label, False, False, 0)
+        volume_box.pack_start(self.output_volume, True, True, 0)
+        main_box.pack_start(volume_box, False, False, 0)
         
         # Separator
         sep1 = Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL)
@@ -146,8 +163,22 @@ class AudioConfigWindow(Gtk.Window):
         self.input_listbox = Gtk.ListBox()
         self.input_listbox.set_selection_mode(Gtk.SelectionMode.SINGLE)
         self.input_listbox.get_style_context().add_class("device-list")
-        self.input_listbox.set_size_request(-1, 120)
+        self.input_listbox.set_size_request(-1, 100)
         main_box.pack_start(self.input_listbox, False, False, 5)
+        
+        # Input level
+        input_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
+        input_box.set_margin_top(8)
+        input_label_vol = Gtk.Label(label=_('input_level'))
+        input_label_vol.set_size_request(120, -1)
+        input_label_vol.set_halign(Gtk.Align.START)
+        self.input_volume = Gtk.Scale.new_with_range(Gtk.Orientation.HORIZONTAL, 0, 100, 1)
+        self.input_volume.set_value(75)
+        self.input_volume.set_draw_value(False)
+        self.input_volume.connect("value-changed", self.on_input_volume_changed)
+        input_box.pack_start(input_label_vol, False, False, 0)
+        input_box.pack_start(self.input_volume, True, True, 0)
+        main_box.pack_start(input_box, False, False, 0)
         
         # Separator
         sep2 = Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL)
@@ -193,16 +224,29 @@ class AudioConfigWindow(Gtk.Window):
         
         main_box.pack_start(settings_grid, False, False, 0)
         
+        # Buttons at bottom
+        button_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
+        button_box.set_margin_top(20)
+        button_box.set_halign(Gtk.Align.END)
+        
+        cancel_btn = Gtk.Button(label="Cancel" if get_language() == 'en' else "Cancelar")
+        cancel_btn.connect("clicked", lambda x: self.destroy())
+        button_box.pack_start(cancel_btn, False, False, 0)
+        
+        apply_btn = Gtk.Button(label="Apply" if get_language() == 'en' else "Aplicar")
+        apply_btn.get_style_context().add_class("suggested-action")
+        apply_btn.connect("clicked", lambda x: self.apply_config())
+        button_box.pack_start(apply_btn, False, False, 0)
+        
+        main_box.pack_start(button_box, False, False, 0)
+        
         # Load devices and config
         self.load_devices()
         self.load_config()
         
-        # Connect selection change to auto-apply
-        self.output_listbox.connect("row-selected", self.on_device_changed)
-        self.input_listbox.connect("row-selected", self.on_device_changed)
-        self.rate_combo.connect("changed", self.on_setting_changed)
-        self.buffer_combo.connect("changed", self.on_setting_changed)
-        self.format_combo.connect("changed", self.on_setting_changed)
+        # Connect selection change
+        self.output_listbox.connect("row-selected", self.on_output_selected)
+        self.input_listbox.connect("row-selected", self.on_input_selected)
     
     def load_devices(self):
         """Load available audio devices in macOS style"""
@@ -317,25 +361,46 @@ class AudioConfigWindow(Gtk.Window):
             except Exception as e:
                 print(f"Error loading config: {e}")
     
-    def on_device_changed(self, listbox, row):
-        """Handle device selection change - apply immediately"""
-        if row is None:
-            return
-        GLib.timeout_add(100, self.apply_config)
+    def on_output_selected(self, listbox, row):
+        """Handle output device selection"""
+        if row:
+            self.current_output = row.device_name
+            # Update all rows to show correct selection
+            for r in listbox.get_children():
+                hbox = r.get_child()
+                indicator = hbox.get_children()[0]
+                indicator.set_text("●" if r == row else "○")
     
-    def on_setting_changed(self, combo):
-        """Handle setting change - apply immediately"""
-        GLib.timeout_add(100, self.apply_config)
+    def on_input_selected(self, listbox, row):
+        """Handle input device selection"""
+        if row:
+            self.current_input = row.device_name
+            # Update all rows to show correct selection
+            for r in listbox.get_children():
+                hbox = r.get_child()
+                indicator = hbox.get_children()[0]
+                indicator.set_text("●" if r == row else "○")
+    
+    def on_output_volume_changed(self, scale):
+        """Handle output volume change"""
+        if self.current_output:
+            volume = int(scale.get_value())
+            subprocess.run(['pactl', 'set-sink-volume', self.current_output, f'{volume}%'],
+                         capture_output=True)
+    
+    def on_input_volume_changed(self, scale):
+        """Handle input volume change"""
+        if self.current_input:
+            volume = int(scale.get_value())
+            subprocess.run(['pactl', 'set-source-volume', self.current_input, f'{volume}%'],
+                         capture_output=True)
     
     def apply_config(self):
-        """Apply configuration immediately (macOS style)"""
+        """Apply configuration when Apply button is clicked"""
         try:
             # Get selected devices
-            output_row = self.output_listbox.get_selected_row()
-            input_row = self.input_listbox.get_selected_row()
-            
-            output_device = output_row.device_name if output_row else None
-            input_device = input_row.device_name if input_row else None
+            output_device = self.current_output
+            input_device = self.current_input
             
             # Get settings
             rate_text = self.rate_combo.get_active_text()
@@ -399,10 +464,30 @@ context.modules = [
             subprocess.run(['systemctl', '--user', 'restart', 'pipewire-pulse'], 
                          capture_output=True)
             
+            # Show success message
+            dialog = Gtk.MessageDialog(
+                transient_for=self,
+                flags=0,
+                message_type=Gtk.MessageType.INFO,
+                buttons=Gtk.ButtonsType.OK,
+                text=_('config_applied')
+            )
+            dialog.format_secondary_text(_('config_applied_msg'))
+            dialog.run()
+            dialog.destroy()
+            
         except Exception as e:
-            print(f"Error applying config: {e}")
-        
-        return False  # Don't repeat timeout
+            # Show error message
+            dialog = Gtk.MessageDialog(
+                transient_for=self,
+                flags=0,
+                message_type=Gtk.MessageType.ERROR,
+                buttons=Gtk.ButtonsType.OK,
+                text=_('error')
+            )
+            dialog.format_secondary_text(_('error_msg').format(str(e)))
+            dialog.run()
+            dialog.destroy()
 
 def main():
     win = AudioConfigWindow()
