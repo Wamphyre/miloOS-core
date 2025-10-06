@@ -25,7 +25,7 @@ log_error() {
 }
 
 # Prevents execution with root user
-if [ "$EUID" -eq 0 ]; then
+if [ "$(id -u)" -eq 0 ]; then
     log_error "Don't run this script with root user"
     exit 1
 fi

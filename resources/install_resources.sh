@@ -39,7 +39,7 @@ error_exit() {
 }
 
 # Ensure execution as root
-if [ "$EUID" -ne 0 ]; then
+if [ "$(id -u)" -ne 0 ]; then
     error_exit "This script must be run as root (use sudo)"
 fi
 
