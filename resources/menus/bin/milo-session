@@ -2,6 +2,56 @@
 # miloOS Session Manager
 # Handles system power actions with confirmation dialogs
 
+# Detect system language
+get_lang() {
+    local lang="${LANG%%.*}"
+    lang="${lang%%_*}"
+    echo "$lang"
+}
+
+LANG_CODE=$(get_lang)
+
+# Translations
+if [ "$LANG_CODE" = "es" ]; then
+    # Spanish
+    SHUTDOWN_TITLE="Apagar"
+    SHUTDOWN_TEXT="¿Estás seguro de que quieres apagar el equipo?\n\nTodo el trabajo no guardado se perderá."
+    SHUTDOWN_OK="Apagar"
+    
+    RESTART_TITLE="Reiniciar"
+    RESTART_TEXT="¿Estás seguro de que quieres reiniciar el equipo?\n\nTodo el trabajo no guardado se perderá."
+    RESTART_OK="Reiniciar"
+    
+    SUSPEND_TITLE="Suspender"
+    SUSPEND_TEXT="¿Suspender el equipo?\n\nTu trabajo se guardará y podrás continuar más tarde."
+    SUSPEND_OK="Suspender"
+    
+    LOGOUT_TITLE="Cerrar Sesión"
+    LOGOUT_TEXT="¿Cerrar la sesión?\n\nTodas las aplicaciones se cerrarán."
+    LOGOUT_OK="Cerrar Sesión"
+    
+    CANCEL_LABEL="Cancelar"
+else
+    # English (default)
+    SHUTDOWN_TITLE="Shut Down"
+    SHUTDOWN_TEXT="Are you sure you want to shut down your computer?\n\nAll unsaved work will be lost."
+    SHUTDOWN_OK="Shut Down"
+    
+    RESTART_TITLE="Restart"
+    RESTART_TEXT="Are you sure you want to restart your computer?\n\nAll unsaved work will be lost."
+    RESTART_OK="Restart"
+    
+    SUSPEND_TITLE="Suspend"
+    SUSPEND_TEXT="Suspend your computer?\n\nYour work will be saved and you can resume later."
+    SUSPEND_OK="Suspend"
+    
+    LOGOUT_TITLE="Log Out"
+    LOGOUT_TEXT="Log out of your session?\n\nAll applications will be closed."
+    LOGOUT_OK="Log Out"
+    
+    CANCEL_LABEL="Cancel"
+fi
+
 # Check if zenity is available, fallback to xfce4-session-logout
 if ! command -v zenity &> /dev/null; then
     # No zenity, use XFCE's built-in dialog
@@ -26,44 +76,52 @@ if ! command -v zenity &> /dev/null; then
     exit 0
 fi
 
-# Use zenity for confirmation dialogs
+# Use zenity for confirmation dialogs with improved styling
 case "$1" in
     shutdown)
-        if zenity --question --width=350 --height=120 \
-            --title="Shut Down" \
-            --text="Are you sure you want to shut down your computer?\n\nAll unsaved work will be lost." \
-            --ok-label="Shut Down" \
-            --cancel-label="Cancel"; then
+        if zenity --question --width=400 --height=150 \
+            --title="$SHUTDOWN_TITLE" \
+            --text="$SHUTDOWN_TEXT" \
+            --ok-label="$SHUTDOWN_OK" \
+            --cancel-label="$CANCEL_LABEL" \
+            --icon-name=system-shutdown \
+            --window-icon=system-shutdown; then
             systemctl poweroff || xfce4-session-logout --halt --fast
         fi
         ;;
     
     restart)
-        if zenity --question --width=350 --height=120 \
-            --title="Restart" \
-            --text="Are you sure you want to restart your computer?\n\nAll unsaved work will be lost." \
-            --ok-label="Restart" \
-            --cancel-label="Cancel"; then
+        if zenity --question --width=400 --height=150 \
+            --title="$RESTART_TITLE" \
+            --text="$RESTART_TEXT" \
+            --ok-label="$RESTART_OK" \
+            --cancel-label="$CANCEL_LABEL" \
+            --icon-name=system-restart \
+            --window-icon=system-restart; then
             systemctl reboot || xfce4-session-logout --reboot --fast
         fi
         ;;
     
     sleep|suspend)
-        if zenity --question --width=350 --height=120 \
-            --title="Suspend" \
-            --text="Suspend your computer?\n\nYour work will be saved and you can resume later." \
-            --ok-label="Suspend" \
-            --cancel-label="Cancel"; then
+        if zenity --question --width=400 --height=150 \
+            --title="$SUSPEND_TITLE" \
+            --text="$SUSPEND_TEXT" \
+            --ok-label="$SUSPEND_OK" \
+            --cancel-label="$CANCEL_LABEL" \
+            --icon-name=system-suspend \
+            --window-icon=system-suspend; then
             systemctl suspend || xfce4-session-logout --suspend
         fi
         ;;
     
     logout)
-        if zenity --question --width=350 --height=120 \
-            --title="Log Out" \
-            --text="Log out of your session?\n\nAll applications will be closed." \
-            --ok-label="Log Out" \
-            --cancel-label="Cancel"; then
+        if zenity --question --width=400 --height=150 \
+            --title="$LOGOUT_TITLE" \
+            --text="$LOGOUT_TEXT" \
+            --ok-label="$LOGOUT_OK" \
+            --cancel-label="$CANCEL_LABEL" \
+            --icon-name=system-log-out \
+            --window-icon=system-log-out; then
             xfce4-session-logout --logout --fast
         fi
         ;;
