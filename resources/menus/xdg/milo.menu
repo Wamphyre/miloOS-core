@@ -1,27 +1,25 @@
-<!DOCTYPE Menu PUBLIC "-//freedesktop//DTD Menu 1.0//EN"
-  "http://www.freedesktop.org/standards/menu-spec/1.0/menu.dtd">
-
+<!DOCTYPE Menu PUBLIC "-//freedesktop//DTD Menu 1.0//EN" "http://www.freedesktop.org/standards/menu-spec/1.0/menu.dtd">
 <Menu>
-    <Name>miloOS Menu</Name>
-
-    <DefaultAppDirs/>
-    <DefaultDirectoryDirs/>
-    <DefaultMergeDirs/>
-
-    <Include>
-        <Category>X-Xfce-Toplevel</Category>
-    </Include>
-
-    <Layout>
-        <Filename>milo-about.desktop</Filename>
-        <Separator/>
-        <Filename>milo-settings.desktop</Filename>
-        <Separator/>
-        <Filename>milo-sleep.desktop</Filename>
-        <Filename>milo-restart.desktop</Filename>
-        <Filename>milo-shutdown.desktop</Filename>
-        <Separator/>
-        <Filename>milo-logout.desktop</Filename>
-    </Layout>
-
+<Name>miloOS Menu</Name>
+<DefaultAppDirs/>
+<DefaultDirectoryDirs/>
+<Include>
+<Filename>milo-about.desktop</Filename>
+<Filename>milo-settings.desktop</Filename>
+<Filename>milo-sleep.desktop</Filename>
+<Filename>milo-restart.desktop</Filename>
+<Filename>milo-shutdown.desktop</Filename>
+<Filename>milo-logout.desktop</Filename>
+</Include>
+<Layout>
+<Filename>milo-about.desktop</Filename>
+<Separator/>
+<Filename>milo-settings.desktop</Filename>
+<Separator/>
+<Filename>milo-sleep.desktop</Filename>
+<Filename>milo-restart.desktop</Filename>
+<Filename>milo-shutdown.desktop</Filename>
+<Separator/>
+<Filename>milo-logout.desktop</Filename>
+</Layout>
 </Menu>

@@ -407,6 +407,13 @@ install_menus() {
     else
         log_warn "XDG menu not found, skipping"
     fi
+    
+    # Clean up XFCE applications menu (remove separators)
+    if [ -f "/etc/xdg/menus/xfce-applications.menu" ]; then
+        log_info "Cleaning up XFCE applications menu..."
+        sed -i '/<Layout>/,/<\/Layout>/ { /^[[:space:]]*<Separator\/>/d }' /etc/xdg/menus/xfce-applications.menu
+        log_info "XFCE applications menu cleaned"
+    fi
 }
 
 rebrand_system() {

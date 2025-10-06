@@ -256,9 +256,12 @@ xfconf-query -c xsettings -p /Net/IconThemeName -n -t string -s WhiteSur-light 2
 xfconf-query -c xsettings -p /Gtk/CursorThemeName -n -t string -s Adwaita 2>/dev/null || \
     xfconf-query -c xsettings -p /Gtk/CursorThemeName -t string -s Adwaita
 
-# Desktop icons alignment (right side, macOS style)
-xfconf-query -c xfce4-desktop -p /desktop-icons/gravity -n -t int -s 1 2>/dev/null || \
-    xfconf-query -c xfce4-desktop -p /desktop-icons/gravity -t int -s 1
+# Desktop icons alignment (top-right, vertical, macOS style)
+xfconf-query -c xfce4-desktop -p /desktop-icons/gravity -n -t int -s 2 2>/dev/null || \
+    xfconf-query -c xfce4-desktop -p /desktop-icons/gravity -t int -s 2
+
+xfconf-query -c xfce4-desktop -p /desktop-icons/style -n -t int -s 0 2>/dev/null || \
+    xfconf-query -c xfce4-desktop -p /desktop-icons/style -t int -s 0
 
 # Desktop icons settings
 xfconf-query -c xfce4-desktop -p /desktop-icons/file-icons/show-home -n -t bool -s false 2>/dev/null || \
