@@ -316,11 +316,17 @@ ACTIONS_TO_HIDE=(
     "xfce4-reboot"
     "xfce4-suspend"
     "xfce4-hibernate"
+    "xfce4-about"
+    "xfce4-settings-manager"
     # Systemd actions
     "systemd-reboot"
     "systemd-shutdown"
     "systemd-suspend"
     "systemd-hibernate"
+    # About/Settings that appear in menu
+    "xfce-about"
+    "xfce-settings-manager"
+    "xfce4-settings"
 )
 
 # Create override files to hide all system actions
@@ -347,5 +353,4 @@ if [ -f "configurations/grub" ]; then
 fi
 
 log_info "Configuration applied successfully!"
-log_warn "Please log out and log back in for all changes to take effect."
 

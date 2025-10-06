@@ -160,13 +160,6 @@ install_gtk_themes() {
         
         # Configure SLiM to use milk theme
         if [ -f "/etc/slim.conf" ]; then
-            local backup_dir=$(cat /root/.miloOS-last-backup 2>/dev/null || echo "/root/debian-backup-$(date +%Y%m%d-%H%M%S)")
-            mkdir -p "$backup_dir"
-            
-            if [ ! -f "$backup_dir/slim.conf.bak" ]; then
-                cp /etc/slim.conf "$backup_dir/slim.conf.bak"
-            fi
-            
             # Set milk theme
             if grep -q "^current_theme" /etc/slim.conf; then
                 sed -i 's/^current_theme.*/current_theme milk/' /etc/slim.conf
@@ -419,17 +412,8 @@ install_menus() {
 rebrand_system() {
     log_step 8 $TOTAL_STEPS "Rebranding system from Debian to miloOS..."
     
-    # Backup original files
-    local backup_dir="/root/debian-backup-$(date +%Y%m%d-%H%M%S)"
-    mkdir -p "$backup_dir"
-    log_info "Creating backup at: $backup_dir"
-    
-    # Save backup location for later reference
-    echo "$backup_dir" > /root/.miloOS-last-backup
-    
     # 1. /etc/os-release - System identification
     if [ -f "/etc/os-release" ]; then
-        cp /etc/os-release "$backup_dir/os-release.bak"
         cat > /etc/os-release << 'EOF'
 PRETTY_NAME="miloOS"
 NAME="miloOS"
@@ -449,7 +433,6 @@ EOF
     
     # 2. /etc/issue - Login banner
     if [ -f "/etc/issue" ]; then
-        cp /etc/issue "$backup_dir/issue.bak"
         cat > /etc/issue << 'EOF'
 miloOS 1.0 \n \l
 
@@ -459,15 +442,11 @@ EOF
     
     # 3. /etc/issue.net - Network login banner
     if [ -f "/etc/issue.net" ]; then
-        cp /etc/issue.net "$backup_dir/issue.net.bak"
         echo "miloOS 1.0" > /etc/issue.net
         log_info "Updated /etc/issue.net"
     fi
     
     # 4. /etc/lsb-release - LSB information
-    if [ -f "/etc/lsb-release" ]; then
-        cp /etc/lsb-release "$backup_dir/lsb-release.bak"
-    fi
     cat > /etc/lsb-release << 'EOF'
 DISTRIB_ID=miloOS
 DISTRIB_RELEASE=1.0
@@ -478,17 +457,12 @@ EOF
     
     # 5. /etc/debian_version - Keep for compatibility
     if [ -f "/etc/debian_version" ]; then
-        cp /etc/debian_version "$backup_dir/debian_version.bak"
         echo "miloOS/1.0" > /etc/debian_version
         log_info "Updated /etc/debian_version"
     fi
     
     # 6. MOTD (Message of the Day)
     if [ -d "/etc/update-motd.d" ]; then
-        # Backup existing MOTD scripts
-        mkdir -p "$backup_dir/update-motd.d"
-        cp -R /etc/update-motd.d/* "$backup_dir/update-motd.d/" 2>/dev/null || true
-        
         # Disable default Debian MOTD scripts
         chmod -x /etc/update-motd.d/* 2>/dev/null || true
         
@@ -511,7 +485,6 @@ EOF
     
     # 7. Update GRUB bootloader (if exists)
     if [ -f "/etc/default/grub" ]; then
-        cp /etc/default/grub "$backup_dir/grub.bak"
         sed -i 's/GRUB_DISTRIBUTOR=.*/GRUB_DISTRIBUTOR="miloOS"/' /etc/default/grub
         
         # Update grub if update-grub is available
@@ -529,7 +502,6 @@ EOF
     
     # 9. LightDM/GDM greeter configuration
     if [ -f "/etc/lightdm/lightdm-gtk-greeter.conf" ]; then
-        cp /etc/lightdm/lightdm-gtk-greeter.conf "$backup_dir/lightdm-gtk-greeter.conf.bak"
         
         # Add or update the theme in [greeter] section
         if ! grep -q "^\[greeter\]" /etc/lightdm/lightdm-gtk-greeter.conf; then
@@ -545,14 +517,11 @@ EOF
     fi
     
     log_info "System rebranding completed!"
-    log_info "Backup saved at: $backup_dir"
     log_warn "Note: Some changes require a reboot to take full effect"
 }
 
 optimize_realtime_audio() {
     log_step 9 $TOTAL_STEPS "Optimizing system for real-time audio..."
-    
-    local backup_dir=$(cat /root/.miloOS-last-backup 2>/dev/null || echo "/root/debian-backup-$(date +%Y%m%d-%H%M%S)")
     
     # 1. Configure PipeWire for real-time audio
     log_info "Configuring PipeWire for real-time audio production..."
@@ -643,11 +612,6 @@ EOF
     # 2. Configure GRUB for low-latency audio
     if [ -f "/etc/default/grub" ]; then
         log_info "Configuring kernel parameters for real-time audio..."
-        
-        # Backup if not already backed up
-        if [ ! -f "$backup_dir/grub.bak" ]; then
-            cp /etc/default/grub "$backup_dir/grub.bak"
-        fi
         
         # Audio profile: preempt=full nohz_full=all threadirqs mitigations=off
         # This provides fully preemptible kernel + no tick on all CPUs + threaded IRQs + disabled CPU mitigations for better performance
@@ -1082,5 +1046,4 @@ log_info "All resources installed successfully!"
 log_info "System has been rebranded to miloOS"
 log_info "========================================="
 log_warn "IMPORTANT: Please reboot your system for all changes to take effect"
-log_info "Backup location: $(cat /root/.miloOS-last-backup 2>/dev/null || echo 'Unknown')"
 echo ""
