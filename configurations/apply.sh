@@ -263,7 +263,7 @@ xfconf-query -c xfce4-desktop -p /desktop-icons/gravity -n -t int -s 2 2>/dev/nu
 xfconf-query -c xfce4-desktop -p /desktop-icons/style -n -t int -s 0 2>/dev/null || \
     xfconf-query -c xfce4-desktop -p /desktop-icons/style -t int -s 0
 
-# Desktop icons settings
+# Desktop icons settings (show volumes and removable devices)
 xfconf-query -c xfce4-desktop -p /desktop-icons/file-icons/show-home -n -t bool -s false 2>/dev/null || \
     xfconf-query -c xfce4-desktop -p /desktop-icons/file-icons/show-home -t bool -s false
 
@@ -275,6 +275,13 @@ xfconf-query -c xfce4-desktop -p /desktop-icons/file-icons/show-removable -n -t 
 
 xfconf-query -c xfce4-desktop -p /desktop-icons/file-icons/show-trash -n -t bool -s false 2>/dev/null || \
     xfconf-query -c xfce4-desktop -p /desktop-icons/file-icons/show-trash -t bool -s false
+
+# Show volumes on desktop
+xfconf-query -c thunar-volman -p /automount-drives/enabled -n -t bool -s true 2>/dev/null || \
+    xfconf-query -c thunar-volman -p /automount-drives/enabled -t bool -s true
+
+xfconf-query -c thunar-volman -p /automount-media/enabled -n -t bool -s true 2>/dev/null || \
+    xfconf-query -c thunar-volman -p /automount-media/enabled -t bool -s true
 
 # Desktop wallpaper
 xfconf-query -c xfce4-desktop -p /backdrop/screen0/monitor0/workspace0/last-image -n -t string -s /usr/share/backgrounds/blue-mountain.jpg 2>/dev/null || \
@@ -347,6 +354,28 @@ done
 
 chown -R "$EXEC_USER:$EXEC_USER" "$USER_HOME/.local/share/applications" 2>/dev/null || true
 log_info "Default system menu items hidden (only miloOS custom menu will show)"
+
+# Configure desktop menu to exclude milo items
+log_info "Configuring desktop menu..."
+mkdir -p "$USER_HOME/.config/xfce4/desktop"
+cat > "$USER_HOME/.config/xfce4/desktop/menu.xml" << 'EOF'
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE Menu PUBLIC "-//freedesktop//DTD Menu 1.0//EN" "http://www.freedesktop.org/standards/menu-spec/1.0/menu.dtd">
+<Menu>
+<Name>Desktop</Name>
+<MergeFile type="parent">/etc/xdg/menus/xfce-applications.menu</MergeFile>
+<Exclude>
+<Filename>milo-about.desktop</Filename>
+<Filename>milo-settings.desktop</Filename>
+<Filename>milo-sleep.desktop</Filename>
+<Filename>milo-restart.desktop</Filename>
+<Filename>milo-shutdown.desktop</Filename>
+<Filename>milo-logout.desktop</Filename>
+</Exclude>
+</Menu>
+EOF
+chown "$EXEC_USER:$EXEC_USER" "$USER_HOME/.config/xfce4/desktop/menu.xml"
+log_info "Desktop menu configured"
 
 # Copy GRUB configuration (requires root)
 if [ -f "configurations/grub" ]; then

@@ -71,56 +71,44 @@ if ! command -v zenity &> /dev/null; then
     exit 0
 fi
 
-# Use zenity for confirmation dialogs with improved styling
+# Use zenity for confirmation dialogs
 case "$1" in
     shutdown)
-        zenity --question --width=400 --height=150 \
-            --title="${SHUTDOWN_TITLE}" \
-            --text="${SHUTDOWN_TEXT}" \
-            --ok-label="${SHUTDOWN_OK}" \
-            --cancel-label="${CANCEL_LABEL}" \
-            --icon-name=system-shutdown \
-            --window-icon=system-shutdown
-        if [ $? -eq 0 ]; then
+        if zenity --question --width=350 --height=120 \
+            --title="$SHUTDOWN_TITLE" \
+            --text="$SHUTDOWN_TEXT" \
+            --ok-label="$SHUTDOWN_OK" \
+            --cancel-label="$CANCEL_LABEL" 2>/dev/null; then
             systemctl poweroff || xfce4-session-logout --halt --fast
         fi
         ;;
     
     restart)
-        zenity --question --width=400 --height=150 \
-            --title="${RESTART_TITLE}" \
-            --text="${RESTART_TEXT}" \
-            --ok-label="${RESTART_OK}" \
-            --cancel-label="${CANCEL_LABEL}" \
-            --icon-name=system-restart \
-            --window-icon=system-restart
-        if [ $? -eq 0 ]; then
+        if zenity --question --width=350 --height=120 \
+            --title="$RESTART_TITLE" \
+            --text="$RESTART_TEXT" \
+            --ok-label="$RESTART_OK" \
+            --cancel-label="$CANCEL_LABEL" 2>/dev/null; then
             systemctl reboot || xfce4-session-logout --reboot --fast
         fi
         ;;
     
     sleep|suspend)
-        zenity --question --width=400 --height=150 \
-            --title="${SUSPEND_TITLE}" \
-            --text="${SUSPEND_TEXT}" \
-            --ok-label="${SUSPEND_OK}" \
-            --cancel-label="${CANCEL_LABEL}" \
-            --icon-name=system-suspend \
-            --window-icon=system-suspend
-        if [ $? -eq 0 ]; then
+        if zenity --question --width=350 --height=120 \
+            --title="$SUSPEND_TITLE" \
+            --text="$SUSPEND_TEXT" \
+            --ok-label="$SUSPEND_OK" \
+            --cancel-label="$CANCEL_LABEL" 2>/dev/null; then
             systemctl suspend || xfce4-session-logout --suspend
         fi
         ;;
     
     logout)
-        zenity --question --width=400 --height=150 \
-            --title="${LOGOUT_TITLE}" \
-            --text="${LOGOUT_TEXT}" \
-            --ok-label="${LOGOUT_OK}" \
-            --cancel-label="${CANCEL_LABEL}" \
-            --icon-name=system-log-out \
-            --window-icon=system-log-out
-        if [ $? -eq 0 ]; then
+        if zenity --question --width=350 --height=120 \
+            --title="$LOGOUT_TITLE" \
+            --text="$LOGOUT_TEXT" \
+            --ok-label="$LOGOUT_OK" \
+            --cancel-label="$CANCEL_LABEL" 2>/dev/null; then
             xfce4-session-logout --logout --fast
         fi
         ;;
