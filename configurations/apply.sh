@@ -257,11 +257,11 @@ xfconf-query -c xsettings -p /Gtk/CursorThemeName -n -t string -s Adwaita 2>/dev
     xfconf-query -c xsettings -p /Gtk/CursorThemeName -t string -s Adwaita
 
 # Desktop icons alignment (top-right, vertical, macOS style)
-xfconf-query -c xfce4-desktop -p /desktop-icons/gravity -n -t int -s 2 2>/dev/null || \
-    xfconf-query -c xfce4-desktop -p /desktop-icons/gravity -t int -s 2
+xfconf-query -c xfce4-desktop -p /desktop-icons/gravity -n -t int -s 1 2>/dev/null || \
+    xfconf-query -c xfce4-desktop -p /desktop-icons/gravity -t int -s 1
 
-xfconf-query -c xfce4-desktop -p /desktop-icons/style -n -t int -s 0 2>/dev/null || \
-    xfconf-query -c xfce4-desktop -p /desktop-icons/style -t int -s 0
+xfconf-query -c xfce4-desktop -p /desktop-icons/style -n -t int -s 2 2>/dev/null || \
+    xfconf-query -c xfce4-desktop -p /desktop-icons/style -t int -s 2
 
 # Desktop icons settings (show volumes and removable devices)
 xfconf-query -c xfce4-desktop -p /desktop-icons/file-icons/show-home -n -t bool -s false 2>/dev/null || \
@@ -355,14 +355,13 @@ done
 chown -R "$EXEC_USER:$EXEC_USER" "$USER_HOME/.local/share/applications" 2>/dev/null || true
 log_info "Default system menu items hidden (only miloOS custom menu will show)"
 
-# Configure desktop menu to exclude milo items
-log_info "Configuring desktop menu..."
-mkdir -p "$USER_HOME/.config/xfce4/desktop"
-cat > "$USER_HOME/.config/xfce4/desktop/menu.xml" << 'EOF'
-<?xml version="1.0" encoding="UTF-8"?>
+# Configure applications menu to exclude milo items
+log_info "Configuring applications menu to exclude miloOS system items..."
+mkdir -p "$USER_HOME/.config/menus"
+cat > "$USER_HOME/.config/menus/xfce-applications.menu" << 'EOF'
 <!DOCTYPE Menu PUBLIC "-//freedesktop//DTD Menu 1.0//EN" "http://www.freedesktop.org/standards/menu-spec/1.0/menu.dtd">
 <Menu>
-<Name>Desktop</Name>
+<Name>Applications</Name>
 <MergeFile type="parent">/etc/xdg/menus/xfce-applications.menu</MergeFile>
 <Exclude>
 <Filename>milo-about.desktop</Filename>
@@ -374,8 +373,8 @@ cat > "$USER_HOME/.config/xfce4/desktop/menu.xml" << 'EOF'
 </Exclude>
 </Menu>
 EOF
-chown "$EXEC_USER:$EXEC_USER" "$USER_HOME/.config/xfce4/desktop/menu.xml"
-log_info "Desktop menu configured"
+chown "$EXEC_USER:$EXEC_USER" "$USER_HOME/.config/menus/xfce-applications.menu"
+log_info "Applications menu configured (miloOS items only in logo menu)"
 
 # Copy GRUB configuration (requires root)
 if [ -f "configurations/grub" ]; then
