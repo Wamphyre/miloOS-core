@@ -118,8 +118,9 @@ install_debian_packages() {
         
         local PW_FAILED=""
         for pkg in pipewire pipewire-audio-client-libraries pipewire-pulse \
-                   pipewire-alsa pipewire-jack wireplumber \
-                   libspa-0.2-bluetooth libspa-0.2-jack rtkit; do
+                   pipewire-alsa pipewire-jack pipewire-v4l2 pipewire-bin \
+                   wireplumber libspa-0.2-bluetooth libspa-0.2-jack \
+                   libspa-0.2-modules gstreamer1.0-pipewire rtkit; do
             if apt-get install -y "$pkg" 2>/dev/null; then
                 log_info "✓ $pkg installed"
             else
@@ -133,7 +134,8 @@ install_debian_packages() {
         fi
     else
         log_info "PipeWire already installed, ensuring components..."
-        for pkg in pipewire-pulse pipewire-alsa pipewire-jack wireplumber rtkit; do
+        for pkg in pipewire-pulse pipewire-alsa pipewire-jack pipewire-v4l2 \
+                   wireplumber libspa-0.2-modules gstreamer1.0-pipewire rtkit; do
             apt-get install -y "$pkg" 2>/dev/null || log_warn "Could not install $pkg"
         done
     fi
@@ -566,6 +568,18 @@ context.modules = [
         flags = [ ifexists nofail ]
     }
 ]
+EOF
+    
+    # Create JACK configuration for PipeWire
+    log_info "Configuring JACK compatibility..."
+    mkdir -p /etc/pipewire/jack.conf.d
+    cat > /etc/pipewire/jack.conf.d/99-jack-lowlatency.conf << 'EOF'
+# JACK configuration for miloOS
+jack.properties = {
+    node.latency = 256/48000
+    jack.merge-monitor = true
+    jack.short-name = true
+}
 EOF
     
     # Create WirePlumber low-latency and pro-audio configuration

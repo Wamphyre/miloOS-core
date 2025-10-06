@@ -132,20 +132,6 @@ class AudioConfigWindow(Gtk.Window):
         self.output_listbox.set_size_request(-1, 100)
         main_box.pack_start(self.output_listbox, False, False, 5)
         
-        # Output volume
-        volume_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
-        volume_box.set_margin_top(8)
-        volume_label = Gtk.Label(label=_('output_volume'))
-        volume_label.set_size_request(120, -1)
-        volume_label.set_halign(Gtk.Align.START)
-        self.output_volume = Gtk.Scale.new_with_range(Gtk.Orientation.HORIZONTAL, 0, 100, 1)
-        self.output_volume.set_value(75)
-        self.output_volume.set_draw_value(False)
-        self.output_volume.connect("value-changed", self.on_output_volume_changed)
-        volume_box.pack_start(volume_label, False, False, 0)
-        volume_box.pack_start(self.output_volume, True, True, 0)
-        main_box.pack_start(volume_box, False, False, 0)
-        
         # Separator
         sep1 = Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL)
         sep1.get_style_context().add_class("separator")
@@ -165,20 +151,6 @@ class AudioConfigWindow(Gtk.Window):
         self.input_listbox.get_style_context().add_class("device-list")
         self.input_listbox.set_size_request(-1, 100)
         main_box.pack_start(self.input_listbox, False, False, 5)
-        
-        # Input level
-        input_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
-        input_box.set_margin_top(8)
-        input_label_vol = Gtk.Label(label=_('input_level'))
-        input_label_vol.set_size_request(120, -1)
-        input_label_vol.set_halign(Gtk.Align.START)
-        self.input_volume = Gtk.Scale.new_with_range(Gtk.Orientation.HORIZONTAL, 0, 100, 1)
-        self.input_volume.set_value(75)
-        self.input_volume.set_draw_value(False)
-        self.input_volume.connect("value-changed", self.on_input_volume_changed)
-        input_box.pack_start(input_label_vol, False, False, 0)
-        input_box.pack_start(self.input_volume, True, True, 0)
-        main_box.pack_start(input_box, False, False, 0)
         
         # Separator
         sep2 = Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL)
@@ -362,7 +334,7 @@ class AudioConfigWindow(Gtk.Window):
                 print(f"Error loading config: {e}")
     
     def on_output_selected(self, listbox, row):
-        """Handle output device selection"""
+        """Handle output device selection and detect capabilities"""
         if row:
             self.current_output = row.device_name
             # Update all rows to show correct selection
@@ -370,9 +342,12 @@ class AudioConfigWindow(Gtk.Window):
                 hbox = r.get_child()
                 indicator = hbox.get_children()[0]
                 indicator.set_text("●" if r == row else "○")
+            
+            # Detect and update supported formats for this device
+            self.update_device_capabilities(row.device_name, 'sink')
     
     def on_input_selected(self, listbox, row):
-        """Handle input device selection"""
+        """Handle input device selection and detect capabilities"""
         if row:
             self.current_input = row.device_name
             # Update all rows to show correct selection
@@ -380,20 +355,37 @@ class AudioConfigWindow(Gtk.Window):
                 hbox = r.get_child()
                 indicator = hbox.get_children()[0]
                 indicator.set_text("●" if r == row else "○")
+            
+            # Detect and update supported formats for this device
+            self.update_device_capabilities(row.device_name, 'source')
     
-    def on_output_volume_changed(self, scale):
-        """Handle output volume change"""
-        if self.current_output:
-            volume = int(scale.get_value())
-            subprocess.run(['pactl', 'set-sink-volume', self.current_output, f'{volume}%'],
-                         capture_output=True)
-    
-    def on_input_volume_changed(self, scale):
-        """Handle input volume change"""
-        if self.current_input:
-            volume = int(scale.get_value())
-            subprocess.run(['pactl', 'set-source-volume', self.current_input, f'{volume}%'],
-                         capture_output=True)
+    def update_device_capabilities(self, device_name, device_type):
+        """Detect and update supported sample rates and formats for device"""
+        try:
+            # Get device info
+            cmd = ['pactl', 'list', 'sinks' if device_type == 'sink' else 'sources']
+            result = subprocess.run(cmd, capture_output=True, text=True)
+            
+            # Parse supported sample rates
+            in_device = False
+            supported_rates = []
+            
+            for line in result.stdout.split('\n'):
+                if f'Name: {device_name}' in line:
+                    in_device = True
+                elif in_device and 'Sample Specification:' in line:
+                    # Extract current sample rate
+                    if 'Hz' in line:
+                        rate = line.split('@')[1].strip().split('Hz')[0].strip()
+                        supported_rates.append(rate)
+                elif in_device and ('Sink #' in line or 'Source #' in line):
+                    break
+            
+            # Update combo boxes with detected capabilities
+            # For now, keep all options available but could filter based on detection
+            
+        except Exception as e:
+            print(f"Error detecting capabilities: {e}")
     
     def apply_config(self):
         """Apply configuration when Apply button is clicked"""
@@ -424,7 +416,7 @@ class AudioConfigWindow(Gtk.Window):
             config_dir = os.path.expanduser("~/.config/pipewire/pipewire.conf.d")
             os.makedirs(config_dir, exist_ok=True)
             
-            # Write configuration
+            # Write PipeWire configuration
             config_path = os.path.join(config_dir, "99-custom.conf")
             config_content = f"""# miloOS Audio Configuration
 context.properties = {{
@@ -449,6 +441,21 @@ context.modules = [
             
             with open(config_path, 'w') as f:
                 f.write(config_content)
+            
+            # Write JACK configuration
+            jack_config_dir = os.path.expanduser("~/.config/pipewire/jack.conf.d")
+            os.makedirs(jack_config_dir, exist_ok=True)
+            jack_config_path = os.path.join(jack_config_dir, "99-jack-custom.conf")
+            jack_config_content = f"""# JACK configuration for miloOS
+jack.properties = {{
+    node.latency = {buffer}/{rate}
+    jack.merge-monitor = true
+    jack.short-name = true
+}}
+"""
+            
+            with open(jack_config_path, 'w') as f:
+                f.write(jack_config_content)
             
             # Set default devices
             if output_device:
