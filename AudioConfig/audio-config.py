@@ -450,6 +450,26 @@ class AudioConfigWindow(Gtk.Window):
             self.selected_device = row.device
             self.update_detail_panel()
     
+    def load_saved_settings(self, device):
+        """Load saved settings for a device"""
+        config_file = os.path.expanduser("~/.config/pipewire/audioconfig-settings.json")
+        if os.path.exists(config_file):
+            try:
+                import json
+                with open(config_file, 'r') as f:
+                    settings = json.load(f)
+                    if device.name in settings:
+                        saved = settings[device.name]
+                        return {
+                            'rate': saved.get('rate'),
+                            'buffer': saved.get('buffer'),
+                            'format': saved.get('format'),
+                            'speaker_config': saved.get('speaker_config')
+                        }
+            except:
+                pass
+        return None
+    
     def update_detail_panel(self):
         """Update detail panel with selected device info"""
         # Clear existing content
@@ -460,6 +480,9 @@ class AudioConfigWindow(Gtk.Window):
             return
         
         device = self.selected_device
+        
+        # Load saved settings for this device
+        saved_settings = self.load_saved_settings(device)
         
         # Title
         title = Gtk.Label(label=device.description)
@@ -516,9 +539,10 @@ class AudioConfigWindow(Gtk.Window):
                 display = f"{rate_hz} Hz"
             self.rate_combo.append(rate, display)
         
-        # Set current rate
+        # Set rate from saved settings or current
+        target_rate = saved_settings['rate'] if saved_settings and saved_settings['rate'] else device.current_rate
         for i, rate in enumerate(device.sample_rates):
-            if rate == device.current_rate:
+            if rate == target_rate:
                 self.rate_combo.set_active(i)
                 break
         if self.rate_combo.get_active() == -1:
@@ -535,9 +559,19 @@ class AudioConfigWindow(Gtk.Window):
         
         self.buffer_combo = Gtk.ComboBoxText()
         self.buffer_combo.get_style_context().add_class("info-combo")
-        for size in ['32', '64', '128', '256', '512', '1024', '2048']:
+        buffer_sizes = ['32', '64', '128', '256', '512', '1024', '2048']
+        for size in buffer_sizes:
             self.buffer_combo.append(size, f"{size} samples")
-        self.buffer_combo.set_active(3)  # Default 256
+        
+        # Set buffer from saved settings or default
+        if saved_settings and saved_settings['buffer']:
+            try:
+                buffer_index = buffer_sizes.index(saved_settings['buffer'])
+                self.buffer_combo.set_active(buffer_index)
+            except:
+                self.buffer_combo.set_active(3)  # Default 256
+        else:
+            self.buffer_combo.set_active(3)  # Default 256
         
         config_grid.attach(buffer_label, 0, row_num, 1, 1)
         config_grid.attach(self.buffer_combo, 1, row_num, 1, 1)
@@ -562,9 +596,10 @@ class AudioConfigWindow(Gtk.Window):
             display_name = format_names.get(fmt, fmt)
             self.format_combo.append(fmt, f"{device.channels} {_('channels')} - {display_name}")
         
-        # Set current format
+        # Set format from saved settings or current
+        target_format = saved_settings['format'] if saved_settings and saved_settings['format'] else device.current_format
         for i, fmt in enumerate(device.formats):
-            if fmt == device.current_format:
+            if fmt == target_format:
                 self.format_combo.set_active(i)
                 break
         if self.format_combo.get_active() == -1:
@@ -683,36 +718,30 @@ jack.properties = {{
             with open(jack_config_path, 'w') as f:
                 f.write(jack_config_content)
             
-            # Create WirePlumber configuration for device-specific settings
-            wireplumber_dir = os.path.expanduser("~/.config/wireplumber/main.lua.d")
-            os.makedirs(wireplumber_dir, exist_ok=True)
-            wireplumber_path = os.path.join(wireplumber_dir, "99-device-config.lua")
+            # Save configuration to a JSON file for persistence
+            config_file = os.path.expanduser("~/.config/pipewire/audioconfig-settings.json")
+            import json
             
-            # Escape device name for Lua pattern matching
-            device_name_escaped = device.name.replace('.', '%.')
+            settings = {}
+            if os.path.exists(config_file):
+                try:
+                    with open(config_file, 'r') as f:
+                        settings = json.load(f)
+                except:
+                    settings = {}
             
-            wireplumber_content = f"""-- Device-specific configuration for miloOS
-alsa_monitor.rules = {{
-  {{
-    matches = {{
-      {{
-        {{ "node.name", "matches", "{device_name_escaped}" }},
-      }},
-    }},
-    apply_properties = {{
-      ["audio.format"] = "{audio_format}",
-      ["audio.rate"] = {rate},
-      ["api.alsa.period-size"] = {buffer},
-      ["api.alsa.headroom"] = 1024,
-    }},
-  }},
-}}
-"""
+            # Save device-specific settings
+            settings[device.name] = {
+                'rate': rate,
+                'buffer': buffer,
+                'format': audio_format,
+                'speaker_config': speaker_config
+            }
             
-            with open(wireplumber_path, 'w') as f:
-                f.write(wireplumber_content)
+            with open(config_file, 'w') as f:
+                json.dump(settings, f, indent=2)
             
-            # Update device's current settings
+            # Update device's current settings in memory
             device.current_rate = rate
             device.current_format = audio_format
             
@@ -721,11 +750,6 @@ alsa_monitor.rules = {{
                          capture_output=True)
             subprocess.run(['systemctl', '--user', 'restart', 'pipewire-pulse'], 
                          capture_output=True)
-            subprocess.run(['systemctl', '--user', 'restart', 'wireplumber'], 
-                         capture_output=True)
-            
-            # Wait a moment for services to restart
-            GLib.timeout_add(1000, self.reload_after_apply)
             
             # Show success message
             dialog = Gtk.MessageDialog(
@@ -751,11 +775,6 @@ alsa_monitor.rules = {{
             dialog.format_secondary_text(_('error_msg').format(str(e)))
             dialog.run()
             dialog.destroy()
-    
-    def reload_after_apply(self):
-        """Reload devices after applying configuration"""
-        self.load_devices()
-        return False  # Don't repeat timeout
 
 def main():
     win = AudioConfigWindow()
