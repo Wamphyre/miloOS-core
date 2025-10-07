@@ -63,7 +63,7 @@ TRANSLATIONS = {
 def get_language():
     """Detect system language"""
     try:
-        lang = locale.getdefaultlocale()[0]
+        lang = locale.getlocale()[0]
         if lang and lang.startswith('es'):
             return 'es'
     except:
@@ -97,7 +97,6 @@ class AudioDevice:
 class AudioConfigWindow(Gtk.Window):
     def __init__(self):
         super().__init__(title=_('title'))
-        self.set_wmclass("Audio-config", "Audio-config")
         self.set_icon_name("audio-config")
         self.set_default_size(1000, 600)
         self.set_position(Gtk.WindowPosition.CENTER)
@@ -202,7 +201,6 @@ class AudioConfigWindow(Gtk.Window):
             .volume-header {
                 color: #666666;
                 font-size: 11px;
-                text-transform: uppercase;
                 margin-bottom: 12px;
             }
             .channel-row {
