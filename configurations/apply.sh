@@ -425,13 +425,35 @@ chown "$EXEC_USER:$EXEC_USER" "$USER_HOME/.config/environment.d/pipewire-jack.co
 
 log_info "PipeWire JACK library path configured (profile, bashrc, xsessionrc, environment.d)"
 
-# Copy GRUB configuration (requires root)
-if [ -f "configurations/grub" ]; then
-    log_info "GRUB configuration found. To apply it, run as root:"
-    log_warn "  sudo cp configurations/grub /etc/default/grub"
-    log_warn "  sudo update-grub"
-fi
+# Method 5: XFCE autostart (ensures it works from application menu)
+log_info "Configuring XFCE autostart for JACK library path..."
+mkdir -p "$USER_HOME/.config/autostart"
+cat > "$USER_HOME/.config/autostart/pipewire-jack-env.desktop" << 'EOF'
+[Desktop Entry]
+Type=Application
+Name=PipeWire JACK Environment
+Comment=Set LD_LIBRARY_PATH for JACK applications
+Exec=sh -c 'export LD_LIBRARY_PATH="/usr/lib/x86_64-linux-gnu/pipewire-0.3/jack:${LD_LIBRARY_PATH}"; dbus-update-activation-environment --systemd LD_LIBRARY_PATH'
+Hidden=false
+NoDisplay=true
+X-GNOME-Autostart-enabled=true
+X-XFCE-Autostart-enabled=true
+EOF
+chmod 644 "$USER_HOME/.config/autostart/pipewire-jack-env.desktop"
+chown "$EXEC_USER:$EXEC_USER" "$USER_HOME/.config/autostart/pipewire-jack-env.desktop"
+
+# Method 6: XFCE xinitrc.d
+mkdir -p "$USER_HOME/.config/xfce4/xinitrc.d"
+cat > "$USER_HOME/.config/xfce4/xinitrc.d/50-pipewire-jack.sh" << 'EOF'
+#!/bin/sh
+# PipeWire JACK library path
+export LD_LIBRARY_PATH="/usr/lib/x86_64-linux-gnu/pipewire-0.3/jack:${LD_LIBRARY_PATH}"
+EOF
+chmod 755 "$USER_HOME/.config/xfce4/xinitrc.d/50-pipewire-jack.sh"
+chown "$EXEC_USER:$EXEC_USER" "$USER_HOME/.config/xfce4/xinitrc.d/50-pipewire-jack.sh"
+
+log_info "XFCE autostart configured for JACK"
 
 log_info "Configuration applied successfully!"
-log_warn "IMPORTANT: Log out and log back in for JACK library path to take effect"
+log_warn "IMPORTANT: Log out and log back in for all changes to take effect"
 
