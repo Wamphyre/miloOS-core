@@ -380,15 +380,50 @@ log_info "Applications menu configured (miloOS items only in logo menu)"
 
 # Configure PipeWire JACK library path
 log_info "Configuring PipeWire JACK library path..."
+
+# Method 1: .profile (loaded by display managers for graphical sessions)
+if ! grep -q "pipewire-0.3/jack" "$USER_HOME/.profile" 2>/dev/null; then
+    log_info "Adding JACK library path to .profile..."
+    cat >> "$USER_HOME/.profile" << 'EOF'
+
+# PipeWire JACK library path for audio applications (miloOS)
+export LD_LIBRARY_PATH="/usr/lib/x86_64-linux-gnu/pipewire-0.3/jack:${LD_LIBRARY_PATH}"
+EOF
+    chown "$EXEC_USER:$EXEC_USER" "$USER_HOME/.profile"
+fi
+
+# Method 2: .bashrc (for terminal sessions)
+if ! grep -q "pipewire-0.3/jack" "$USER_HOME/.bashrc" 2>/dev/null; then
+    log_info "Adding JACK library path to .bashrc..."
+    cat >> "$USER_HOME/.bashrc" << 'EOF'
+
+# PipeWire JACK library path for audio applications (miloOS)
+export LD_LIBRARY_PATH="/usr/lib/x86_64-linux-gnu/pipewire-0.3/jack:${LD_LIBRARY_PATH}"
+EOF
+    chown "$EXEC_USER:$EXEC_USER" "$USER_HOME/.bashrc"
+fi
+
+# Method 3: .xsessionrc (for X11 sessions - XFCE uses this)
+if ! grep -q "pipewire-0.3/jack" "$USER_HOME/.xsessionrc" 2>/dev/null; then
+    log_info "Adding JACK library path to .xsessionrc..."
+    cat >> "$USER_HOME/.xsessionrc" << 'EOF'
+
+# PipeWire JACK library path for audio applications (miloOS)
+export LD_LIBRARY_PATH="/usr/lib/x86_64-linux-gnu/pipewire-0.3/jack:${LD_LIBRARY_PATH}"
+EOF
+    chmod 644 "$USER_HOME/.xsessionrc"
+    chown "$EXEC_USER:$EXEC_USER" "$USER_HOME/.xsessionrc"
+fi
+
+# Method 4: environment.d (for systemd user sessions)
 mkdir -p "$USER_HOME/.config/environment.d"
 cat > "$USER_HOME/.config/environment.d/pipewire-jack.conf" << 'EOF'
-# PipeWire JACK library path configuration
-# This allows JACK applications to use PipeWire's JACK implementation
 LD_LIBRARY_PATH=/usr/lib/x86_64-linux-gnu/pipewire-0.3/jack:${LD_LIBRARY_PATH}
 EOF
 chmod 644 "$USER_HOME/.config/environment.d/pipewire-jack.conf"
 chown "$EXEC_USER:$EXEC_USER" "$USER_HOME/.config/environment.d/pipewire-jack.conf"
-log_info "PipeWire JACK library path configured"
+
+log_info "PipeWire JACK library path configured (profile, bashrc, xsessionrc, environment.d)"
 
 # Copy GRUB configuration (requires root)
 if [ -f "configurations/grub" ]; then

@@ -92,10 +92,11 @@ miloOS aims to be the **definitive Linux distribution for audio professionals** 
 
 **JACK Compatibility**
 - Full JACK support without wrappers
-- Works with Reaper, Ardour, Bitwig, Carla
-- Automatic library path configuration
+- Works with Reaper, Ardour, Bitwig, Carla out-of-the-box
+- Automatic library path configuration (.profile, .xsessionrc, .bashrc, environment.d)
 - Seamless integration with PipeWire
-- No `pw-jack` wrapper needed
+- No `pw-jack` wrapper needed - just launch your DAW from anywhere
+- Works from terminal and application menu
 
 **Real-Time Kernel Optimization**
 ```
