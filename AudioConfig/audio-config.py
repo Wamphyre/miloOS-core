@@ -373,6 +373,13 @@ class AudioConfigWindow(Gtk.Window):
         output_devices = [d for d in self.devices if d.device_type == 'sink']
         input_devices = [d for d in self.devices if d.device_type == 'source']
         
+        # Sort devices: USB first, then others
+        def is_usb_device(device):
+            return 'usb' in device.name.lower() or 'usb' in device.description.lower()
+        
+        output_devices.sort(key=lambda d: (not is_usb_device(d), d.description))
+        input_devices.sort(key=lambda d: (not is_usb_device(d), d.description))
+        
         # Add output devices first
         for device in output_devices:
             row = self.create_device_row(device)
@@ -433,12 +440,6 @@ class AudioConfigWindow(Gtk.Window):
         text_box.pack_start(info_label, False, False, 0)
         
         hbox.pack_start(text_box, True, True, 0)
-        
-        # Default indicator
-        if device.is_default:
-            default_icon = Gtk.Label(label="●")
-            default_icon.get_style_context().add_class("device-icon")
-            hbox.pack_start(default_icon, False, False, 0)
         
         row.add(hbox)
         return row
@@ -631,10 +632,16 @@ class AudioConfigWindow(Gtk.Window):
             buffer = self.buffer_combo.get_active_id()
             audio_format = self.format_combo.get_active_id()
             
-            # Create PipeWire configuration
+            # Get speaker config if available
+            speaker_config = None
+            if device.device_type == 'sink' and hasattr(self, 'speaker_combo'):
+                speaker_config = self.speaker_combo.get_active_id()
+            
+            # Create PipeWire configuration directory
             config_dir = os.path.expanduser("~/.config/pipewire/pipewire.conf.d")
             os.makedirs(config_dir, exist_ok=True)
             
+            # Write global PipeWire configuration
             config_path = os.path.join(config_dir, "99-custom.conf")
             config_content = f"""# miloOS Audio Configuration
 context.properties = {{
@@ -676,11 +683,49 @@ jack.properties = {{
             with open(jack_config_path, 'w') as f:
                 f.write(jack_config_content)
             
-            # Restart PipeWire
+            # Create WirePlumber configuration for device-specific settings
+            wireplumber_dir = os.path.expanduser("~/.config/wireplumber/main.lua.d")
+            os.makedirs(wireplumber_dir, exist_ok=True)
+            wireplumber_path = os.path.join(wireplumber_dir, "99-device-config.lua")
+            
+            # Escape device name for Lua pattern matching
+            device_name_escaped = device.name.replace('.', '%.')
+            
+            wireplumber_content = f"""-- Device-specific configuration for miloOS
+alsa_monitor.rules = {{
+  {{
+    matches = {{
+      {{
+        {{ "node.name", "matches", "{device_name_escaped}" }},
+      }},
+    }},
+    apply_properties = {{
+      ["audio.format"] = "{audio_format}",
+      ["audio.rate"] = {rate},
+      ["api.alsa.period-size"] = {buffer},
+      ["api.alsa.headroom"] = 1024,
+    }},
+  }},
+}}
+"""
+            
+            with open(wireplumber_path, 'w') as f:
+                f.write(wireplumber_content)
+            
+            # Update device's current settings
+            device.current_rate = rate
+            device.current_format = audio_format
+            
+            # Restart PipeWire services
             subprocess.run(['systemctl', '--user', 'restart', 'pipewire'], 
                          capture_output=True)
             subprocess.run(['systemctl', '--user', 'restart', 'pipewire-pulse'], 
                          capture_output=True)
+            subprocess.run(['systemctl', '--user', 'restart', 'wireplumber'], 
+                         capture_output=True)
+            
+            # Wait a moment for services to restart
+            GLib.timeout_add(1000, self.reload_after_apply)
             
             # Show success message
             dialog = Gtk.MessageDialog(
@@ -706,6 +751,11 @@ jack.properties = {{
             dialog.format_secondary_text(_('error_msg').format(str(e)))
             dialog.run()
             dialog.destroy()
+    
+    def reload_after_apply(self):
+        """Reload devices after applying configuration"""
+        self.load_devices()
+        return False  # Don't repeat timeout
 
 def main():
     win = AudioConfigWindow()
