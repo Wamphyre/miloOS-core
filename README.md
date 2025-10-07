@@ -83,6 +83,13 @@ miloOS aims to be the **definitive Linux distribution for audio professionals** 
 
 ### 🎵 Audio Production Ready
 
+**Liquorix Real-Time Kernel**
+- Optimized kernel for professional audio production
+- Lower latency than standard kernels
+- Better real-time performance
+- Improved scheduler for audio workloads
+- Automatically installed and configured
+
 **PipeWire Audio Stack**
 - Pre-configured for low-latency audio production
 - Sample rates: 44.1kHz to 192kHz
@@ -93,12 +100,27 @@ miloOS aims to be the **definitive Linux distribution for audio professionals** 
 **JACK Compatibility**
 - Full JACK support without wrappers
 - Works with Reaper, Ardour, Bitwig, Carla out-of-the-box
-- Automatic library path configuration (.profile, .xsessionrc, .bashrc, environment.d)
+- Automatic library path configuration (.profile, .xsession, .bashrc, environment.d)
 - Seamless integration with PipeWire
 - No `pw-jack` wrapper needed - just launch your DAW from anywhere
 - Works from terminal and application menu
 
-**Real-Time Kernel Optimization**
+**Professional Audio Plugins Included**
+- **LSP Plugins** - Complete professional suite (200+ plugins)
+- **Calf Studio Gear** - Vintage-style effects and processors
+- **x42-plugins** - Professional meters and analyzers
+- **Zam Plugins** - Mixing and mastering tools
+- **Yoshimi** - Advanced software synthesizer
+- **ZynAddSubFX** - Powerful synthesis engine
+- **Hydrogen** - Advanced drum machine
+- **DrumGizmo** - Realistic drum sampler
+- **Guitarix** - Guitar amplifier and effects
+- **Dragonfly Reverb** - High-quality reverbs
+- **EQ10Q** - Parametric equalizer
+- **Carla** - Universal plugin host
+- **Ardour** - Professional DAW
+
+**Real-Time Kernel Parameters**
 ```
 preempt=full        # Fully preemptible kernel
 nohz_full=all       # No timer ticks on all CPUs
@@ -308,33 +330,42 @@ fs.file-max = 524288
 
 ---
 
-## Recommended Software
+## Included Software
 
-### Digital Audio Workstations (DAWs)
+miloOS comes with professional audio software pre-installed:
+
+### Audio Plugins (Included)
+- ✅ **LSP Plugins** - 200+ professional plugins
+- ✅ **Calf Studio Gear** - Vintage effects
+- ✅ **x42-plugins** - Meters and analyzers
+- ✅ **Zam Plugins** - Mixing tools
+- ✅ **Yoshimi** - Software synthesizer
+- ✅ **ZynAddSubFX** - Synthesis engine
+- ✅ **Hydrogen** - Drum machine
+- ✅ **DrumGizmo** - Drum sampler
+- ✅ **Guitarix** - Guitar amp/effects
+- ✅ **Dragonfly Reverb** - Quality reverbs
+- ✅ **EQ10Q** - Parametric EQ
+- ✅ **Carla** - Plugin host
+- ✅ **Ardour** - Professional DAW
+
+### Utilities (Included)
+- ✅ **AudioConfig** - miloOS audio configuration tool
+- ✅ **XFCE Audio Plugin** - Volume and device control
+- ✅ **qpwgraph** - PipeWire graph manager (install separately)
+
+### Recommended Additional Software
+
+**Digital Audio Workstations**
 - **Reaper** - Professional, affordable, cross-platform
-- **Ardour** - Open source, full-featured
 - **Bitwig Studio** - Modern, innovative
 - **Qtractor** - Lightweight, MIDI-focused
 - **LMMS** - Free, beginner-friendly
 
-### Audio Tools
-- **Carla** - Plugin host and patchbay
-- **Helvum** - PipeWire graph manager
-- **qpwgraph** - Advanced PipeWire routing
-- **Audacity** - Audio editing
-- **Guitarix** - Guitar amplifier simulation
-
-### Plugins & Effects
-- **Yabridge** - Windows VST bridge
-- **Airwindows** - High-quality effects
-- **LSP Plugins** - Professional audio plugins
-- **Calf Studio Gear** - Vintage-style effects
-- **ZynAddSubFX** - Software synthesizer
-
-### Utilities
-- **XFCE Audio Plugin** - Built-in volume and device control
-- **AudioConfig** - miloOS audio server configuration (included)
-- **qpwgraph** - PipeWire graph manager for audio routing
+**Additional Tools**
+- **Yabridge** - Windows VST bridge for Linux
+- **Helvum** - Alternative PipeWire graph manager
+- **Audacity** - Simple audio editing
 
 ---
 
@@ -342,7 +373,10 @@ fs.file-max = 524288
 
 ### Current Status: Alpha
 - ✅ Core system configuration complete
+- ✅ Liquorix real-time kernel integration
 - ✅ Audio optimization implemented
+- ✅ Professional audio plugins included
+- ✅ JACK compatibility configured
 - ✅ Visual theming finished
 - ✅ AudioConfig application ready
 - ⏳ ISO build system in progress

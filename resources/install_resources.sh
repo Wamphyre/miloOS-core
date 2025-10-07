@@ -44,7 +44,7 @@ if [ "$(id -u)" -ne 0 ]; then
 fi
 
 CURRENT_DIR="$PWD"
-TOTAL_STEPS=11
+TOTAL_STEPS=13
 
 # Verify we're on Debian
 verify_system() {
@@ -859,8 +859,133 @@ EOF
     log_warn "Kernel parameters will be active after reboot"
 }
 
+install_audio_plugins() {
+    log_step 10 $TOTAL_STEPS "Installing audio plugins..."
+    
+    log_info "Installing professional audio plugins for miloOS..."
+    
+    local PLUGIN_FAILED=""
+    
+    # Essential plugin suites
+    log_info "Installing plugin suites..."
+    for pkg in lsp-plugins lsp-plugins-lv2 lsp-plugins-vst \
+               calf-plugins \
+               x42-plugins \
+               zam-plugins; do
+        if apt-get install -y "$pkg" 2>/dev/null; then
+            log_info "✓ $pkg installed"
+        else
+            log_warn "✗ $pkg failed to install"
+            PLUGIN_FAILED="$PLUGIN_FAILED $pkg"
+        fi
+    done
+    
+    # Synthesizers
+    log_info "Installing synthesizers..."
+    for pkg in zynaddsubfx zynaddsubfx-lv2 yoshimi; do
+        if apt-get install -y "$pkg" 2>/dev/null; then
+            log_info "✓ $pkg installed"
+        else
+            log_warn "✗ $pkg failed to install"
+            PLUGIN_FAILED="$PLUGIN_FAILED $pkg"
+        fi
+    done
+    
+    # Guitar processing
+    log_info "Installing guitar processors..."
+    for pkg in guitarix gxplugins-lv2; do
+        if apt-get install -y "$pkg" 2>/dev/null; then
+            log_info "✓ $pkg installed"
+        else
+            log_warn "✗ $pkg failed to install"
+            PLUGIN_FAILED="$PLUGIN_FAILED $pkg"
+        fi
+    done
+    
+    # Drums and rhythm
+    log_info "Installing drum machines..."
+    for pkg in hydrogen drumgizmo avldrumkits-lv2; do
+        if apt-get install -y "$pkg" 2>/dev/null; then
+            log_info "✓ $pkg installed"
+        else
+            log_warn "✗ $pkg failed to install"
+            PLUGIN_FAILED="$PLUGIN_FAILED $pkg"
+        fi
+    done
+    
+    # Effects
+    log_info "Installing effects..."
+    for pkg in dragonfly-reverb eq10q; do
+        if apt-get install -y "$pkg" 2>/dev/null; then
+            log_info "✓ $pkg installed"
+        else
+            log_warn "✗ $pkg failed to install"
+            PLUGIN_FAILED="$PLUGIN_FAILED $pkg"
+        fi
+    done
+    
+    # Utilities
+    log_info "Installing audio utilities..."
+    for pkg in carla ardour; do
+        if apt-get install -y "$pkg" 2>/dev/null; then
+            log_info "✓ $pkg installed"
+        else
+            log_warn "✗ $pkg failed to install"
+            PLUGIN_FAILED="$PLUGIN_FAILED $pkg"
+        fi
+    done
+    
+    if [ -n "$PLUGIN_FAILED" ]; then
+        log_warn "Some plugins failed to install:$PLUGIN_FAILED"
+        log_warn "You can install them manually later"
+    fi
+    
+    log_info "Audio plugins installation completed"
+}
+
+install_liquorix_kernel() {
+    log_step 11 $TOTAL_STEPS "Installing Liquorix real-time kernel..."
+    
+    log_info "Adding Liquorix repository..."
+    
+    # Add Liquorix repository key
+    if command -v curl &> /dev/null; then
+        curl -s 'https://liquorix.net/liquorix-keyring.gpg' | gpg --dearmor | tee /usr/share/keyrings/liquorix-keyring.gpg > /dev/null 2>&1
+    elif command -v wget &> /dev/null; then
+        wget -qO - 'https://liquorix.net/liquorix-keyring.gpg' | gpg --dearmor | tee /usr/share/keyrings/liquorix-keyring.gpg > /dev/null 2>&1
+    else
+        log_warn "Neither curl nor wget available, cannot add Liquorix repository"
+        log_warn "Skipping Liquorix kernel installation"
+        return 0
+    fi
+    
+    # Add Liquorix repository
+    echo "deb [signed-by=/usr/share/keyrings/liquorix-keyring.gpg] https://liquorix.net/debian trixie main" | tee /etc/apt/sources.list.d/liquorix.list > /dev/null
+    
+    # Update package lists
+    log_info "Updating package lists..."
+    if ! apt-get update 2>/dev/null; then
+        log_warn "Failed to update package lists with Liquorix repository"
+        log_warn "Skipping Liquorix kernel installation"
+        rm -f /etc/apt/sources.list.d/liquorix.list
+        return 0
+    fi
+    
+    # Install Liquorix kernel
+    log_info "Installing Liquorix kernel (this may take a while)..."
+    if apt-get install -y linux-image-liquorix-amd64 linux-headers-liquorix-amd64 2>/dev/null; then
+        log_info "✓ Liquorix kernel installed successfully"
+        log_warn "Liquorix kernel will be used after reboot"
+    else
+        log_warn "Failed to install Liquorix kernel"
+        log_warn "System will continue using the default kernel"
+    fi
+    
+    log_info "Liquorix kernel installation completed"
+}
+
 install_plymouth_theme() {
-    log_step 10 $TOTAL_STEPS "Installing Plymouth boot theme..."
+    log_step 12 $TOTAL_STEPS "Installing Plymouth boot theme..."
     
     # Install Plymouth if not present
     if ! command -v plymouth &> /dev/null; then
@@ -1008,7 +1133,7 @@ install_plymouth_theme() {
 }
 
 install_audio_config() {
-    log_step 11 $TOTAL_STEPS "Installing AudioConfig tool..."
+    log_step 13 $TOTAL_STEPS "Installing AudioConfig tool..."
     
     if [ ! -d "$CURRENT_DIR/AudioConfig" ]; then
         log_warn "AudioConfig directory not found, skipping"
@@ -1081,6 +1206,8 @@ install_plank_theme
 install_menus
 rebrand_system
 optimize_realtime_audio
+install_audio_plugins
+install_liquorix_kernel
 install_audio_config
 
 # Disable Plymouth boot splash
