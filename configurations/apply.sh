@@ -415,6 +415,28 @@ EOF
     chown "$EXEC_USER:$EXEC_USER" "$USER_HOME/.xsessionrc"
 fi
 
+# Method 3b: .xsession (for SLiM display manager)
+# Only create if it doesn't exist, and make it start XFCE properly
+if [ ! -f "$USER_HOME/.xsession" ]; then
+    log_info "Creating .xsession for SLiM with JACK library path..."
+    cat > "$USER_HOME/.xsession" << 'EOF'
+#!/bin/sh
+# miloOS .xsession for SLiM
+
+# PipeWire JACK library path for audio applications
+export LD_LIBRARY_PATH="/usr/lib/x86_64-linux-gnu/pipewire-0.3/jack:${LD_LIBRARY_PATH}"
+
+# Start XFCE session
+exec startxfce4
+EOF
+    chmod 755 "$USER_HOME/.xsession"
+    chown "$EXEC_USER:$EXEC_USER" "$USER_HOME/.xsession"
+elif ! grep -q "pipewire-0.3/jack" "$USER_HOME/.xsession"; then
+    log_info "Adding JACK library path to existing .xsession..."
+    # Insert before the exec line
+    sed -i '/^exec /i # PipeWire JACK library path\nexport LD_LIBRARY_PATH="/usr/lib/x86_64-linux-gnu/pipewire-0.3/jack:${LD_LIBRARY_PATH}"\n' "$USER_HOME/.xsession"
+fi
+
 # Method 4: environment.d (for systemd user sessions)
 mkdir -p "$USER_HOME/.config/environment.d"
 cat > "$USER_HOME/.config/environment.d/pipewire-jack.conf" << 'EOF'
