@@ -117,7 +117,7 @@ miloOS aims to be the **definitive Linux distribution for audio professionals** 
 - **Guitarix** - Guitar amplifier and effects
 - **Dragonfly Reverb** - High-quality reverbs
 - **EQ10Q** - Parametric equalizer
-- **Carla** - Universal plugin host
+- **qpwgraph** - PipeWire graph manager
 - **Ardour** - Professional DAW
 
 **Real-Time Kernel Parameters**
@@ -346,13 +346,12 @@ miloOS comes with professional audio software pre-installed:
 - ✅ **Guitarix** - Guitar amp/effects
 - ✅ **Dragonfly Reverb** - Quality reverbs
 - ✅ **EQ10Q** - Parametric EQ
-- ✅ **Carla** - Plugin host
 - ✅ **Ardour** - Professional DAW
 
 ### Utilities (Included)
 - ✅ **AudioConfig** - miloOS audio configuration tool
+- ✅ **qpwgraph** - PipeWire graph manager
 - ✅ **XFCE Audio Plugin** - Volume and device control
-- ✅ **qpwgraph** - PipeWire graph manager (install separately)
 
 ### Recommended Additional Software
 
@@ -363,6 +362,7 @@ miloOS comes with professional audio software pre-installed:
 - **LMMS** - Free, beginner-friendly
 
 **Additional Tools**
+- **Carla** - Universal plugin host (install separately)
 - **Yabridge** - Windows VST bridge for Linux
 - **Helvum** - Alternative PipeWire graph manager
 - **Audacity** - Simple audio editing

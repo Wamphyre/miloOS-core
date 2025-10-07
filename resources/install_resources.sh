@@ -893,7 +893,7 @@ install_audio_plugins() {
     
     # Guitar processing
     log_info "Installing guitar processors..."
-    for pkg in guitarix gxplugins-lv2; do
+    for pkg in guitarix; do
         if apt-get install -y "$pkg" 2>/dev/null; then
             log_info "✓ $pkg installed"
         else
@@ -904,7 +904,7 @@ install_audio_plugins() {
     
     # Drums and rhythm
     log_info "Installing drum machines..."
-    for pkg in hydrogen drumgizmo avldrumkits-lv2; do
+    for pkg in hydrogen drumgizmo; do
         if apt-get install -y "$pkg" 2>/dev/null; then
             log_info "✓ $pkg installed"
         else
@@ -926,7 +926,7 @@ install_audio_plugins() {
     
     # Utilities
     log_info "Installing audio utilities..."
-    for pkg in carla ardour; do
+    for pkg in ardour qpwgraph; do
         if apt-get install -y "$pkg" 2>/dev/null; then
             log_info "✓ $pkg installed"
         else
