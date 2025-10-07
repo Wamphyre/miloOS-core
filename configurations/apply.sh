@@ -433,11 +433,12 @@ cat > "$USER_HOME/.config/autostart/pipewire-jack-env.desktop" << 'EOF'
 Type=Application
 Name=PipeWire JACK Environment
 Comment=Set LD_LIBRARY_PATH for JACK applications
-Exec=sh -c 'export LD_LIBRARY_PATH="/usr/lib/x86_64-linux-gnu/pipewire-0.3/jack:${LD_LIBRARY_PATH}"; dbus-update-activation-environment --systemd LD_LIBRARY_PATH'
+Exec=sh -c 'sleep 2; export LD_LIBRARY_PATH="/usr/lib/x86_64-linux-gnu/pipewire-0.3/jack"; dbus-update-activation-environment --systemd LD_LIBRARY_PATH'
 Hidden=false
 NoDisplay=true
 X-GNOME-Autostart-enabled=true
 X-XFCE-Autostart-enabled=true
+StartupNotify=false
 EOF
 chmod 644 "$USER_HOME/.config/autostart/pipewire-jack-env.desktop"
 chown "$EXEC_USER:$EXEC_USER" "$USER_HOME/.config/autostart/pipewire-jack-env.desktop"
@@ -453,6 +454,21 @@ chmod 755 "$USER_HOME/.config/xfce4/xinitrc.d/50-pipewire-jack.sh"
 chown "$EXEC_USER:$EXEC_USER" "$USER_HOME/.config/xfce4/xinitrc.d/50-pipewire-jack.sh"
 
 log_info "XFCE autostart configured for JACK"
+
+# Method 7: Create systemd user environment override
+log_info "Configuring systemd user environment for JACK..."
+mkdir -p "$USER_HOME/.config/systemd/user.conf.d"
+cat > "$USER_HOME/.config/systemd/user.conf.d/pipewire-jack.conf" << 'EOF'
+[Manager]
+DefaultEnvironment="LD_LIBRARY_PATH=/usr/lib/x86_64-linux-gnu/pipewire-0.3/jack"
+EOF
+chmod 644 "$USER_HOME/.config/systemd/user.conf.d/pipewire-jack.conf"
+chown "$EXEC_USER:$EXEC_USER" "$USER_HOME/.config/systemd/user.conf.d/pipewire-jack.conf"
+
+# Reload systemd user manager
+sudo -u "$EXEC_USER" systemctl --user daemon-reload 2>/dev/null || true
+
+log_info "Systemd user environment configured for JACK"
 
 log_info "Configuration applied successfully!"
 log_warn "IMPORTANT: Log out and log back in for all changes to take effect"
