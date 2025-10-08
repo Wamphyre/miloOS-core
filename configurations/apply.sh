@@ -314,7 +314,7 @@ chown -R "$EXEC_USER:$EXEC_USER" "$USER_HOME/.config/plank"
 log_info "Hiding default system menu items..."
 mkdir -p "$USER_HOME/.local/share/applications"
 
-# List of system actions to hide (XFCE and generic)
+# List of system actions and applications to hide
 ACTIONS_TO_HIDE=(
     # XFCE session actions
     "xfce4-session-logout"
@@ -346,6 +346,20 @@ ACTIONS_TO_HIDE=(
     "xfce-about"
     "xfce-settings-manager"
     "xfce4-settings"
+    # Top-level menu items to hide
+    "exo-file-manager"
+    "exo-terminal-emulator"
+    "exo-mail-reader"
+    "exo-web-browser"
+    "xfce4-run"
+    # Accessories section items
+    "xfce4-appfinder"
+    "thunar-bulk-rename"
+    "debian-reference-common"
+    # Multimedia section items
+    "xfce4-mixer"
+    "pavucontrol"
+    "pulseaudio-equalizer"
 )
 
 # Create override files to hide all system actions

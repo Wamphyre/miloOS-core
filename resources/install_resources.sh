@@ -1033,7 +1033,7 @@ install_multimedia_apps() {
     
     # Compression tools
     log_info "Installing compression tools..."
-    for pkg in p7zip-full p7zip-rar unrar rar unzip zip xz-utils bzip2 lzip lzop arj; do
+    for pkg in p7zip-full unzip zip xz-utils bzip2 lzip lzop arj; do
         if apt-get install -y "$pkg" 2>/dev/null; then
             log_info "✓ $pkg installed"
         else
@@ -1064,7 +1064,7 @@ install_multimedia_apps() {
     
     # FUSE and filesystem support
     log_info "Installing filesystem support..."
-    for pkg in fuse3 ntfs-3g exfat-fuse exfatprogs hfsutils hfsprogs; do
+    for pkg in fuse3 ntfs-3g exfat-fuse exfatprogs; do
         if apt-get install -y "$pkg" 2>/dev/null; then
             log_info "✓ $pkg installed"
         else
@@ -1080,6 +1080,15 @@ install_multimedia_apps() {
     else
         log_warn "✗ gparted failed to install"
         APP_FAILED="$APP_FAILED gparted"
+    fi
+    
+    # System cleaner
+    log_info "Installing system cleaner..."
+    if apt-get install -y bleachbit 2>/dev/null; then
+        log_info "✓ bleachbit installed"
+    else
+        log_warn "✗ bleachbit failed to install"
+        APP_FAILED="$APP_FAILED bleachbit"
     fi
     
     # Thunar archive plugin
