@@ -642,6 +642,7 @@ alsa_monitor.rules = {
 EOF
     
     # Create WirePlumber bluetooth config to also use pro-audio
+    mkdir -p /etc/wireplumber/bluetooth.lua.d
     cat > /etc/wireplumber/bluetooth.lua.d/51-pro-audio-bluetooth.lua << 'EOF'
 -- Set pro-audio profile for bluetooth devices in miloOS
 bluez_monitor.rules = {
@@ -661,6 +662,7 @@ EOF
     log_info "Pro-audio profile set as default for all devices"
     
     # Create global WirePlumber configuration for pro-audio
+    mkdir -p /etc/wireplumber/wireplumber.conf.d
     cat > /etc/wireplumber/wireplumber.conf.d/51-miloOS-pro-audio.conf << 'EOF'
 # miloOS pro-audio configuration
 monitor.alsa.rules = [
