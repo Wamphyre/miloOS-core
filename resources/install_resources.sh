@@ -625,8 +625,8 @@ alsa_monitor.rules = {
 EOF
     
     # Set pro-audio profile as default for ALL audio devices
-    cat > /etc/wireplumber/main.lua.d/99-pro-audio-profile.lua << 'EOF'
--- Force pro-audio profile for all ALSA devices in miloOS
+    cat > /etc/wireplumber/main.lua.d/51-pro-audio-profile.lua << 'EOF'
+-- Set pro-audio profile as default for all ALSA cards in miloOS
 alsa_monitor.rules = {
   {
     matches = {
@@ -636,29 +636,49 @@ alsa_monitor.rules = {
     },
     apply_properties = {
       ["device.profile"] = "pro-audio",
-      ["api.alsa.use-acp"] = false,
     },
   },
 }
 EOF
     
-    # Also set in policy
-    cat > /etc/wireplumber/policy.lua.d/99-pro-audio-policy.lua << 'EOF'
--- Pro-audio policy for miloOS
-default_policy.policy = {
-  ["move"] = false,
-  ["follow"] = false,
-}
-
-default_policy.endpoints = {
-  ["endpoint.audio"] = {
-    ["media.class"] = "Audio/Sink",
-    ["role"] = "Multimedia",
+    # Create WirePlumber bluetooth config to also use pro-audio
+    cat > /etc/wireplumber/bluetooth.lua.d/51-pro-audio-bluetooth.lua << 'EOF'
+-- Set pro-audio profile for bluetooth devices in miloOS
+bluez_monitor.rules = {
+  {
+    matches = {
+      {
+        { "device.name", "matches", "bluez_card.*" },
+      },
+    },
+    apply_properties = {
+      ["device.profile"] = "a2dp-sink",
+    },
   },
 }
 EOF
     
-    log_info "Pro-audio profile forced for all devices"
+    log_info "Pro-audio profile set as default for all devices"
+    
+    # Create global WirePlumber configuration for pro-audio
+    cat > /etc/wireplumber/wireplumber.conf.d/51-miloOS-pro-audio.conf << 'EOF'
+# miloOS pro-audio configuration
+monitor.alsa.rules = [
+  {
+    matches = [
+      {
+        device.name = "~alsa_card.*"
+      }
+    ]
+    actions = {
+      update-props = {
+        api.alsa.use-acp = true
+        device.profile = "pro-audio"
+      }
+    }
+  }
+]
+EOF
     
     # Enable PipeWire services for all users
     log_info "Enabling PipeWire services..."
