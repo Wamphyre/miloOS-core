@@ -14,12 +14,13 @@ set -o pipefail
 # ============================================================================
 
 VERSION="1.0"
-WORK_DIR="/tmp/miloOS-build-$$"
+# Use /var/tmp instead of /tmp (tmpfs is too small)
+WORK_DIR="/var/tmp/miloOS-build-$$"
 CHROOT_DIR="$WORK_DIR/chroot"
 ISO_DIR="$WORK_DIR/iso"
 SQUASHFS_DIR="$ISO_DIR/live"
 ISO_NAME="miloOS-${VERSION}-amd64.iso"
-LOG_FILE="/tmp/miloOS-build-$(date +%Y%m%d-%H%M%S).log"
+LOG_FILE="/var/tmp/miloOS-build-$(date +%Y%m%d-%H%M%S).log"
 
 # ============================================================================
 # COLORS AND LOGGING
@@ -154,13 +155,14 @@ check_disk_space() {
     log_info "Checking available disk space..."
     
     local REQUIRED_SPACE_GB=20
-    local AVAILABLE_SPACE_GB=$(df -BG /tmp | awk 'NR==2 {print $4}' | sed 's/G//')
+    # Check space in the work directory location
+    local AVAILABLE_SPACE_GB=$(df -BG "$(dirname "$WORK_DIR")" | awk 'NR==2 {print $4}' | sed 's/G//')
     
     if [ "$AVAILABLE_SPACE_GB" -lt "$REQUIRED_SPACE_GB" ]; then
-        error_exit "Insufficient disk space. Need at least ${REQUIRED_SPACE_GB}GB, have ${AVAILABLE_SPACE_GB}GB"
+        error_exit "Insufficient disk space in $(dirname "$WORK_DIR"). Need at least ${REQUIRED_SPACE_GB}GB, have ${AVAILABLE_SPACE_GB}GB"
     fi
     
-    log_success "Sufficient disk space available: ${AVAILABLE_SPACE_GB}GB"
+    log_success "Sufficient disk space available: ${AVAILABLE_SPACE_GB}GB in $(dirname "$WORK_DIR")"
 }
 
 # ============================================================================
