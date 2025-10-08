@@ -2,9 +2,9 @@
 
 ![miloOS Desktop](miloOS-desktop.png)
 
-**A professional audio production Linux distribution designed as a macOS replacement.**
+**A professional multimedia production Linux distribution.**
 
-miloOS is a complete Debian 13 (Trixie) based operating system optimized for audio production, music creation, and professional audio engineering. Built from the ground up with real-time performance, low-latency audio, and a beautiful macOS-inspired interface.
+miloOS is a complete Debian 13 (Trixie) based operating system optimized for audio production, music creation, and multimedia content creation. Built from the ground up with real-time performance, low-latency audio, and a clean, elegant interface designed for creative professionals.
 
 ---
 
@@ -29,31 +29,31 @@ Pre-built ISO images will be released when ready. Follow the project for updates
 
 ## Project Vision
 
-miloOS aims to be the **definitive Linux distribution for audio professionals** who want to leave macOS behind without sacrificing workflow, aesthetics, or performance.
+miloOS aims to be the **definitive Linux distribution for creative professionals** who demand professional-grade audio performance, elegant design, and a distraction-free workflow.
 
 ### Why miloOS?
 
 **For Audio Professionals:**
-- Escape Apple's ecosystem lock-in
-- Own your hardware and software
-- No forced obsolescence
 - Professional audio performance out-of-the-box
 - Full JACK compatibility without configuration
-- Real-time kernel optimizations
+- Real-time optimizations for low-latency work
+- Complete suite of professional plugins included
+- No configuration needed - just create
 
-**For macOS Users:**
-- Familiar interface and workflow
-- San Francisco Pro typography
-- macOS-style window management
-- Intuitive power management
-- Beautiful, polished experience
+**For Creative Professionals:**
+- Clean, elegant interface that stays out of your way
+- Optimized for multimedia production workflows
+- Professional typography and visual design
+- Intuitive system management
+- Focus on your work, not the system
 
 **For Linux Users:**
-- Debian stability and package ecosystem
-- XFCE4 performance and customization
-- PipeWire modern audio stack
+- Debian stability and vast package ecosystem
+- XFCE4 performance with custom refinements
+- Modern PipeWire audio stack
 - Open source and transparent
 - Community-driven development
+- No vendor lock-in or forced obsolescence
 
 ---
 
@@ -61,34 +61,34 @@ miloOS aims to be the **definitive Linux distribution for audio professionals** 
 
 ### 🎨 Visual Experience
 
-**macOS-Inspired Interface**
-- Top panel with application menu integration
-- Plank dock with macOS-style animations
-- Window buttons in macOS order (Close, Minimize, Maximize)
-- Hidden window titles for clean aesthetics
+**Clean, Professional Interface**
+- Top panel with integrated application menu
+- Plank dock for quick application access
+- Streamlined window controls (Close, Minimize, Maximize)
+- Hidden window titles for maximum workspace
 - Desktop icons aligned top-right, vertical layout
 
 **Typography & Theming**
-- San Francisco Pro system-wide fonts
-- Custom miloOS GTK theme with macOS blue (#007AFF)
-- WhiteSur icon theme (macOS Big Sur style)
-- Optimized font rendering (antialiasing, hinting, subpixel)
+- San Francisco Pro system-wide fonts for clarity
+- Custom miloOS GTK theme with professional blue accent (#007AFF)
+- WhiteSur icon theme for visual consistency
+- Optimized font rendering for comfortable long sessions
 - Custom SLiM login theme
 
 **Visual Polish**
-- Custom wallpapers
-- Smooth animations
-- Consistent color scheme
-- Professional appearance
+- Curated wallpaper collection
+- Smooth, subtle animations
+- Consistent color scheme throughout
+- Professional, distraction-free appearance
 
 ### 🎵 Audio Production Ready
 
-**Liquorix Real-Time Kernel**
-- Optimized kernel for professional audio production
-- Lower latency than standard kernels
-- Better real-time performance
-- Improved scheduler for audio workloads
-- Automatically installed and configured
+**Real-Time Optimized System**
+- Kernel parameters tuned for professional audio
+- Lower latency than standard distributions
+- Optimized scheduler for audio workloads
+- Real-time priority for audio processes
+- Zero-configuration audio setup
 
 **PipeWire Audio Stack**
 - Pre-configured for low-latency audio production
@@ -266,59 +266,55 @@ fs.file-max = 524288
 
 ---
 
-## Advantages Over macOS
+## Why Choose miloOS?
 
-### Freedom & Control
-- ✅ Own your hardware forever
-- ✅ No forced upgrades or obsolescence
+### Freedom & Ownership
+- ✅ Complete control over your system
+- ✅ No forced upgrades or planned obsolescence
 - ✅ Full system access and customization
 - ✅ No vendor lock-in
 - ✅ Open source transparency
 
-### Performance
-- ✅ Lower latency than macOS Core Audio
-- ✅ Better resource utilization
-- ✅ Optimized for audio production
-- ✅ Real-time kernel support
-- ✅ No background telemetry
+### Professional Performance
+- ✅ Optimized for low-latency audio production
+- ✅ Efficient resource utilization
+- ✅ Real-time kernel parameters
+- ✅ No background telemetry or bloat
+- ✅ Stable and reliable for production work
 
-### Cost
+### Cost Effective
 - ✅ Free and open source
 - ✅ No hardware restrictions
-- ✅ Run on any compatible hardware
+- ✅ Run on any compatible x86_64 hardware
 - ✅ No subscription fees
-- ✅ Community support
+- ✅ Community-driven support
 
-### Compatibility
-- ✅ Native Linux audio tools
+### Complete Ecosystem
+- ✅ Professional audio plugins included
 - ✅ Windows VST support (via Yabridge)
-- ✅ JACK ecosystem
-- ✅ LV2 plugins
-- ✅ Debian package repository
-
----
-
-## Advantages Over Other Linux Distros
+- ✅ Full JACK ecosystem compatibility
+- ✅ LV2, LADSPA, VST plugin support
+- ✅ Vast Debian package repository
 
 ### Audio-First Design
-- ✅ Pre-configured for audio production
-- ✅ Real-time kernel parameters
-- ✅ Optimized PipeWire configuration
-- ✅ JACK works out-of-the-box
-- ✅ Professional audio tools included
+- ✅ Pre-configured for professional audio
+- ✅ Real-time optimizations out-of-the-box
+- ✅ PipeWire with JACK compatibility
+- ✅ Professional tools included
+- ✅ Zero-configuration workflow
 
 ### Polished Experience
-- ✅ macOS-quality interface
+- ✅ Clean, professional interface
 - ✅ Consistent design language
 - ✅ Custom applications (miloApps)
 - ✅ Attention to detail
-- ✅ User-friendly workflow
+- ✅ Distraction-free workflow
 
-### Debian Stability
+### Debian Foundation
 - ✅ Rock-solid base system
 - ✅ Extensive package repository
 - ✅ Long-term support
-- ✅ Security updates
+- ✅ Regular security updates
 - ✅ Proven reliability
 
 ### Ready to Use
@@ -444,20 +440,20 @@ See [LICENSE](LICENSE) file for details.
 - All contributors and testers
 
 ### Inspiration
-- macOS - Design language and workflow
+- Professional audio workstations and workflows
 - Ubuntu Studio - Audio-focused distribution
 - KXStudio - Professional audio tools
-- Arch Linux - System optimization
+- Clean, minimal design principles
 
 ---
 
 ## Disclaimer
 
-**miloOS is an independent project and is not affiliated with, endorsed by, or associated with Apple Inc.**
+**miloOS is an independent open source project.**
 
-- macOS, Mac, and San Francisco are trademarks of Apple Inc.
-- miloOS is a Linux distribution inspired by macOS design
-- No Apple code or proprietary assets are used
+- San Francisco Pro fonts are property of Apple Inc. and used under their license terms
+- miloOS is an original Linux distribution with its own design philosophy
+- No proprietary code or assets from third parties are included
 - All trademarks belong to their respective owners
 
 **Use at your own risk.** While miloOS is designed for stability and reliability, the developers are not responsible for any data loss, hardware damage, or other issues that may arise from using this software.

@@ -1,6 +1,6 @@
 #!/bin/bash
 # Author: Wamphyre
-# Description: Customized skinpack for XFCE4 to look like macOS
+# Description: miloOS user configuration script
 # Version: 2.0 (Fixed and improved)
 
 set -e  # Exit on error
@@ -81,7 +81,7 @@ mkdir -p "$USER_HOME/.config/plank/dock1/launchers"
 log_info "Applying GTK configurations..."
 echo "#xfce4-power-manager-plugin * { -gtk-icon-transform: scale(1.2); }" > "$USER_HOME/.config/gtk-3.0/gtk.css"
 
-# Copy font configuration for macOS-like rendering
+# Copy font configuration for optimal rendering
 if [ -f "configurations/fonts.conf" ]; then
     log_info "Configuring font rendering..."
     mkdir -p "$USER_HOME/.config/fontconfig"
@@ -186,7 +186,7 @@ fi
 # Apply xfconf settings
 log_info "Applying xfconf settings..."
 
-# Font rendering (macOS-like)
+# Font rendering (optimized for clarity)
 log_info "Configuring font rendering..."
 xfconf-query -c xsettings -p /Xft/DPI -n -t int -s 96 2>/dev/null || \
     xfconf-query -c xsettings -p /Xft/DPI -t int -s 96
@@ -258,12 +258,19 @@ xfconf-query -c xsettings -p /Net/IconThemeName -n -t string -s WhiteSur-light 2
 xfconf-query -c xsettings -p /Gtk/CursorThemeName -n -t string -s Adwaita 2>/dev/null || \
     xfconf-query -c xsettings -p /Gtk/CursorThemeName -t string -s Adwaita
 
-# Desktop icons alignment (top-right, vertical, macOS style)
+# Desktop icons alignment (top-right, vertical)
+# gravity: 1 = top-right, style: 2 = vertical
 xfconf-query -c xfce4-desktop -p /desktop-icons/gravity -n -t int -s 1 2>/dev/null || \
     xfconf-query -c xfce4-desktop -p /desktop-icons/gravity -t int -s 1
 
 xfconf-query -c xfce4-desktop -p /desktop-icons/style -n -t int -s 2 2>/dev/null || \
     xfconf-query -c xfce4-desktop -p /desktop-icons/style -t int -s 2
+
+# Force icon alignment for all monitors
+for monitor in $(xfconf-query -c xfce4-desktop -l | grep "/backdrop/screen.*/monitor.*/workspace0/last-image" | sed 's|/backdrop/\(screen[0-9]*/monitor[^/]*\)/.*|\1|' | sort -u); do
+    xfconf-query -c xfce4-desktop -p "/desktop-icons/${monitor}/icon-size" -n -t int -s 48 2>/dev/null || \
+        xfconf-query -c xfce4-desktop -p "/desktop-icons/${monitor}/icon-size" -t int -s 48
+done
 
 # Desktop icons settings (show volumes and removable devices)
 xfconf-query -c xfce4-desktop -p /desktop-icons/file-icons/show-home -n -t bool -s false 2>/dev/null || \

@@ -1,6 +1,6 @@
 #!/bin/bash
 # Author: Wamphyre
-# Description: Customized skinpack for XFCE4 to look like macOS
+# Description: miloOS installation and configuration script
 # Version: 2.1 (Fixed critical issues)
 
 # Exit on error but handle it properly
@@ -44,7 +44,7 @@ if [ "$(id -u)" -ne 0 ]; then
 fi
 
 CURRENT_DIR="$PWD"
-TOTAL_STEPS=13
+TOTAL_STEPS=12
 
 # Verify we're on Debian
 verify_system() {
@@ -494,7 +494,7 @@ echo " | |\/| | | |/ _ \ | | \___ \ "
 echo " | |  | | | | (_) | |_| |___) |"
 echo " |_|  |_|_|_|\___/ \___/|____/ "
 echo ""
-echo " Welcome to miloOS - A beautiful macOS-like experience"
+echo " Welcome to miloOS - Professional Audio & Multimedia Production"
 echo ""
 EOF
         chmod +x /etc/update-motd.d/00-header
@@ -624,9 +624,9 @@ alsa_monitor.rules = {
 }
 EOF
     
-    # Set pro-audio profile as default
-    cat > /etc/wireplumber/policy.lua.d/99-pro-audio.lua << 'EOF'
--- Set pro-audio profile as default for miloOS
+    # Set pro-audio profile as default for ALL audio devices
+    cat > /etc/wireplumber/main.lua.d/99-pro-audio-profile.lua << 'EOF'
+-- Force pro-audio profile for all ALSA devices in miloOS
 alsa_monitor.rules = {
   {
     matches = {
@@ -636,12 +636,29 @@ alsa_monitor.rules = {
     },
     apply_properties = {
       ["device.profile"] = "pro-audio",
+      ["api.alsa.use-acp"] = false,
     },
   },
 }
 EOF
     
-    log_info "Pro-audio profile set as default"
+    # Also set in policy
+    cat > /etc/wireplumber/policy.lua.d/99-pro-audio-policy.lua << 'EOF'
+-- Pro-audio policy for miloOS
+default_policy.policy = {
+  ["move"] = false,
+  ["follow"] = false,
+}
+
+default_policy.endpoints = {
+  ["endpoint.audio"] = {
+    ["media.class"] = "Audio/Sink",
+    ["role"] = "Multimedia",
+  },
+}
+EOF
+    
+    log_info "Pro-audio profile forced for all devices"
     
     # Enable PipeWire services for all users
     log_info "Enabling PipeWire services..."
@@ -943,49 +960,8 @@ install_audio_plugins() {
     log_info "Audio plugins installation completed"
 }
 
-install_liquorix_kernel() {
-    log_step 11 $TOTAL_STEPS "Installing Liquorix real-time kernel..."
-    
-    log_info "Adding Liquorix repository..."
-    
-    # Add Liquorix repository key
-    if command -v curl &> /dev/null; then
-        curl -s 'https://liquorix.net/liquorix-keyring.gpg' | gpg --dearmor | tee /usr/share/keyrings/liquorix-keyring.gpg > /dev/null 2>&1
-    elif command -v wget &> /dev/null; then
-        wget -qO - 'https://liquorix.net/liquorix-keyring.gpg' | gpg --dearmor | tee /usr/share/keyrings/liquorix-keyring.gpg > /dev/null 2>&1
-    else
-        log_warn "Neither curl nor wget available, cannot add Liquorix repository"
-        log_warn "Skipping Liquorix kernel installation"
-        return 0
-    fi
-    
-    # Add Liquorix repository
-    echo "deb [signed-by=/usr/share/keyrings/liquorix-keyring.gpg] https://liquorix.net/debian trixie main" | tee /etc/apt/sources.list.d/liquorix.list > /dev/null
-    
-    # Update package lists
-    log_info "Updating package lists..."
-    if ! apt-get update 2>/dev/null; then
-        log_warn "Failed to update package lists with Liquorix repository"
-        log_warn "Skipping Liquorix kernel installation"
-        rm -f /etc/apt/sources.list.d/liquorix.list
-        return 0
-    fi
-    
-    # Install Liquorix kernel
-    log_info "Installing Liquorix kernel (this may take a while)..."
-    if apt-get install -y linux-image-liquorix-amd64 linux-headers-liquorix-amd64 2>/dev/null; then
-        log_info "✓ Liquorix kernel installed successfully"
-        log_warn "Liquorix kernel will be used after reboot"
-    else
-        log_warn "Failed to install Liquorix kernel"
-        log_warn "System will continue using the default kernel"
-    fi
-    
-    log_info "Liquorix kernel installation completed"
-}
-
 install_plymouth_theme() {
-    log_step 12 $TOTAL_STEPS "Installing Plymouth boot theme..."
+    log_step 11 $TOTAL_STEPS "Installing Plymouth boot theme..."
     
     # Install Plymouth if not present
     if ! command -v plymouth &> /dev/null; then
@@ -1133,7 +1109,7 @@ install_plymouth_theme() {
 }
 
 install_audio_config() {
-    log_step 13 $TOTAL_STEPS "Installing AudioConfig tool..."
+    log_step 12 $TOTAL_STEPS "Installing AudioConfig tool..."
     
     if [ ! -d "$CURRENT_DIR/AudioConfig" ]; then
         log_warn "AudioConfig directory not found, skipping"
@@ -1207,7 +1183,6 @@ install_menus
 rebrand_system
 optimize_realtime_audio
 install_audio_plugins
-install_liquorix_kernel
 install_audio_config
 
 # Disable Plymouth boot splash
