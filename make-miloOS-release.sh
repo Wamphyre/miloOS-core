@@ -538,6 +538,15 @@ configure_live_user() {
     mount --bind /dev "$CHROOT_DIR/dev"
     mount --bind /dev/pts "$CHROOT_DIR/dev/pts"
     
+    # Install live-boot packages
+    log_info "Installing live-boot packages..."
+    chroot "$CHROOT_DIR" apt-get update 2>&1 | tee -a "$LOG_FILE" | grep -v "^Get:\|^Hit:" || true
+    chroot "$CHROOT_DIR" apt-get install -y live-boot live-boot-initramfs-tools 2>&1 | tee -a "$LOG_FILE" | grep -v "^Selecting\|^Preparing\|^Unpacking" || true
+    
+    # Update initramfs with live-boot
+    log_info "Updating initramfs with live-boot..."
+    chroot "$CHROOT_DIR" update-initramfs -u 2>&1 | tee -a "$LOG_FILE" | grep -v "^update-initramfs:" || true
+    
     # Create live user in chroot
     log_info "Creating user 'milo' with password '1234'..."
     chroot "$CHROOT_DIR" useradd -m -s /bin/bash -G audio,video,sudo,plugdev,netdev,cdrom,floppy milo 2>/dev/null || true
@@ -1272,11 +1281,23 @@ extract_kernel_initrd() {
     log_info "Found kernel: $(basename "$KERNEL")"
     log_info "Found initrd: $(basename "$INITRD")"
     
-    # Copy to ISO directory
+    # Ensure live directory exists
+    mkdir -p "$SQUASHFS_DIR"
+    
+    # Copy to ISO live directory
     cp "$KERNEL" "$SQUASHFS_DIR/vmlinuz"
     cp "$INITRD" "$SQUASHFS_DIR/initrd.img"
     
-    log_success "Kernel and initrd extracted"
+    # Verify files were copied
+    if [ ! -f "$SQUASHFS_DIR/vmlinuz" ]; then
+        error_exit "Failed to copy kernel to $SQUASHFS_DIR/vmlinuz"
+    fi
+    
+    if [ ! -f "$SQUASHFS_DIR/initrd.img" ]; then
+        error_exit "Failed to copy initrd to $SQUASHFS_DIR/initrd.img"
+    fi
+    
+    log_success "Kernel and initrd extracted to $SQUASHFS_DIR/"
 }
 
 create_squashfs() {
@@ -1289,14 +1310,21 @@ create_squashfs() {
     umount -l "$CHROOT_DIR/dev/pts" 2>/dev/null || true
     umount -l "$CHROOT_DIR/dev" 2>/dev/null || true
     
-    # Create squashfs with XZ compression
+    # Verify kernel and initrd are already extracted
+    if [ ! -f "$SQUASHFS_DIR/vmlinuz" ]; then
+        error_exit "Kernel not found at $SQUASHFS_DIR/vmlinuz - extract_kernel_initrd must run first"
+    fi
+    
+    # Create squashfs with XZ compression (exclude boot since we already have kernel/initrd)
+    log_info "Compressing filesystem (this will take a while)..."
     mksquashfs "$CHROOT_DIR" "$SQUASHFS_DIR/filesystem.squashfs" \
         -comp xz \
         -b 1M \
         -Xdict-size 100% \
         -e boot \
         -noappend \
-        2>&1 | tee -a "$LOG_FILE" | grep -E "^Creating|^Exportable|^Filesystem" || true
+        -no-progress \
+        2>&1 | tee -a "$LOG_FILE" | grep -E "^Creating|^Exportable|^Filesystem|^Parallel" || true
     
     if [ ! -f "$SQUASHFS_DIR/filesystem.squashfs" ]; then
         error_exit "Failed to create squashfs"
@@ -1304,10 +1332,16 @@ create_squashfs() {
     
     local SIZE=$(du -h "$SQUASHFS_DIR/filesystem.squashfs" | cut -f1)
     log_success "Squashfs created: $SIZE"
+    
+    # List contents of live directory
+    log_info "Live directory contents:"
+    ls -lh "$SQUASHFS_DIR/" | tee -a "$LOG_FILE"
 }
 
 create_grub_config() {
     log_info "Creating GRUB configuration..."
+    
+    mkdir -p "$ISO_DIR/boot/grub"
     
     cat > "$ISO_DIR/boot/grub/grub.cfg" << 'EOF'
 set timeout=10
@@ -1316,6 +1350,9 @@ set default=0
 insmod all_video
 insmod gfxterm
 insmod png
+insmod part_gpt
+insmod part_msdos
+insmod iso9660
 
 set gfxmode=auto
 set gfxpayload=keep
@@ -1326,17 +1363,20 @@ set menu_color_normal=white/black
 set menu_color_highlight=black/light-gray
 
 menuentry "miloOS Live" {
-    linux /live/vmlinuz boot=live components quiet splash
+    set root=(cd0)
+    linux /live/vmlinuz boot=live quiet splash
     initrd /live/initrd.img
 }
 
 menuentry "miloOS Live (Safe Mode)" {
-    linux /live/vmlinuz boot=live components nomodeset
+    set root=(cd0)
+    linux /live/vmlinuz boot=live nomodeset
     initrd /live/initrd.img
 }
 
 menuentry "miloOS Live (Failsafe)" {
-    linux /live/vmlinuz boot=live components noapic noacpi nosplash irqpoll
+    set root=(cd0)
+    linux /live/vmlinuz boot=live noapic noacpi nosplash irqpoll
     initrd /live/initrd.img
 }
 EOF
@@ -1671,9 +1711,16 @@ main() {
     create_calamares_branding
     create_post_install_scripts
     
-    # Extract kernel and initrd
+    # Extract kernel and initrd (AFTER live-boot is installed and initramfs updated)
     log_step 8 10 "Extracting kernel and initrd"
     extract_kernel_initrd
+    
+    # Verify kernel and initrd exist
+    if [ ! -f "$SQUASHFS_DIR/vmlinuz" ] || [ ! -f "$SQUASHFS_DIR/initrd.img" ]; then
+        error_exit "Kernel or initrd missing from $SQUASHFS_DIR/"
+    fi
+    log_info "✓ Kernel: $(ls -lh "$SQUASHFS_DIR/vmlinuz" | awk '{print $5}')"
+    log_info "✓ Initrd: $(ls -lh "$SQUASHFS_DIR/initrd.img" | awk '{print $5}')"
     
     # Create squashfs
     log_step 9 10 "Creating squashfs filesystem"
