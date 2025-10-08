@@ -44,7 +44,7 @@ if [ "$(id -u)" -ne 0 ]; then
 fi
 
 CURRENT_DIR="$PWD"
-TOTAL_STEPS=12
+TOTAL_STEPS=13
 
 # Verify we're on Debian
 verify_system() {
@@ -982,8 +982,152 @@ install_audio_plugins() {
     log_info "Audio plugins installation completed"
 }
 
+install_multimedia_apps() {
+    log_step 11 $TOTAL_STEPS "Installing multimedia and productivity applications..."
+    
+    log_info "Installing multimedia applications for miloOS..."
+    
+    local APP_FAILED=""
+    
+    # Media players
+    log_info "Installing media players..."
+    for pkg in audacious audacious-plugins vlc; do
+        if apt-get install -y "$pkg" 2>/dev/null; then
+            log_info "✓ $pkg installed"
+        else
+            log_warn "✗ $pkg failed to install"
+            APP_FAILED="$APP_FAILED $pkg"
+        fi
+    done
+    
+    # Internet applications
+    log_info "Installing internet applications..."
+    for pkg in transmission filezilla; do
+        if apt-get install -y "$pkg" 2>/dev/null; then
+            log_info "✓ $pkg installed"
+        else
+            log_warn "✗ $pkg failed to install"
+            APP_FAILED="$APP_FAILED $pkg"
+        fi
+    done
+    
+    # Graphics applications
+    log_info "Installing graphics applications..."
+    for pkg in digikam gimp gimp-data-extras; do
+        if apt-get install -y "$pkg" 2>/dev/null; then
+            log_info "✓ $pkg installed"
+        else
+            log_warn "✗ $pkg failed to install"
+            APP_FAILED="$APP_FAILED $pkg"
+        fi
+    done
+    
+    # Video editor
+    log_info "Installing video editor..."
+    if apt-get install -y shotcut 2>/dev/null; then
+        log_info "✓ shotcut installed"
+    else
+        log_warn "✗ shotcut failed to install"
+        APP_FAILED="$APP_FAILED shotcut"
+    fi
+    
+    # Compression tools
+    log_info "Installing compression tools..."
+    for pkg in p7zip-full p7zip-rar unrar rar unzip zip xz-utils bzip2 lzip lzop arj; do
+        if apt-get install -y "$pkg" 2>/dev/null; then
+            log_info "✓ $pkg installed"
+        else
+            log_warn "✗ $pkg failed to install"
+            APP_FAILED="$APP_FAILED $pkg"
+        fi
+    done
+    
+    # ISO mounting tools
+    log_info "Installing ISO tools..."
+    for pkg in fuseiso genisoimage; do
+        if apt-get install -y "$pkg" 2>/dev/null; then
+            log_info "✓ $pkg installed"
+        else
+            log_warn "✗ $pkg failed to install"
+            APP_FAILED="$APP_FAILED $pkg"
+        fi
+    done
+    
+    # Font manager
+    log_info "Installing font manager..."
+    if apt-get install -y font-manager 2>/dev/null; then
+        log_info "✓ font-manager installed"
+    else
+        log_warn "✗ font-manager failed to install"
+        APP_FAILED="$APP_FAILED font-manager"
+    fi
+    
+    # FUSE and filesystem support
+    log_info "Installing filesystem support..."
+    for pkg in fuse3 ntfs-3g exfat-fuse exfatprogs hfsutils hfsprogs; do
+        if apt-get install -y "$pkg" 2>/dev/null; then
+            log_info "✓ $pkg installed"
+        else
+            log_warn "✗ $pkg failed to install"
+            APP_FAILED="$APP_FAILED $pkg"
+        fi
+    done
+    
+    # Partition manager
+    log_info "Installing partition manager..."
+    if apt-get install -y gparted 2>/dev/null; then
+        log_info "✓ gparted installed"
+    else
+        log_warn "✗ gparted failed to install"
+        APP_FAILED="$APP_FAILED gparted"
+    fi
+    
+    # Thunar archive plugin
+    log_info "Installing Thunar archive plugin..."
+    if apt-get install -y thunar-archive-plugin 2>/dev/null; then
+        log_info "✓ thunar-archive-plugin installed"
+    else
+        log_warn "✗ thunar-archive-plugin failed to install"
+        APP_FAILED="$APP_FAILED thunar-archive-plugin"
+    fi
+    
+    # Upscayl - AI image upscaler
+    log_info "Installing Upscayl..."
+    local UPSCAYL_TEMP="/tmp/upscayl.deb"
+    local UPSCAYL_URL=$(curl -s https://api.github.com/repos/upscayl/upscayl/releases/latest | grep "browser_download_url.*linux.deb" | cut -d '"' -f 4)
+    
+    if [ -n "$UPSCAYL_URL" ]; then
+        log_info "Downloading Upscayl from GitHub..."
+        if wget -q -O "$UPSCAYL_TEMP" "$UPSCAYL_URL" 2>/dev/null || curl -sL -o "$UPSCAYL_TEMP" "$UPSCAYL_URL" 2>/dev/null; then
+            log_info "Installing Upscayl..."
+            if dpkg -i "$UPSCAYL_TEMP" 2>/dev/null; then
+                log_info "✓ upscayl installed"
+                # Fix dependencies if needed
+                apt-get install -f -y 2>/dev/null || true
+            else
+                log_warn "✗ upscayl failed to install"
+                APP_FAILED="$APP_FAILED upscayl"
+            fi
+            rm -f "$UPSCAYL_TEMP"
+        else
+            log_warn "✗ Failed to download upscayl"
+            APP_FAILED="$APP_FAILED upscayl"
+        fi
+    else
+        log_warn "✗ Could not find upscayl download URL"
+        APP_FAILED="$APP_FAILED upscayl"
+    fi
+    
+    if [ -n "$APP_FAILED" ]; then
+        log_warn "Some applications failed to install:$APP_FAILED"
+        log_warn "You can install them manually later"
+    fi
+    
+    log_info "Multimedia applications installation completed"
+}
+
 install_plymouth_theme() {
-    log_step 11 $TOTAL_STEPS "Installing Plymouth boot theme..."
+    log_step 12 $TOTAL_STEPS "Installing Plymouth boot theme..."
     
     # Install Plymouth if not present
     if ! command -v plymouth &> /dev/null; then
@@ -1131,7 +1275,7 @@ install_plymouth_theme() {
 }
 
 install_audio_config() {
-    log_step 12 $TOTAL_STEPS "Installing AudioConfig tool..."
+    log_step 13 $TOTAL_STEPS "Installing AudioConfig tool..."
     
     if [ ! -d "$CURRENT_DIR/AudioConfig" ]; then
         log_warn "AudioConfig directory not found, skipping"
@@ -1205,6 +1349,7 @@ install_menus
 rebrand_system
 optimize_realtime_audio
 install_audio_plugins
+install_multimedia_apps
 install_audio_config
 
 # Disable Plymouth boot splash

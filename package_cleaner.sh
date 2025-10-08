@@ -36,8 +36,7 @@ PACKAGES_TO_REMOVE=(
     # Package managers
     "synaptic"
     
-    # Bulk rename (keeping thunar)
-    "thunar-archive-plugin"
+    # Thunar plugins (keeping useful ones)
     "thunar-media-tags-plugin"
     
     # Notes applications
