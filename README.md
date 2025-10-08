@@ -367,7 +367,7 @@ miloOS comes with professional audio software pre-installed:
 
 ## Development Status
 
-### Current Status: Alpha
+### Current Status: Beta
 - ✅ Core system configuration complete
 - ✅ Liquorix real-time kernel integration
 - ✅ Audio optimization implemented
@@ -375,19 +375,20 @@ miloOS comes with professional audio software pre-installed:
 - ✅ JACK compatibility configured
 - ✅ Visual theming finished
 - ✅ AudioConfig application ready
-- ⏳ ISO build system in progress
+- ✅ ISO build system complete
 - ⏳ Additional miloApps in development
 - ⏳ Documentation being written
+- ⏳ Beta testing in progress
 
 ### Roadmap
 
-**Phase 1: Foundation (Current)**
+**Phase 1: Foundation (Complete)**
 - [x] Base system configuration
 - [x] Audio optimization
 - [x] Visual theming
 - [x] AudioConfig application
-- [ ] ISO build system
-- [ ] Installation wizard
+- [x] ISO build system
+- [x] Installation wizard (Calamares)
 
 **Phase 2: Polish**
 - [ ] Additional miloApps
@@ -444,6 +445,33 @@ See [LICENSE](LICENSE) file for details.
 - Ubuntu Studio - Audio-focused distribution
 - KXStudio - Professional audio tools
 - Clean, minimal design principles
+
+---
+
+## Building ISO
+
+To create a bootable ISO image of miloOS:
+
+```bash
+# Clone the repository
+git clone https://github.com/Wamphyre/miloOS-core.git
+cd miloOS-core
+
+# Build ISO (requires root)
+sudo ./make-miloOS-release.sh
+```
+
+The script will:
+- ✅ Verify system requirements
+- ✅ Copy all configurations
+- ✅ Create Live system with user "milo" (password: 1234)
+- ✅ Configure Calamares installer
+- ✅ Build bootable ISO with BIOS and UEFI support
+- ✅ Generate SHA256 checksum
+
+**Output:** `miloOS-1.0-amd64.iso` (2-4 GB)
+
+For detailed instructions, see [README-ISO.md](README-ISO.md)
 
 ---
 
