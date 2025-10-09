@@ -97,7 +97,8 @@ install_debian_packages() {
     
     for pkg in gtk2-engines-murrine gtk2-engines-pixbuf plank catfish \
                appmenu-gtk3-module dconf-cli vala-panel-appmenu \
-               xfce4-appmenu-plugin xfce4-notifyd cifs-utils smbclient slim zenity; do
+               xfce4-appmenu-plugin xfce4-notifyd cifs-utils smbclient slim zenity \
+               ristretto xfce4-screensaver xfce4-screenshooter; do
         if apt-get install -y "$pkg" 2>/dev/null; then
             log_info "✓ $pkg installed"
         else

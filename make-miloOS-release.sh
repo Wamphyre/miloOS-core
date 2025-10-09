@@ -538,24 +538,45 @@ configure_live_user() {
     mount --bind /dev "$CHROOT_DIR/dev"
     mount --bind /dev/pts "$CHROOT_DIR/dev/pts"
     
-    # Install live-boot packages
-    log_info "Installing live-boot packages..."
+    # Install live-boot and live-config packages
+    log_info "Installing live system packages..."
     chroot "$CHROOT_DIR" apt-get update 2>&1 | tee -a "$LOG_FILE" | grep -v "^Get:\|^Hit:" || true
-    chroot "$CHROOT_DIR" apt-get install -y live-boot live-boot-initramfs-tools 2>&1 | tee -a "$LOG_FILE" | grep -v "^Selecting\|^Preparing\|^Unpacking" || true
+    chroot "$CHROOT_DIR" apt-get install -y live-boot live-boot-initramfs-tools live-config live-config-systemd 2>&1 | tee -a "$LOG_FILE" | grep -v "^Selecting\|^Preparing\|^Unpacking" || true
+    
+    # Install additional required packages for live system
+    log_info "Installing live system dependencies..."
+    chroot "$CHROOT_DIR" apt-get install -y user-setup sudo 2>&1 | tee -a "$LOG_FILE" | grep -v "^Selecting\|^Preparing\|^Unpacking" || true
     
     # Update initramfs with live-boot
     log_info "Updating initramfs with live-boot..."
-    chroot "$CHROOT_DIR" update-initramfs -u 2>&1 | tee -a "$LOG_FILE" | grep -v "^update-initramfs:" || true
+    chroot "$CHROOT_DIR" update-initramfs -u -k all 2>&1 | tee -a "$LOG_FILE" | grep -v "^update-initramfs:" || true
     
-    # Create live user in chroot
+    # Configure live-config for automatic user creation
+    log_info "Configuring live-config..."
+    
+    # Create live-config configuration
+    mkdir -p "$CHROOT_DIR/etc/live/config.conf.d"
+    cat > "$CHROOT_DIR/etc/live/config.conf.d/miloOS.conf" << 'EOF'
+LIVE_USERNAME="milo"
+LIVE_USER_FULLNAME="miloOS Live User"
+LIVE_USER_DEFAULT_GROUPS="audio,video,sudo,plugdev,netdev,cdrom,floppy,scanner,bluetooth,lpadmin"
+LIVE_HOSTNAME="miloOS"
+EOF
+    
+    # Create live user in chroot (as fallback)
     log_info "Creating user 'milo' with password '1234'..."
     chroot "$CHROOT_DIR" useradd -m -s /bin/bash -G audio,video,sudo,plugdev,netdev,cdrom,floppy milo 2>/dev/null || true
     echo "milo:1234" | chroot "$CHROOT_DIR" chpasswd
     
     # Copy configurations from /etc/skel to milo's home
     log_info "Copying configurations to milo's home..."
-    chroot "$CHROOT_DIR" cp -R /etc/skel/. /home/milo/
-    chroot "$CHROOT_DIR" chown -R milo:milo /home/milo
+    chroot "$CHROOT_DIR" cp -R /etc/skel/. /home/milo/ 2>/dev/null || true
+    chroot "$CHROOT_DIR" chown -R milo:milo /home/milo 2>/dev/null || true
+    
+    # Configure sudo without password for live user
+    log_info "Configuring sudo for live user..."
+    echo "milo ALL=(ALL) NOPASSWD: ALL" > "$CHROOT_DIR/etc/sudoers.d/live-user"
+    chmod 440 "$CHROOT_DIR/etc/sudoers.d/live-user"
     
     # Configure SLiM for autologin
     log_info "Configuring SLiM for autologin..."
@@ -603,23 +624,15 @@ EOF
 create_live_init_script() {
     log_info "Creating Live initialization script..."
     
-    cat > "$CHROOT_DIR/usr/local/bin/live-config" << 'EOF'
+    cat > "$CHROOT_DIR/usr/local/bin/miloOS-live-init" << 'EOF'
 #!/bin/bash
 # miloOS Live System Initialization Script
 
 # Wait for system to be ready
-sleep 3
-
-# Configure network
-systemctl start NetworkManager 2>/dev/null || true
-
-# Update desktop icons
-if [ -d /home/milo ]; then
-    sudo -u milo xdg-user-dirs-update 2>/dev/null || true
-fi
+sleep 5
 
 # Ensure installer icon is visible on desktop
-if [ -f /usr/share/applications/calamares.desktop ]; then
+if [ -f /usr/share/applications/calamares.desktop ] && [ -d /home/milo/Desktop ]; then
     if [ ! -f /home/milo/Desktop/install-miloOS.desktop ]; then
         cp /usr/share/applications/calamares.desktop /home/milo/Desktop/install-miloOS.desktop
         chmod +x /home/milo/Desktop/install-miloOS.desktop
@@ -637,22 +650,22 @@ fi
 exit 0
 EOF
     
-    chmod +x "$CHROOT_DIR/usr/local/bin/live-config"
+    chmod +x "$CHROOT_DIR/usr/local/bin/miloOS-live-init"
     log_success "Live init script created"
 }
 
 create_live_systemd_service() {
     log_info "Creating Live systemd service..."
     
-    cat > "$CHROOT_DIR/etc/systemd/system/live-config.service" << 'EOF'
+    cat > "$CHROOT_DIR/etc/systemd/system/miloOS-live-init.service" << 'EOF'
 [Unit]
-Description=miloOS Live System Configuration
-After=multi-user.target network.target
-Before=display-manager.service
+Description=miloOS Live System Initialization
+After=multi-user.target network.target display-manager.service
+Wants=display-manager.service
 
 [Service]
 Type=oneshot
-ExecStart=/usr/local/bin/live-config
+ExecStart=/usr/local/bin/miloOS-live-init
 RemainAfterExit=yes
 StandardOutput=journal
 StandardError=journal
@@ -663,7 +676,7 @@ EOF
     
     # Enable the service
     log_info "Enabling Live service..."
-    chroot "$CHROOT_DIR" systemctl enable live-config.service 2>&1 | tee -a "$LOG_FILE" | grep -v "^Created" || true
+    chroot "$CHROOT_DIR" systemctl enable miloOS-live-init.service 2>&1 | tee -a "$LOG_FILE" | grep -v "^Created" || true
     
     log_success "Live systemd service created and enabled"
 }
@@ -1157,10 +1170,13 @@ SCRIPT5
 
 echo "Finalizing system..."
 
-# Remove live-config service
-systemctl disable live-config.service 2>/dev/null || true
-rm -f /etc/systemd/system/live-config.service
-rm -f /usr/local/bin/live-config
+# Remove live system services
+systemctl disable miloOS-live-init.service 2>/dev/null || true
+rm -f /etc/systemd/system/miloOS-live-init.service
+rm -f /usr/local/bin/miloOS-live-init
+
+# Remove live-config packages
+apt-get remove --purge -y live-boot live-boot-initramfs-tools live-config live-config-systemd 2>/dev/null || true
 
 # Remove installer desktop icon
 rm -f /home/*/Desktop/install-miloOS.desktop
@@ -1175,6 +1191,9 @@ fi
 if id "milo" &>/dev/null; then
     userdel -r milo 2>/dev/null || true
 fi
+
+# Remove live-config configuration
+rm -rf /etc/live
 
 # Update initramfs
 update-initramfs -u -k all
@@ -1364,19 +1383,25 @@ set menu_color_highlight=black/light-gray
 
 menuentry "miloOS Live" {
     set root=(cd0)
-    linux /live/vmlinuz boot=live quiet splash
+    linux /live/vmlinuz boot=live components quiet splash username=milo hostname=miloOS
     initrd /live/initrd.img
 }
 
 menuentry "miloOS Live (Safe Mode)" {
     set root=(cd0)
-    linux /live/vmlinuz boot=live nomodeset
+    linux /live/vmlinuz boot=live components nomodeset username=milo hostname=miloOS
+    initrd /live/initrd.img
+}
+
+menuentry "miloOS Live (Debug Mode)" {
+    set root=(cd0)
+    linux /live/vmlinuz boot=live components debug username=milo hostname=miloOS
     initrd /live/initrd.img
 }
 
 menuentry "miloOS Live (Failsafe)" {
     set root=(cd0)
-    linux /live/vmlinuz boot=live noapic noacpi nosplash irqpoll
+    linux /live/vmlinuz boot=live components noapic noacpi nosplash irqpoll username=milo hostname=miloOS
     initrd /live/initrd.img
 }
 EOF
