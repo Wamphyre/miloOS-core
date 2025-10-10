@@ -83,14 +83,35 @@ umount "$SNAPSHOT_DIR/dev"
 
 # Step 3: Extract kernel and initrd
 log_info "Extracting kernel and initrd..."
-KERNEL=$(ls "$SNAPSHOT_DIR/boot/vmlinuz-"* | head -n 1)
-INITRD=$(ls "$SNAPSHOT_DIR/boot/initrd.img-"* | head -n 1)
+KERNEL=$(ls "$SNAPSHOT_DIR/boot/vmlinuz-"* 2>/dev/null | head -n 1)
+INITRD=$(ls "$SNAPSHOT_DIR/boot/initrd.img-"* 2>/dev/null | head -n 1)
 
-cp "$KERNEL" "$ISO_DIR/live/vmlinuz"
-cp "$INITRD" "$ISO_DIR/live/initrd"
+if [ -z "$KERNEL" ] || [ ! -f "$KERNEL" ]; then
+    log_error "Kernel not found in $SNAPSHOT_DIR/boot/"
+    exit 1
+fi
 
-log_info "Kernel: $(basename $KERNEL)"
-log_info "Initrd: $(basename $INITRD)"
+if [ -z "$INITRD" ] || [ ! -f "$INITRD" ]; then
+    log_error "Initrd not found in $SNAPSHOT_DIR/boot/"
+    exit 1
+fi
+
+# Get kernel version
+KERNEL_VERSION=$(basename "$KERNEL" | sed 's/vmlinuz-//')
+KERNEL_NAME="vmlinuz-${KERNEL_VERSION}"
+INITRD_NAME="initrd.img-${KERNEL_VERSION}"
+
+log_info "Kernel version: $KERNEL_VERSION"
+log_info "Kernel file: $KERNEL_NAME"
+log_info "Initrd file: $INITRD_NAME"
+
+# Copy with original names
+cp "$KERNEL" "$ISO_DIR/live/$KERNEL_NAME"
+cp "$INITRD" "$ISO_DIR/live/$INITRD_NAME"
+
+# Also create symlinks for compatibility
+ln -sf "$KERNEL_NAME" "$ISO_DIR/live/vmlinuz"
+ln -sf "$INITRD_NAME" "$ISO_DIR/live/initrd.img"
 
 # Step 4: Create squashfs
 log_info "Creating squashfs (this takes time)..."
@@ -102,19 +123,21 @@ log_info "Squashfs created: $(du -h "$ISO_DIR/live/filesystem.squashfs" | cut -f
 # Verify live directory contents
 log_info "Verifying live directory..."
 ls -lh "$ISO_DIR/live/"
-if [ ! -f "$ISO_DIR/live/vmlinuz" ]; then
-    log_error "Kernel not found!"
+if [ ! -f "$ISO_DIR/live/$KERNEL_NAME" ]; then
+    log_error "Kernel not found: $KERNEL_NAME"
     exit 1
 fi
-if [ ! -f "$ISO_DIR/live/initrd" ]; then
-    log_error "Initrd not found!"
+if [ ! -f "$ISO_DIR/live/$INITRD_NAME" ]; then
+    log_error "Initrd not found: $INITRD_NAME"
     exit 1
 fi
 if [ ! -f "$ISO_DIR/live/filesystem.squashfs" ]; then
     log_error "Squashfs not found!"
     exit 1
 fi
-log_info "All live files present"
+log_info "✓ Kernel: $KERNEL_NAME"
+log_info "✓ Initrd: $INITRD_NAME"
+log_info "✓ Squashfs: filesystem.squashfs"
 
 # Step 5: Create GRUB config
 log_info "Creating GRUB configuration..."
@@ -122,7 +145,8 @@ mkdir -p "$ISO_DIR/boot/grub"
 mkdir -p "$ISO_DIR/isolinux"
 mkdir -p "$ISO_DIR/EFI/boot"
 
-cat > "$ISO_DIR/boot/grub/grub.cfg" << 'EOF'
+# Create GRUB config with actual kernel names
+cat > "$ISO_DIR/boot/grub/grub.cfg" << EOF
 set timeout=10
 set default=0
 
@@ -136,15 +160,22 @@ set gfxmode=auto
 terminal_output gfxterm
 
 menuentry "miloOS Live" {
-    linux /live/vmlinuz boot=live quiet splash
-    initrd /live/initrd
+    linux /live/$KERNEL_NAME boot=live quiet splash
+    initrd /live/$INITRD_NAME
 }
 
 menuentry "miloOS Live (failsafe)" {
-    linux /live/vmlinuz boot=live noapic noacpi nosplash
-    initrd /live/initrd
+    linux /live/$KERNEL_NAME boot=live noapic noacpi nosplash
+    initrd /live/$INITRD_NAME
+}
+
+menuentry "miloOS Live (debug)" {
+    linux /live/$KERNEL_NAME boot=live debug
+    initrd /live/$INITRD_NAME
 }
 EOF
+
+log_info "GRUB config created with kernel: $KERNEL_NAME"
 
 # Step 6: Install GRUB for BIOS
 log_info "Installing GRUB for BIOS..."
