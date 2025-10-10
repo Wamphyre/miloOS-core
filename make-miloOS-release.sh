@@ -390,8 +390,8 @@ ISOLINUXEOF
 log_info "ISOLINUX configured for Legacy BIOS"
 echo ""
 
-# Step 5: Handle microcode packages (known refractasnapshot bug)
-log_info "Step 5: Handling microcode packages..."
+# Step 5: Handle microcode and initramfs issues
+log_info "Step 5: Preparing initramfs for snapshot..."
 
 # Check which microcode packages are installed
 INTEL_MICROCODE=""
@@ -420,16 +420,57 @@ if [ -n "$INTEL_MICROCODE" ] || [ -n "$AMD_MICROCODE" ]; then
         apt-get remove -y amd64-microcode
         log_info "✓ Removed amd64-microcode"
     fi
-    
-    # Regenerate initramfs without microcode
-    log_info "Regenerating initramfs without microcode..."
-    update-initramfs -u -k ${KERNEL_VERSION}
-    
-    log_info "✓ Microcode packages will be reinstalled after snapshot"
 else
     log_info "No microcode packages detected"
 fi
 
+# Backup current initramfs
+log_info "Backing up current initramfs..."
+if [ -f "/boot/initrd.img-${KERNEL_VERSION}" ]; then
+    cp "/boot/initrd.img-${KERNEL_VERSION}" "/boot/initrd.img-${KERNEL_VERSION}.backup"
+    log_info "✓ Backup created"
+fi
+
+# Delete and recreate initramfs with gzip compression (compatible with refractasnapshot)
+log_info "Recreating initramfs with gzip compression..."
+rm -f "/boot/initrd.img-${KERNEL_VERSION}"
+
+# Set compression to gzip temporarily
+if [ -f /etc/initramfs-tools/initramfs.conf ]; then
+    cp /etc/initramfs-tools/initramfs.conf /etc/initramfs-tools/initramfs.conf.backup
+    
+    # Remove existing COMPRESS line if present
+    sed -i '/^COMPRESS=/d' /etc/initramfs-tools/initramfs.conf
+    
+    # Add COMPRESS=gzip at the end
+    echo "COMPRESS=gzip" >> /etc/initramfs-tools/initramfs.conf
+    
+    log_info "✓ Set compression to gzip"
+fi
+
+# Generate new initramfs with gzip
+log_info "Generating new initramfs (this may take a minute)..."
+update-initramfs -c -k ${KERNEL_VERSION}
+
+# Verify new initramfs was created
+if [ ! -f "/boot/initrd.img-${KERNEL_VERSION}" ]; then
+    log_error "Failed to create new initramfs"
+    # Restore backup
+    if [ -f "/boot/initrd.img-${KERNEL_VERSION}.backup" ]; then
+        mv "/boot/initrd.img-${KERNEL_VERSION}.backup" "/boot/initrd.img-${KERNEL_VERSION}"
+    fi
+    exit 1
+fi
+
+# Verify it's gzip compressed
+INITRD_TYPE=$(file "/boot/initrd.img-${KERNEL_VERSION}" | grep -o "gzip\|XZ\|LZMA\|LZ4")
+if [ "$INITRD_TYPE" = "gzip" ]; then
+    log_info "✓ New initramfs created with gzip compression"
+else
+    log_warn "Warning: initramfs may not be gzip compressed (detected: ${INITRD_TYPE:-unknown})"
+fi
+
+log_info "✓ Microcode packages will be reinstalled after snapshot"
 echo ""
 
 # Step 6: Clean old snapshots and temporary files
@@ -518,9 +559,18 @@ if [ -f "/home/iso/$ISO_NAME" ]; then
     log_info "Cleaning up temporary files..."
     rm -rf /home/refracta /home/work /home/iso
     
+    # Restore system to original state
+    echo ""
+    log_info "Restoring system to original state..."
+    
+    # Restore initramfs compression settings
+    if [ -f /etc/initramfs-tools/initramfs.conf.backup ]; then
+        mv /etc/initramfs-tools/initramfs.conf.backup /etc/initramfs-tools/initramfs.conf
+        log_info "✓ Restored initramfs configuration"
+    fi
+    
     # Reinstall microcode packages if they were removed
     if [ -n "$INTEL_MICROCODE" ] || [ -n "$AMD_MICROCODE" ]; then
-        echo ""
         log_info "Reinstalling microcode packages..."
         
         if [ -n "$INTEL_MICROCODE" ]; then
@@ -532,12 +582,17 @@ if [ -f "/home/iso/$ISO_NAME" ]; then
             apt-get install -y amd64-microcode
             log_info "✓ Reinstalled amd64-microcode"
         fi
-        
-        # Regenerate initramfs with microcode
-        log_info "Regenerating initramfs with microcode..."
-        update-initramfs -u -k ${KERNEL_VERSION}
-        log_info "✓ System restored to original state"
     fi
+    
+    # Regenerate initramfs with original settings and microcode
+    log_info "Regenerating initramfs with original settings..."
+    rm -f "/boot/initrd.img-${KERNEL_VERSION}"
+    update-initramfs -c -k ${KERNEL_VERSION}
+    
+    # Clean up backup
+    rm -f "/boot/initrd.img-${KERNEL_VERSION}.backup"
+    
+    log_info "✓ System restored to original state"
     
     echo ""
     log_info "Done!"
@@ -545,11 +600,17 @@ else
     log_error "ISO not found at /home/iso/$ISO_NAME"
     log_error "Check refractasnapshot output for errors"
     
-    # Reinstall microcode packages even on failure
+    # Restore system even on failure
+    echo ""
+    log_warn "Restoring system after failure..."
+    
+    # Restore initramfs compression settings
+    if [ -f /etc/initramfs-tools/initramfs.conf.backup ]; then
+        mv /etc/initramfs-tools/initramfs.conf.backup /etc/initramfs-tools/initramfs.conf
+    fi
+    
+    # Reinstall microcode packages
     if [ -n "$INTEL_MICROCODE" ] || [ -n "$AMD_MICROCODE" ]; then
-        echo ""
-        log_warn "Reinstalling microcode packages..."
-        
         if [ -n "$INTEL_MICROCODE" ]; then
             apt-get install -y intel-microcode
         fi
@@ -557,9 +618,12 @@ else
         if [ -n "$AMD_MICROCODE" ]; then
             apt-get install -y amd64-microcode
         fi
-        
-        update-initramfs -u -k ${KERNEL_VERSION}
     fi
+    
+    # Regenerate initramfs
+    rm -f "/boot/initrd.img-${KERNEL_VERSION}"
+    update-initramfs -c -k ${KERNEL_VERSION}
+    rm -f "/boot/initrd.img-${KERNEL_VERSION}.backup"
     
     exit 1
 fi
