@@ -254,7 +254,6 @@ EOF
 # Create refractasnapshot configuration
 cat > /etc/refractasnapshot.conf << EOF
 # miloOS refractasnapshot configuration
-# Based on Refracta documentation
 
 # Directories
 snapshot_dir="/home/refracta"
@@ -270,7 +269,7 @@ live_hostname="miloOS"
 kernel_image="/boot/vmlinuz-${KERNEL_VERSION}"
 initrd_image="/boot/initrd.img-${KERNEL_VERSION}"
 
-# Compression (using gzip for speed, xz is too slow)
+# Compression
 squashfs_compression="gzip"
 squashfs_compression_options="-Xcompression-level 9"
 
@@ -281,16 +280,24 @@ iso_label="miloOS"
 # Boot
 boot_options="boot=live components quiet splash"
 
-# Architecture
+# Architecture  
 architecture="amd64"
 
-# Features
+# UEFI
 make_efi="yes"
+efi_work="/boot/efi"
+
+# Hybrid ISO
 make_isohybrid="yes"
+
+# Checksums
 make_md5sum="yes"
 
-# Exclusions file
+# Exclusions
 snapshot_excludes="/etc/refractasnapshot_exclude.list"
+
+# Don't copy these
+no_copy_kernel_modules=""
 EOF
 
 # Verify configuration files were created
@@ -457,11 +464,22 @@ echo ""
 
 # Step 6: Clean old snapshots and temporary files
 log_info "Step 6: Cleaning old snapshots and temporary files..."
+
+# Clean up old directories
 rm -rf /home/refracta /home/work /home/iso 2>/dev/null || true
 rm -rf /tmp/extracted /tmp/newiso 2>/dev/null || true
-mkdir -p /home/refracta /home/work /home/iso
 
-log_info "✓ Cleanup completed"
+# Create fresh directories with proper structure
+mkdir -p /home/refracta
+mkdir -p /home/work/iso
+mkdir -p /home/work/myfs
+mkdir -p /home/iso
+
+# Set permissions
+chmod 755 /home/refracta /home/work /home/iso
+chmod 755 /home/work/iso /home/work/myfs
+
+log_info "✓ Work directories created"
 echo ""
 
 # Step 7: Run refractasnapshot
