@@ -3,7 +3,9 @@
 # Creates a bootable Live ISO from current system
 # Version 3.0
 
-set -e
+set -Eeuo pipefail
+IFS=$'\n\t'
+umask 022
 
 # Colors
 RED='\033[0;31m'
@@ -16,6 +18,40 @@ log_info() { echo -e "${GREEN}[INFO]${NC} $1"; }
 log_warn() { echo -e "${YELLOW}[WARN]${NC} $1"; }
 log_error() { echo -e "${RED}[ERROR]${NC} $1"; }
 
+# Keep track of mounts for reliable cleanup
+MOUNTS=()
+
+cleanup() {
+    # Attempt to unmount in reverse order to respect nesting
+    for (( idx=${#MOUNTS[@]}-1 ; idx>=0 ; idx-- )); do
+        m="${MOUNTS[$idx]}"
+        if mountpoint -q "$m"; then
+            umount -l "$m" 2>/dev/null || true
+        fi
+    done
+}
+
+on_error() {
+    log_error "Build failed (see logs above). Cleaning up mounts..."
+}
+
+trap on_error ERR
+trap cleanup EXIT
+
+require_cmd() {
+    command -v "$1" >/dev/null 2>&1 || {
+        log_error "Required command not found: $1"
+        exit 1
+    }
+}
+
+check_dependencies() {
+    local deps=(rsync mksquashfs xorriso grub-mkstandalone mkfs.vfat dd sha256sum chroot)
+    for dep in "${deps[@]}"; do
+        require_cmd "$dep"
+    done
+}
+
 # Configuration
 WORK_DIR="/home/miloOS-snapshot"
 SNAPSHOT_DIR="$WORK_DIR/myfs"
@@ -27,6 +63,8 @@ if [ "$(id -u)" -ne 0 ]; then
     log_error "Must run as root"
     exit 1
 fi
+
+check_dependencies
 
 log_info "========================================="
 log_info "miloOS ISO Builder v3.0"
@@ -63,24 +101,24 @@ log_info "Preparing snapshot for Live boot..."
 
 # Create necessary directories
 mkdir -p "$SNAPSHOT_DIR"/{proc,sys,dev,run,tmp,mnt,media}
+mkdir -p "$SNAPSHOT_DIR/dev/pts"
 
 # Install live-boot in snapshot
 log_info "Installing live-boot packages..."
-mount --bind /proc "$SNAPSHOT_DIR/proc"
-mount --bind /sys "$SNAPSHOT_DIR/sys"  
-mount --bind /dev "$SNAPSHOT_DIR/dev"
+mount --bind /proc "$SNAPSHOT_DIR/proc"; MOUNTS+=("$SNAPSHOT_DIR/proc")
+mount --bind /sys "$SNAPSHOT_DIR/sys"; MOUNTS+=("$SNAPSHOT_DIR/sys")
+mount --bind /dev "$SNAPSHOT_DIR/dev"; MOUNTS+=("$SNAPSHOT_DIR/dev")
+mount --bind /run "$SNAPSHOT_DIR/run" || log_warn "Could not bind-mount /run"; MOUNTS+=("$SNAPSHOT_DIR/run")
+mount --bind /dev/pts "$SNAPSHOT_DIR/dev/pts" 2>/dev/null || true; MOUNTS+=("$SNAPSHOT_DIR/dev/pts")
 
-chroot "$SNAPSHOT_DIR" apt-get update
-chroot "$SNAPSHOT_DIR" apt-get install -y live-boot live-boot-initramfs-tools systemd-sysv
+chroot "$SNAPSHOT_DIR" env DEBIAN_FRONTEND=noninteractive apt-get update
+chroot "$SNAPSHOT_DIR" env DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends live-boot live-boot-initramfs-tools systemd-sysv
 
 # Update initramfs
 log_info "Updating initramfs..."
 chroot "$SNAPSHOT_DIR" update-initramfs -u
 
-# Unmount
-umount "$SNAPSHOT_DIR/proc"
-umount "$SNAPSHOT_DIR/sys"
-umount "$SNAPSHOT_DIR/dev"
+# Unmounts handled by trap cleanup
 
 # Step 3: Extract kernel and initrd
 log_info "Extracting kernel and initrd..."
@@ -140,7 +178,60 @@ log_info "✓ Kernel: $KERNEL_NAME"
 log_info "✓ Initrd: $INITRD_NAME"
 log_info "✓ Squashfs: filesystem.squashfs"
 
-# Step 5: Create ISOLINUX config (for BIOS boot)
+# Step 5: Install ISOLINUX/SYSLINUX
+log_info "Installing ISOLINUX..."
+
+# Find isolinux.bin
+ISOLINUX_BIN=""
+for path in /usr/lib/ISOLINUX/isolinux.bin \
+            /usr/lib/syslinux/modules/bios/isolinux.bin \
+            /usr/share/syslinux/isolinux.bin \
+            /usr/lib/syslinux/isolinux.bin; do
+    if [ -f "$path" ]; then
+        ISOLINUX_BIN="$path"
+        break
+    fi
+done
+
+if [ -z "$ISOLINUX_BIN" ]; then
+    log_warn "ISOLINUX not found, installing..."
+    apt-get install -y isolinux syslinux-common
+    
+    # Try again
+    for path in /usr/lib/ISOLINUX/isolinux.bin \
+                /usr/lib/syslinux/modules/bios/isolinux.bin \
+                /usr/share/syslinux/isolinux.bin; do
+        if [ -f "$path" ]; then
+            ISOLINUX_BIN="$path"
+            break
+        fi
+    done
+fi
+
+if [ -z "$ISOLINUX_BIN" ]; then
+    log_error "Could not find isolinux.bin"
+    exit 1
+fi
+
+log_info "Using ISOLINUX from: $ISOLINUX_BIN"
+cp "$ISOLINUX_BIN" "$ISO_DIR/isolinux/"
+
+# Copy required modules
+SYSLINUX_DIR=$(dirname "$ISOLINUX_BIN")
+if [ -d "$SYSLINUX_DIR" ]; then
+    cp "$SYSLINUX_DIR"/*.c32 "$ISO_DIR/isolinux/" 2>/dev/null || true
+fi
+
+# Also try common locations
+for dir in /usr/lib/syslinux/modules/bios \
+           /usr/share/syslinux \
+           /usr/lib/syslinux; do
+    if [ -d "$dir" ]; then
+        cp "$dir"/*.c32 "$ISO_DIR/isolinux/" 2>/dev/null || true
+    fi
+done
+
+# Create ISOLINUX config
 log_info "Creating ISOLINUX configuration..."
 cat > "$ISO_DIR/isolinux/isolinux.cfg" << EOF
 DEFAULT live
@@ -153,11 +244,6 @@ LABEL failsafe
   KERNEL /live/$KERNEL_NAME
   APPEND initrd=/live/$INITRD_NAME boot=live noapic noacpi nosplash
 EOF
-
-# Copy ISOLINUX files
-cp /usr/lib/ISOLINUX/isolinux.bin "$ISO_DIR/isolinux/" 2>/dev/null || \
-    cp /usr/lib/syslinux/modules/bios/isolinux.bin "$ISO_DIR/isolinux/"
-cp /usr/lib/syslinux/modules/bios/*.c32 "$ISO_DIR/isolinux/" 2>/dev/null || true
 
 # Step 6: Create GRUB config (for UEFI boot)
 log_info "Creating GRUB configuration..."
@@ -200,11 +286,32 @@ rmdir "$MOUNT_POINT"
 
 # Step 8: Create ISO with both BIOS and UEFI support
 log_info "Creating hybrid ISO..."
+
+# Find isohdpfx.bin
+ISOHDPFX=""
+for path in /usr/lib/ISOLINUX/isohdpfx.bin \
+            /usr/lib/syslinux/modules/bios/isohdpfx.bin \
+            /usr/share/syslinux/isohdpfx.bin \
+            /usr/lib/syslinux/isohdpfx.bin; do
+    if [ -f "$path" ]; then
+        ISOHDPFX="$path"
+        break
+    fi
+done
+
+if [ -n "$ISOHDPFX" ]; then
+    log_info "Using isohdpfx from: $ISOHDPFX"
+    ISOHYBRID_OPT="-isohybrid-mbr $ISOHDPFX"
+else
+    log_warn "isohdpfx.bin not found, ISO may not be USB bootable"
+    ISOHYBRID_OPT=""
+fi
+
 xorriso -as mkisofs \
     -iso-level 3 \
     -full-iso9660-filenames \
     -volid "miloOS" \
-    -isohybrid-mbr /usr/lib/ISOLINUX/isohdpfx.bin \
+    $ISOHYBRID_OPT \
     -eltorito-boot isolinux/isolinux.bin \
     -eltorito-catalog isolinux/boot.cat \
     -no-emul-boot \
@@ -220,7 +327,7 @@ xorriso -as mkisofs \
 if [ -f "$ISO_NAME" ]; then
     log_info "ISO created successfully: $ISO_NAME"
     log_info "Size: $(du -h "$ISO_NAME" | cut -f1)"
-    
+    sync
     # Calculate checksum
     sha256sum "$ISO_NAME" > "${ISO_NAME}.sha256"
     log_info "Checksum: $(cut -d' ' -f1 "${ISO_NAME}.sha256")"
