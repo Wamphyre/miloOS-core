@@ -1,7 +1,7 @@
 #!/bin/bash
-# miloOS ISO Builder - Simplified Approach
-# Based on refractasnapshot methodology
-# Version 2.0
+# miloOS ISO Builder
+# Creates a bootable Live ISO from current system
+# Version 3.0
 
 set -e
 
@@ -28,14 +28,15 @@ if [ "$(id -u)" -ne 0 ]; then
     exit 1
 fi
 
-log_info "miloOS ISO Builder v2.0"
-log_info "Using simplified snapshot approach"
+log_info "========================================="
+log_info "miloOS ISO Builder v3.0"
+log_info "========================================="
 
 # Clean old builds
 log_info "Cleaning old builds..."
 rm -rf "$WORK_DIR" 2>/dev/null || true
 mkdir -p "$SNAPSHOT_DIR"
-mkdir -p "$ISO_DIR/live"
+mkdir -p "$ISO_DIR"/{live,isolinux,boot/grub}
 
 # Step 1: Create snapshot of current system
 log_info "Creating system snapshot..."
@@ -139,25 +140,30 @@ log_info "✓ Kernel: $KERNEL_NAME"
 log_info "✓ Initrd: $INITRD_NAME"
 log_info "✓ Squashfs: filesystem.squashfs"
 
-# Step 5: Create GRUB config
-log_info "Creating GRUB configuration..."
-mkdir -p "$ISO_DIR/boot/grub"
-mkdir -p "$ISO_DIR/isolinux"
-mkdir -p "$ISO_DIR/EFI/boot"
+# Step 5: Create ISOLINUX config (for BIOS boot)
+log_info "Creating ISOLINUX configuration..."
+cat > "$ISO_DIR/isolinux/isolinux.cfg" << EOF
+DEFAULT live
+LABEL live
+  MENU LABEL miloOS Live
+  KERNEL /live/$KERNEL_NAME
+  APPEND initrd=/live/$INITRD_NAME boot=live quiet splash
+LABEL failsafe
+  MENU LABEL miloOS Live (failsafe)
+  KERNEL /live/$KERNEL_NAME
+  APPEND initrd=/live/$INITRD_NAME boot=live noapic noacpi nosplash
+EOF
 
-# Create GRUB config with actual kernel names
+# Copy ISOLINUX files
+cp /usr/lib/ISOLINUX/isolinux.bin "$ISO_DIR/isolinux/" 2>/dev/null || \
+    cp /usr/lib/syslinux/modules/bios/isolinux.bin "$ISO_DIR/isolinux/"
+cp /usr/lib/syslinux/modules/bios/*.c32 "$ISO_DIR/isolinux/" 2>/dev/null || true
+
+# Step 6: Create GRUB config (for UEFI boot)
+log_info "Creating GRUB configuration..."
 cat > "$ISO_DIR/boot/grub/grub.cfg" << EOF
 set timeout=10
 set default=0
-
-insmod all_video
-insmod gfxterm
-insmod part_gpt
-insmod part_msdos
-insmod iso9660
-
-set gfxmode=auto
-terminal_output gfxterm
 
 menuentry "miloOS Live" {
     linux /live/$KERNEL_NAME boot=live quiet splash
@@ -168,31 +174,12 @@ menuentry "miloOS Live (failsafe)" {
     linux /live/$KERNEL_NAME boot=live noapic noacpi nosplash
     initrd /live/$INITRD_NAME
 }
-
-menuentry "miloOS Live (debug)" {
-    linux /live/$KERNEL_NAME boot=live debug
-    initrd /live/$INITRD_NAME
-}
 EOF
 
-log_info "GRUB config created with kernel: $KERNEL_NAME"
+# Step 7: Create UEFI boot
+log_info "Creating UEFI boot..."
+mkdir -p "$ISO_DIR/EFI/boot"
 
-# Step 6: Install GRUB for BIOS
-log_info "Installing GRUB for BIOS..."
-grub-mkstandalone \
-    --format=i386-pc \
-    --output="$ISO_DIR/isolinux/core.img" \
-    --install-modules="linux normal iso9660 biosdisk memdisk search tar ls all_video gfxterm gfxmenu part_gpt part_msdos" \
-    --modules="linux normal iso9660 biosdisk search" \
-    --locales="" \
-    --fonts="" \
-    "boot/grub/grub.cfg=$ISO_DIR/boot/grub/grub.cfg"
-
-cat /usr/lib/grub/i386-pc/cdboot.img "$ISO_DIR/isolinux/core.img" \
-    > "$ISO_DIR/isolinux/bios.img"
-
-# Step 7: Install GRUB for UEFI
-log_info "Installing GRUB for UEFI..."
 grub-mkstandalone \
     --format=x86_64-efi \
     --output="$ISO_DIR/EFI/boot/bootx64.efi" \
@@ -201,34 +188,32 @@ grub-mkstandalone \
     "boot/grub/grub.cfg=$ISO_DIR/boot/grub/grub.cfg"
 
 # Create EFI boot image
-dd if=/dev/zero of="$ISO_DIR/EFI/boot/efiboot.img" bs=1M count=10 2>/dev/null
-mkfs.vfat "$ISO_DIR/EFI/boot/efiboot.img" >/dev/null 2>&1
+dd if=/dev/zero of="$ISO_DIR/boot/grub/efi.img" bs=1M count=10 2>/dev/null
+mkfs.vfat "$ISO_DIR/boot/grub/efi.img" >/dev/null 2>&1
 
-# Mount and populate EFI image
 MOUNT_POINT=$(mktemp -d)
-mount -o loop "$ISO_DIR/EFI/boot/efiboot.img" "$MOUNT_POINT"
+mount -o loop "$ISO_DIR/boot/grub/efi.img" "$MOUNT_POINT"
 mkdir -p "$MOUNT_POINT/EFI/boot"
 cp "$ISO_DIR/EFI/boot/bootx64.efi" "$MOUNT_POINT/EFI/boot/"
 umount "$MOUNT_POINT"
 rmdir "$MOUNT_POINT"
 
-# Step 8: Create ISO
-log_info "Creating ISO..."
+# Step 8: Create ISO with both BIOS and UEFI support
+log_info "Creating hybrid ISO..."
 xorriso -as mkisofs \
     -iso-level 3 \
     -full-iso9660-filenames \
     -volid "miloOS" \
-    -eltorito-boot isolinux/bios.img \
+    -isohybrid-mbr /usr/lib/ISOLINUX/isohdpfx.bin \
+    -eltorito-boot isolinux/isolinux.bin \
+    -eltorito-catalog isolinux/boot.cat \
     -no-emul-boot \
     -boot-load-size 4 \
     -boot-info-table \
-    --eltorito-catalog isolinux/boot.cat \
-    --grub2-boot-info \
-    --grub2-mbr /usr/lib/grub/i386-pc/boot_hybrid.img \
     -eltorito-alt-boot \
-    -e EFI/boot/efiboot.img \
+    -e boot/grub/efi.img \
     -no-emul-boot \
-    -append_partition 2 0xef "$ISO_DIR/EFI/boot/efiboot.img" \
+    -isohybrid-gpt-basdat \
     -output "$ISO_NAME" \
     "$ISO_DIR"
 

@@ -1287,12 +1287,12 @@ install_plymouth_theme() {
 install_audio_config() {
     log_step 13 $TOTAL_STEPS "Installing AudioConfig tool..."
     
-    if [ ! -d "$CURRENT_DIR/AudioConfig" ]; then
+    if [ ! -d "$CURRENT_DIR/miloApps/AudioConfig" ]; then
         log_warn "AudioConfig directory not found, skipping"
         return 0
     fi
     
-    if [ ! -f "$CURRENT_DIR/AudioConfig/audio-config.py" ]; then
+    if [ ! -f "$CURRENT_DIR/miloApps/AudioConfig/audio-config.py" ]; then
         log_warn "AudioConfig script not found, skipping"
         return 0
     fi
@@ -1314,13 +1314,13 @@ install_audio_config() {
     
     # Install the script
     log_info "Installing audio-config script..."
-    install -m 755 "$CURRENT_DIR/AudioConfig/audio-config.py" /usr/local/bin/audio-config
+    install -m 755 "$CURRENT_DIR/miloApps/AudioConfig/audio-config.py" /usr/local/bin/audio-config
     
     # Install icon
-    if [ -f "$CURRENT_DIR/AudioConfig/audio-config.svg" ]; then
+    if [ -f "$CURRENT_DIR/miloApps/AudioConfig/audio-config.svg" ]; then
         log_info "Installing icon..."
         mkdir -p /usr/share/icons/hicolor/scalable/apps
-        install -m 644 "$CURRENT_DIR/AudioConfig/audio-config.svg" /usr/share/icons/hicolor/scalable/apps/audio-config.svg
+        install -m 644 "$CURRENT_DIR/miloApps/AudioConfig/audio-config.svg" /usr/share/icons/hicolor/scalable/apps/audio-config.svg
         
         # Update icon cache
         if command -v gtk-update-icon-cache &> /dev/null; then
@@ -1329,9 +1329,9 @@ install_audio_config() {
     fi
     
     # Install desktop entry
-    if [ -f "$CURRENT_DIR/AudioConfig/audio-config.desktop" ]; then
+    if [ -f "$CURRENT_DIR/miloApps/AudioConfig/audio-config.desktop" ]; then
         log_info "Installing desktop entry..."
-        install -m 644 "$CURRENT_DIR/AudioConfig/audio-config.desktop" /usr/share/applications/
+        install -m 644 "$CURRENT_DIR/miloApps/AudioConfig/audio-config.desktop" /usr/share/applications/
         
         # Update desktop database
         if command -v update-desktop-database &> /dev/null; then
