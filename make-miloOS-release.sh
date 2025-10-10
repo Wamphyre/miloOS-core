@@ -43,16 +43,64 @@ fi
 log_info "Available disk space: ${AVAILABLE_GB}GB"
 echo ""
 
-# Step 1: Install refractasnapshot and refractainstaller
-log_info "Step 1: Installing refractasnapshot and refractainstaller..."
+# Step 1: Install refractasnapshot and refractainstaller from SourceForge
+log_info "Step 1: Installing Refracta tools from SourceForge..."
 
 if ! command -v refractasnapshot &> /dev/null; then
-    log_info "Installing refractasnapshot..."
+    log_info "Downloading Refracta packages..."
+    
+    # Create temp directory for downloads
+    TEMP_DIR=$(mktemp -d)
+    cd "$TEMP_DIR"
+    
+    # Download all required packages
+    log_info "Downloading live-boot..."
+    wget -q --show-progress https://sourceforge.net/projects/refracta/files/tools/live-boot_20221008~fsr1_all.deb/download -O live-boot.deb
+    
+    log_info "Downloading live-boot-initramfs-tools..."
+    wget -q --show-progress https://sourceforge.net/projects/refracta/files/tools/live-boot-initramfs-tools_20221008~fsr1_all.deb/download -O live-boot-initramfs-tools.deb
+    
+    log_info "Downloading refractasnapshot-base..."
+    wget -q --show-progress https://sourceforge.net/projects/refracta/files/tools/refractasnapshot-base_10.2.12_all.deb/download -O refractasnapshot-base.deb
+    
+    log_info "Downloading refractasnapshot-gui..."
+    wget -q --show-progress https://sourceforge.net/projects/refracta/files/tools/refractasnapshot-gui_10.2.12_all.deb/download -O refractasnapshot-gui.deb
+    
+    log_info "Downloading refractainstaller-base..."
+    wget -q --show-progress https://sourceforge.net/projects/refracta/files/tools/refractainstaller-base_9.6.6_all.deb/download -O refractainstaller-base.deb
+    
+    log_info "Downloading refractainstaller-gui..."
+    wget -q --show-progress https://sourceforge.net/projects/refracta/files/tools/refractainstaller-gui_9.6.6_all.deb/download -O refractainstaller-gui.deb
+    
+    # Install dependencies first
+    log_info "Installing dependencies..."
     apt-get update
-    apt-get install -y refractasnapshot refractainstaller
+    apt-get install -y squashfs-tools xorriso isolinux syslinux-common grub-pc-bin grub-efi-amd64-bin \
+        rsync genisoimage yad zenity
+    
+    # Install Refracta packages in order
+    log_info "Installing Refracta packages..."
+    dpkg -i live-boot.deb live-boot-initramfs-tools.deb || apt-get install -f -y
+    dpkg -i refractasnapshot-base.deb refractasnapshot-gui.deb || apt-get install -f -y
+    dpkg -i refractainstaller-base.deb refractainstaller-gui.deb || apt-get install -f -y
+    
+    # Cleanup
+    cd "$SCRIPT_DIR"
+    rm -rf "$TEMP_DIR"
+    
+    log_info "Refracta tools installed successfully"
 else
     log_info "refractasnapshot already installed"
 fi
+
+# Verify installation
+if ! command -v refractasnapshot &> /dev/null; then
+    log_error "refractasnapshot installation failed"
+    exit 1
+fi
+
+log_info "✓ refractasnapshot version: $(refractasnapshot --version 2>/dev/null || echo 'unknown')"
+echo ""
 
 # Step 2: Populate /etc/skel with user configuration
 log_info "Step 2: Populating /etc/skel with miloOS user configuration..."
@@ -334,13 +382,19 @@ fi
 
 # Run refractasnapshot with the configuration file
 log_info "Starting snapshot process..."
+log_info "Progress will be shown below..."
+echo ""
+
 refractasnapshot -c /etc/refractasnapshot.conf 2>&1 | tee /tmp/refractasnapshot.log
 
 # Check if it completed successfully
-if [ $? -ne 0 ]; then
+if [ ${PIPESTATUS[0]} -ne 0 ]; then
     log_error "refractasnapshot failed. Check /tmp/refractasnapshot.log"
     exit 1
 fi
+
+log_info "Snapshot completed successfully"
+echo ""
 
 # Step 7: Move ISO to current directory and create checksum
 log_info "Step 7: Finalizing ISO..."
