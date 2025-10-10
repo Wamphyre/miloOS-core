@@ -541,11 +541,25 @@ configure_live_user() {
     # Install live-boot and live-config packages
     log_info "Installing live system packages..."
     chroot "$CHROOT_DIR" apt-get update 2>&1 | tee -a "$LOG_FILE" | grep -v "^Get:\|^Hit:" || true
-    chroot "$CHROOT_DIR" apt-get install -y live-boot live-boot-initramfs-tools live-config live-config-systemd 2>&1 | tee -a "$LOG_FILE" | grep -v "^Selecting\|^Preparing\|^Unpacking" || true
+    chroot "$CHROOT_DIR" apt-get install -y live-boot live-boot-initramfs-tools live-config live-config-systemd live-tools 2>&1 | tee -a "$LOG_FILE" | grep -v "^Selecting\|^Preparing\|^Unpacking" || true
     
     # Install additional required packages for live system
     log_info "Installing live system dependencies..."
-    chroot "$CHROOT_DIR" apt-get install -y user-setup sudo 2>&1 | tee -a "$LOG_FILE" | grep -v "^Selecting\|^Preparing\|^Unpacking" || true
+    chroot "$CHROOT_DIR" apt-get install -y user-setup sudo squashfs-tools 2>&1 | tee -a "$LOG_FILE" | grep -v "^Selecting\|^Preparing\|^Unpacking" || true
+    
+    # Create live-boot configuration
+    log_info "Configuring live-boot..."
+    mkdir -p "$CHROOT_DIR/etc/live/boot.conf.d"
+    cat > "$CHROOT_DIR/etc/live/boot.conf.d/miloOS.conf" << 'LIVECONF'
+LIVE_MEDIA_PATH="live"
+LIVE_MEDIA_TIMEOUT=10
+LIVECONF
+    
+    # Ensure initramfs-tools is configured for live
+    mkdir -p "$CHROOT_DIR/etc/initramfs-tools/conf.d"
+    cat > "$CHROOT_DIR/etc/initramfs-tools/conf.d/live.conf" << 'INITCONF'
+BOOT=live
+INITCONF
     
     # Update initramfs with live-boot
     log_info "Updating initramfs with live-boot..."
@@ -1352,9 +1366,31 @@ create_squashfs() {
     local SIZE=$(du -h "$SQUASHFS_DIR/filesystem.squashfs" | cut -f1)
     log_success "Squashfs created: $SIZE"
     
+    # Create manifest file
+    log_info "Creating filesystem manifest..."
+    chroot "$CHROOT_DIR" dpkg-query -W --showformat='${Package} ${Version}\n' > "$SQUASHFS_DIR/filesystem.manifest" 2>/dev/null || true
+    
+    # Create size file
+    du -sx --block-size=1 "$CHROOT_DIR" | cut -f1 > "$SQUASHFS_DIR/filesystem.size" 2>/dev/null || true
+    
     # List contents of live directory
     log_info "Live directory contents:"
     ls -lh "$SQUASHFS_DIR/" | tee -a "$LOG_FILE"
+    
+    # Verify all required files exist
+    local missing=0
+    for file in vmlinuz initrd.img filesystem.squashfs; do
+        if [ ! -f "$SQUASHFS_DIR/$file" ]; then
+            log_error "Missing required file: $file"
+            missing=1
+        else
+            log_info "✓ $file: $(du -h "$SQUASHFS_DIR/$file" | cut -f1)"
+        fi
+    done
+    
+    if [ $missing -eq 1 ]; then
+        error_exit "Missing required files in live directory"
+    fi
 }
 
 create_grub_config() {
@@ -1366,12 +1402,15 @@ create_grub_config() {
 set timeout=10
 set default=0
 
+# Load modules
 insmod all_video
 insmod gfxterm
 insmod png
 insmod part_gpt
 insmod part_msdos
 insmod iso9660
+insmod loopback
+insmod squash4
 
 set gfxmode=auto
 set gfxpayload=keep
@@ -1382,26 +1421,27 @@ set menu_color_normal=white/black
 set menu_color_highlight=black/light-gray
 
 menuentry "miloOS Live" {
-    set root=(cd0)
     linux /live/vmlinuz boot=live components quiet splash username=milo hostname=miloOS
     initrd /live/initrd.img
 }
 
 menuentry "miloOS Live (Safe Mode)" {
-    set root=(cd0)
     linux /live/vmlinuz boot=live components nomodeset username=milo hostname=miloOS
     initrd /live/initrd.img
 }
 
 menuentry "miloOS Live (Debug Mode)" {
-    set root=(cd0)
-    linux /live/vmlinuz boot=live components debug username=milo hostname=miloOS
+    linux /live/vmlinuz boot=live components debug username=milo hostname=miloOS systemd.log_level=debug
     initrd /live/initrd.img
 }
 
 menuentry "miloOS Live (Failsafe)" {
-    set root=(cd0)
     linux /live/vmlinuz boot=live components noapic noacpi nosplash irqpoll username=milo hostname=miloOS
+    initrd /live/initrd.img
+}
+
+menuentry "miloOS Live (ToRAM)" {
+    linux /live/vmlinuz boot=live components toram quiet splash username=milo hostname=miloOS
     initrd /live/initrd.img
 }
 EOF
@@ -1417,12 +1457,15 @@ install_grub_bios() {
     # Copy GRUB modules
     cp -r /usr/lib/grub/i386-pc/* "$ISO_DIR/boot/grub/i386-pc/" 2>/dev/null || true
     
-    # Create eltorito boot image
+    # Create core image with necessary modules
     grub-mkimage -d /usr/lib/grub/i386-pc \
-        -o "$ISO_DIR/boot/grub/i386-pc/eltorito.img" \
-        -O i386-pc-eltorito \
+        -o "$ISO_DIR/boot/grub/i386-pc/core.img" \
+        -O i386-pc \
         -p /boot/grub \
-        biosdisk iso9660 2>&1 | tee -a "$LOG_FILE" || true
+        biosdisk iso9660 part_msdos part_gpt fat ext2 normal boot linux configfile loopback chain multiboot 2>&1 | tee -a "$LOG_FILE" || true
+    
+    # Create eltorito boot image
+    cat /usr/lib/grub/i386-pc/cdboot.img "$ISO_DIR/boot/grub/i386-pc/core.img" > "$ISO_DIR/boot/grub/i386-pc/eltorito.img"
     
     log_success "GRUB BIOS installed"
 }
@@ -1460,10 +1503,22 @@ build_iso() {
     log_info "Building ISO image..."
     log_warn "This may take several minutes..."
     
+    # Verify ISO directory structure
+    log_info "Verifying ISO structure..."
+    if [ ! -d "$ISO_DIR/live" ]; then
+        error_exit "Live directory not found"
+    fi
+    if [ ! -d "$ISO_DIR/boot/grub" ]; then
+        error_exit "GRUB directory not found"
+    fi
+    
     # Build ISO with xorriso
     xorriso -as mkisofs \
         -iso-level 3 \
         -full-iso9660-filenames \
+        -joliet \
+        -joliet-long \
+        -rational-rock \
         -volid "miloOS" \
         -appid "miloOS 1.0" \
         -publisher "Wamphyre" \
@@ -1482,7 +1537,7 @@ build_iso() {
         -output "$ISO_NAME" \
         -graft-points \
         "$ISO_DIR" \
-        2>&1 | tee -a "$LOG_FILE" | grep -E "^xorriso|^ISO image" || true
+        2>&1 | tee -a "$LOG_FILE" | grep -E "^xorriso|^ISO image|^Writing" || true
     
     if [ ! -f "$ISO_NAME" ]; then
         error_exit "Failed to create ISO"
@@ -1490,6 +1545,12 @@ build_iso() {
     
     local SIZE=$(du -h "$ISO_NAME" | cut -f1)
     log_success "ISO created: $ISO_NAME ($SIZE)"
+    
+    # Make ISO hybrid (bootable from USB)
+    log_info "Making ISO hybrid..."
+    if command -v isohybrid &> /dev/null; then
+        isohybrid "$ISO_NAME" 2>&1 | tee -a "$LOG_FILE" || log_warn "isohybrid failed, but ISO should still work"
+    fi
 }
 
 # ============================================================================
