@@ -154,15 +154,46 @@ check_dependencies() {
 check_disk_space() {
     log_info "Checking available disk space..."
     
-    local REQUIRED_SPACE_GB=20
-    # Check space in the work directory location
-    local AVAILABLE_SPACE_GB=$(df -BG "$(dirname "$WORK_DIR")" | awk 'NR==2 {print $4}' | sed 's/G//')
+    local REQUIRED_SPACE_GB=15  # Reduced from 20GB to 15GB
     
-    if [ "$AVAILABLE_SPACE_GB" -lt "$REQUIRED_SPACE_GB" ]; then
-        error_exit "Insufficient disk space in $(dirname "$WORK_DIR"). Need at least ${REQUIRED_SPACE_GB}GB, have ${AVAILABLE_SPACE_GB}GB"
+    # Try different locations in order of preference
+    local LOCATIONS=("/var/tmp" "/tmp" "$HOME" "/")
+    local BEST_LOCATION=""
+    local BEST_SPACE=0
+    
+    for location in "${LOCATIONS[@]}"; do
+        if [ -d "$location" ] && [ -w "$location" ]; then
+            local space=$(df -BG "$location" | awk 'NR==2 {print $4}' | sed 's/G//')
+            log_info "Available space in $location: ${space}GB"
+            
+            if [ "$space" -gt "$BEST_SPACE" ]; then
+                BEST_SPACE="$space"
+                BEST_LOCATION="$location"
+            fi
+        fi
+    done
+    
+    if [ "$BEST_SPACE" -lt "$REQUIRED_SPACE_GB" ]; then
+        log_error "Insufficient disk space. Need at least ${REQUIRED_SPACE_GB}GB"
+        log_error "Best available: ${BEST_SPACE}GB in $BEST_LOCATION"
+        log_info "Try freeing up space or use a different location:"
+        log_info "  sudo apt-get clean"
+        log_info "  sudo apt-get autoremove"
+        log_info "  sudo journalctl --vacuum-time=3d"
+        error_exit "Insufficient disk space"
     fi
     
-    log_success "Sufficient disk space available: ${AVAILABLE_SPACE_GB}GB in $(dirname "$WORK_DIR")"
+    # Update WORK_DIR to use the best location
+    if [ "$BEST_LOCATION" != "/var/tmp" ]; then
+        log_info "Using $BEST_LOCATION instead of /var/tmp"
+        WORK_DIR="$BEST_LOCATION/miloOS-build-$$"
+        CHROOT_DIR="$WORK_DIR/chroot"
+        ISO_DIR="$WORK_DIR/iso"
+        SQUASHFS_DIR="$ISO_DIR/live"
+        LOG_FILE="$BEST_LOCATION/miloOS-build-$(date +%Y%m%d-%H%M%S).log"
+    fi
+    
+    log_success "Using ${BEST_LOCATION} with ${BEST_SPACE}GB available"
 }
 
 # ============================================================================
@@ -1350,8 +1381,17 @@ create_squashfs() {
     
     # Create squashfs with XZ compression (exclude boot since we already have kernel/initrd)
     log_info "Compressing filesystem (this will take a while)..."
+    
+    # Clean chroot to reduce size before compression
+    log_info "Final cleanup before compression..."
+    rm -rf "$CHROOT_DIR/var/cache/apt/archives"/*.deb 2>/dev/null || true
+    rm -rf "$CHROOT_DIR/var/lib/apt/lists"/* 2>/dev/null || true
+    rm -rf "$CHROOT_DIR/tmp"/* 2>/dev/null || true
+    rm -rf "$CHROOT_DIR/var/tmp"/* 2>/dev/null || true
+    
     mksquashfs "$CHROOT_DIR" "$SQUASHFS_DIR/filesystem.squashfs" \
         -comp xz \
+        -Xbcj x86 \
         -b 1M \
         -Xdict-size 100% \
         -e boot \
@@ -1390,6 +1430,13 @@ create_squashfs() {
     
     if [ $missing -eq 1 ]; then
         error_exit "Missing required files in live directory"
+    fi
+    
+    # Clean chroot directory to free space (keep only if verbose mode)
+    if [ "$VERBOSE" != true ]; then
+        log_info "Cleaning chroot directory to free space..."
+        rm -rf "$CHROOT_DIR" 2>/dev/null || true
+        log_info "Freed space by removing chroot directory"
     fi
 }
 
