@@ -224,6 +224,30 @@ log_info "Step 3: Configuring refractasnapshot..."
 KERNEL_VERSION=$(uname -r)
 log_info "Detected kernel: $KERNEL_VERSION"
 
+# Create exclusions file first
+log_info "Creating exclusions file..."
+cat > /etc/refractasnapshot_exclude.list << 'EOF'
+- /home/*/.cache
+- /home/*/.thumbnails
+- /home/*/Downloads
+- /home/*/Descargas
+- /home/*/.local/share/Trash
+- /root/.cache
+- /var/cache/apt/archives/*.deb
+- /var/tmp/*
+- /tmp/*
+- /swapfile
+- /home/refracta
+- /home/work
+- /home/iso
+- /proc
+- /sys
+- /dev
+- /run
+- /mnt
+- /media
+EOF
+
 # Create refractasnapshot configuration
 cat > /etc/refractasnapshot.conf << EOF
 # miloOS refractasnapshot configuration
@@ -243,9 +267,9 @@ live_hostname="miloOS"
 kernel_image="/boot/vmlinuz-${KERNEL_VERSION}"
 initrd_image="/boot/initrd.img-${KERNEL_VERSION}"
 
-# Compression
-squashfs_compression="xz"
-squashfs_compression_options="-Xbcj x86 -b 1M"
+# Compression (using gzip for speed, xz is too slow)
+squashfs_compression="gzip"
+squashfs_compression_options="-Xcompression-level 9"
 
 # ISO
 iso_name="miloOS-1.0-amd64.iso"
@@ -262,30 +286,23 @@ make_efi="yes"
 make_isohybrid="yes"
 make_md5sum="yes"
 
-# Exclusions
-snapshot_excludes="
-/home/*/.cache
-/home/*/.thumbnails
-/home/*/Downloads
-/home/*/Descargas
-/root/.cache
-/var/cache/apt/archives/*.deb
-/var/tmp/*
-/tmp/*
-/swapfile
-/home/refracta
-/home/work
-/home/iso
-"
+# Exclusions file
+snapshot_excludes="/etc/refractasnapshot_exclude.list"
 EOF
 
-# Verify configuration file was created
+# Verify configuration files were created
 if [ ! -f /etc/refractasnapshot.conf ]; then
     log_error "Failed to create /etc/refractasnapshot.conf"
     exit 1
 fi
 
+if [ ! -f /etc/refractasnapshot_exclude.list ]; then
+    log_error "Failed to create /etc/refractasnapshot_exclude.list"
+    exit 1
+fi
+
 log_info "✓ Configuration file created: /etc/refractasnapshot.conf"
+log_info "✓ Exclusions file created: /etc/refractasnapshot_exclude.list"
 
 
 
@@ -377,7 +394,7 @@ mkdir -p /home/refracta /home/work /home/iso
 
 # Step 6: Run refractasnapshot
 log_info "Step 6: Running refractasnapshot to create ISO..."
-log_warn "This will take 30-60 minutes (xz compression is slow but produces smallest ISO)"
+log_warn "This will take 15-30 minutes depending on system size"
 echo ""
 
 # Verify refractasnapshot is installed
