@@ -449,8 +449,38 @@ if [ -f /etc/initramfs-tools/initramfs.conf ]; then
 fi
 
 # Generate new initramfs with gzip
-log_info "Generating new initramfs (this may take a minute)..."
-update-initramfs -c -k ${KERNEL_VERSION}
+log_info "Generating new initramfs (this may take 2-5 minutes)..."
+log_info "Please wait, do not interrupt..."
+echo ""
+
+# Run with timeout (10 minutes max) and show output
+timeout 600 update-initramfs -c -k ${KERNEL_VERSION} -v
+
+# Check if it completed
+INITRAMFS_EXIT=$?
+if [ $INITRAMFS_EXIT -eq 124 ]; then
+    log_error "Initramfs generation timed out after 10 minutes"
+    # Restore backup
+    if [ -f "/boot/initrd.img-${KERNEL_VERSION}.backup" ]; then
+        mv "/boot/initrd.img-${KERNEL_VERSION}.backup" "/boot/initrd.img-${KERNEL_VERSION}"
+    fi
+    if [ -f /etc/initramfs-tools/initramfs.conf.backup ]; then
+        mv /etc/initramfs-tools/initramfs.conf.backup /etc/initramfs-tools/initramfs.conf
+    fi
+    exit 1
+elif [ $INITRAMFS_EXIT -ne 0 ]; then
+    log_error "Failed to generate initramfs (exit code: $INITRAMFS_EXIT)"
+    # Restore backup
+    if [ -f "/boot/initrd.img-${KERNEL_VERSION}.backup" ]; then
+        mv "/boot/initrd.img-${KERNEL_VERSION}.backup" "/boot/initrd.img-${KERNEL_VERSION}"
+    fi
+    if [ -f /etc/initramfs-tools/initramfs.conf.backup ]; then
+        mv /etc/initramfs-tools/initramfs.conf.backup /etc/initramfs-tools/initramfs.conf
+    fi
+    exit 1
+fi
+
+echo ""
 
 # Verify new initramfs was created
 if [ ! -f "/boot/initrd.img-${KERNEL_VERSION}" ]; then
