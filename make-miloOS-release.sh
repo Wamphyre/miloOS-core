@@ -225,7 +225,7 @@ KERNEL_VERSION=$(uname -r)
 log_info "Detected kernel: $KERNEL_VERSION"
 
 # Create refractasnapshot configuration
-cat > /etc/refractasnapshot.conf << 'EOF'
+cat > /etc/refractasnapshot.conf << EOF
 # miloOS refractasnapshot configuration
 # Based on Refracta documentation
 
@@ -239,9 +239,9 @@ live_user="milo"
 live_user_fullname="miloOS Live User"
 live_hostname="miloOS"
 
-# Kernel (will be auto-detected)
-kernel_image=""
-initrd_image=""
+# Kernel
+kernel_image="/boot/vmlinuz-${KERNEL_VERSION}"
+initrd_image="/boot/initrd.img-${KERNEL_VERSION}"
 
 # Compression
 squashfs_compression="xz"
@@ -279,8 +279,15 @@ snapshot_excludes="
 "
 EOF
 
-log_info "refractasnapshot configured"
-echo ""
+# Verify configuration file was created
+if [ ! -f /etc/refractasnapshot.conf ]; then
+    log_error "Failed to create /etc/refractasnapshot.conf"
+    exit 1
+fi
+
+log_info "✓ Configuration file created: /etc/refractasnapshot.conf"
+
+
 
 # Step 4: Configure GRUB for bilingual menu
 log_info "Step 4: Creating bilingual GRUB menu..."
@@ -379,6 +386,26 @@ if ! command -v refractasnapshot &> /dev/null; then
     log_info "Please install with: apt-get install refractasnapshot"
     exit 1
 fi
+
+# Verify configuration file exists
+if [ ! -f /etc/refractasnapshot.conf ]; then
+    log_error "Configuration file /etc/refractasnapshot.conf not found"
+    exit 1
+fi
+
+# Verify kernel files exist
+if [ ! -f "/boot/vmlinuz-${KERNEL_VERSION}" ]; then
+    log_error "Kernel image not found: /boot/vmlinuz-${KERNEL_VERSION}"
+    exit 1
+fi
+
+if [ ! -f "/boot/initrd.img-${KERNEL_VERSION}" ]; then
+    log_error "Initrd image not found: /boot/initrd.img-${KERNEL_VERSION}"
+    exit 1
+fi
+
+log_info "✓ All prerequisites verified"
+echo ""
 
 # Run refractasnapshot with the configuration file
 log_info "Starting snapshot process..."
