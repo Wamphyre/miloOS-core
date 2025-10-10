@@ -227,25 +227,28 @@ log_info "Detected kernel: $KERNEL_VERSION"
 # Create exclusions file first
 log_info "Creating exclusions file..."
 cat > /etc/refractasnapshot_exclude.list << 'EOF'
-- /home/*/.cache
-- /home/*/.thumbnails
-- /home/*/Downloads
-- /home/*/Descargas
-- /home/*/.local/share/Trash
-- /root/.cache
+- /home/*/.cache/*
+- /home/*/.thumbnails/*
+- /home/*/Downloads/*
+- /home/*/Descargas/*
+- /home/*/.local/share/Trash/*
+- /root/.cache/*
 - /var/cache/apt/archives/*.deb
 - /var/tmp/*
 - /tmp/*
 - /swapfile
-- /home/refracta
-- /home/work
-- /home/iso
-- /proc
-- /sys
-- /dev
-- /run
-- /mnt
-- /media
+- /home/refracta/*
+- /home/work/*
+- /home/iso/*
+- /proc/*
+- /sys/*
+- /dev/*
+- /run/*
+- /mnt/*
+- /media/*
+- /lost+found/*
+- /var/log/*.log
+- /var/log/*/*.log
 EOF
 
 # Create refractasnapshot configuration
@@ -387,13 +390,59 @@ ISOLINUXEOF
 log_info "ISOLINUX configured for Legacy BIOS"
 echo ""
 
-# Step 5: Clean old snapshots
-log_info "Step 5: Cleaning old snapshots..."
+# Step 5: Handle microcode packages (known refractasnapshot bug)
+log_info "Step 5: Handling microcode packages..."
+
+# Check which microcode packages are installed
+INTEL_MICROCODE=""
+AMD_MICROCODE=""
+
+if dpkg -l | grep -q "^ii.*intel-microcode"; then
+    INTEL_MICROCODE="intel-microcode"
+    log_info "Detected Intel microcode package"
+fi
+
+if dpkg -l | grep -q "^ii.*amd64-microcode"; then
+    AMD_MICROCODE="amd64-microcode"
+    log_info "Detected AMD microcode package"
+fi
+
+# Remove microcode packages temporarily (refractasnapshot cpio bug workaround)
+if [ -n "$INTEL_MICROCODE" ] || [ -n "$AMD_MICROCODE" ]; then
+    log_warn "Temporarily removing microcode packages (refractasnapshot cpio bug workaround)"
+    
+    if [ -n "$INTEL_MICROCODE" ]; then
+        apt-get remove -y intel-microcode
+        log_info "✓ Removed intel-microcode"
+    fi
+    
+    if [ -n "$AMD_MICROCODE" ]; then
+        apt-get remove -y amd64-microcode
+        log_info "✓ Removed amd64-microcode"
+    fi
+    
+    # Regenerate initramfs without microcode
+    log_info "Regenerating initramfs without microcode..."
+    update-initramfs -u -k ${KERNEL_VERSION}
+    
+    log_info "✓ Microcode packages will be reinstalled after snapshot"
+else
+    log_info "No microcode packages detected"
+fi
+
+echo ""
+
+# Step 6: Clean old snapshots and temporary files
+log_info "Step 6: Cleaning old snapshots and temporary files..."
 rm -rf /home/refracta /home/work /home/iso 2>/dev/null || true
+rm -rf /tmp/extracted /tmp/newiso 2>/dev/null || true
 mkdir -p /home/refracta /home/work /home/iso
 
-# Step 6: Run refractasnapshot
-log_info "Step 6: Running refractasnapshot to create ISO..."
+log_info "✓ Cleanup completed"
+echo ""
+
+# Step 7: Run refractasnapshot
+log_info "Step 7: Running refractasnapshot to create ISO..."
 log_warn "This will take 15-30 minutes depending on system size"
 echo ""
 
@@ -440,8 +489,8 @@ fi
 log_info "Snapshot completed successfully"
 echo ""
 
-# Step 7: Move ISO to current directory and create checksum
-log_info "Step 7: Finalizing ISO..."
+# Step 8: Move ISO to current directory and create checksum
+log_info "Step 8: Finalizing ISO..."
 
 if [ -f "/home/iso/$ISO_NAME" ]; then
     mv "/home/iso/$ISO_NAME" "./$ISO_NAME"
@@ -469,9 +518,48 @@ if [ -f "/home/iso/$ISO_NAME" ]; then
     log_info "Cleaning up temporary files..."
     rm -rf /home/refracta /home/work /home/iso
     
+    # Reinstall microcode packages if they were removed
+    if [ -n "$INTEL_MICROCODE" ] || [ -n "$AMD_MICROCODE" ]; then
+        echo ""
+        log_info "Reinstalling microcode packages..."
+        
+        if [ -n "$INTEL_MICROCODE" ]; then
+            apt-get install -y intel-microcode
+            log_info "✓ Reinstalled intel-microcode"
+        fi
+        
+        if [ -n "$AMD_MICROCODE" ]; then
+            apt-get install -y amd64-microcode
+            log_info "✓ Reinstalled amd64-microcode"
+        fi
+        
+        # Regenerate initramfs with microcode
+        log_info "Regenerating initramfs with microcode..."
+        update-initramfs -u -k ${KERNEL_VERSION}
+        log_info "✓ System restored to original state"
+    fi
+    
+    echo ""
     log_info "Done!"
 else
     log_error "ISO not found at /home/iso/$ISO_NAME"
     log_error "Check refractasnapshot output for errors"
+    
+    # Reinstall microcode packages even on failure
+    if [ -n "$INTEL_MICROCODE" ] || [ -n "$AMD_MICROCODE" ]; then
+        echo ""
+        log_warn "Reinstalling microcode packages..."
+        
+        if [ -n "$INTEL_MICROCODE" ]; then
+            apt-get install -y intel-microcode
+        fi
+        
+        if [ -n "$AMD_MICROCODE" ]; then
+            apt-get install -y amd64-microcode
+        fi
+        
+        update-initramfs -u -k ${KERNEL_VERSION}
+    fi
+    
     exit 1
 fi
