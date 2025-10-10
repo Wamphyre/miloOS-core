@@ -266,9 +266,9 @@ live_user="milo"
 live_user_fullname="miloOS Live User"
 live_hostname="miloOS"
 
-# Kernel (auto-detect - let refractasnapshot handle it)
-kernel_image=""
-initrd_image=""
+# Kernel
+kernel_image="/boot/vmlinuz-${KERNEL_VERSION}"
+initrd_image="/boot/initrd.img-${KERNEL_VERSION}"
 
 # Compression (using gzip for speed, xz is too slow)
 squashfs_compression="gzip"
@@ -390,8 +390,8 @@ ISOLINUXEOF
 log_info "ISOLINUX configured for Legacy BIOS"
 echo ""
 
-# Step 5: Handle microcode packages (refractasnapshot will handle initramfs)
-log_info "Step 5: Preparing system for snapshot..."
+# Step 5: Prepare initramfs for refractasnapshot
+log_info "Step 5: Preparing initramfs for snapshot..."
 
 # Check which microcode packages are installed
 INTEL_MICROCODE=""
@@ -420,12 +420,39 @@ if [ -n "$INTEL_MICROCODE" ] || [ -n "$AMD_MICROCODE" ]; then
         apt-get remove -y amd64-microcode
         log_info "✓ Removed amd64-microcode"
     fi
-    
-    log_info "✓ Microcode packages will be reinstalled after snapshot"
 else
     log_info "No microcode packages detected"
 fi
 
+# Check if we have dracut or initramfs-tools
+if command -v dracut &> /dev/null; then
+    log_warn "System is using dracut - refractasnapshot needs initramfs-tools"
+    log_info "Installing initramfs-tools..."
+    apt-get install -y initramfs-tools
+    
+    # Backup dracut initrd
+    if [ -f "/boot/initrd.img-${KERNEL_VERSION}" ]; then
+        mv "/boot/initrd.img-${KERNEL_VERSION}" "/boot/initrd.img-${KERNEL_VERSION}.dracut-backup"
+        log_info "✓ Backed up dracut initrd"
+    fi
+    
+    # Create new initrd with initramfs-tools (compatible with refractasnapshot)
+    log_info "Creating initramfs-tools compatible initrd..."
+    update-initramfs -c -k ${KERNEL_VERSION}
+    
+    if [ ! -f "/boot/initrd.img-${KERNEL_VERSION}" ]; then
+        log_error "Failed to create initramfs-tools initrd"
+        # Restore dracut backup
+        if [ -f "/boot/initrd.img-${KERNEL_VERSION}.dracut-backup" ]; then
+            mv "/boot/initrd.img-${KERNEL_VERSION}.dracut-backup" "/boot/initrd.img-${KERNEL_VERSION}"
+        fi
+        exit 1
+    fi
+    
+    log_info "✓ Created initramfs-tools compatible initrd"
+fi
+
+log_info "✓ System prepared for snapshot"
 echo ""
 
 # Step 6: Clean old snapshots and temporary files
@@ -455,8 +482,22 @@ if [ ! -f /etc/refractasnapshot.conf ]; then
     exit 1
 fi
 
+# Verify kernel files exist
+if [ ! -f "/boot/vmlinuz-${KERNEL_VERSION}" ]; then
+    log_error "Kernel image not found: /boot/vmlinuz-${KERNEL_VERSION}"
+    ls -la /boot/vmlinuz* 2>/dev/null || true
+    exit 1
+fi
+
+if [ ! -f "/boot/initrd.img-${KERNEL_VERSION}" ]; then
+    log_error "Initrd image not found: /boot/initrd.img-${KERNEL_VERSION}"
+    ls -la /boot/initrd* 2>/dev/null || true
+    exit 1
+fi
+
 log_info "✓ Configuration verified"
-log_info "✓ refractasnapshot will auto-detect kernel and initramfs"
+log_info "✓ Kernel: /boot/vmlinuz-${KERNEL_VERSION}"
+log_info "✓ Initrd: /boot/initrd.img-${KERNEL_VERSION}"
 echo ""
 
 # Run refractasnapshot with the configuration file
@@ -508,6 +549,14 @@ if [ -f "/home/iso/$ISO_NAME" ]; then
     echo ""
     log_info "Restoring system to original state..."
     
+    # Restore dracut initrd if we backed it up
+    if [ -f "/boot/initrd.img-${KERNEL_VERSION}.dracut-backup" ]; then
+        log_info "Restoring dracut initrd..."
+        rm -f "/boot/initrd.img-${KERNEL_VERSION}"
+        mv "/boot/initrd.img-${KERNEL_VERSION}.dracut-backup" "/boot/initrd.img-${KERNEL_VERSION}"
+        log_info "✓ Restored dracut initrd"
+    fi
+    
     # Reinstall microcode packages if they were removed
     if [ -n "$INTEL_MICROCODE" ] || [ -n "$AMD_MICROCODE" ]; then
         log_info "Reinstalling microcode packages..."
@@ -521,9 +570,9 @@ if [ -f "/home/iso/$ISO_NAME" ]; then
             apt-get install -y amd64-microcode
             log_info "✓ Reinstalled amd64-microcode"
         fi
-        
-        log_info "✓ System restored to original state"
     fi
+    
+    log_info "✓ System restored to original state"
     
     echo ""
     log_info "Done!"
@@ -534,6 +583,12 @@ else
     # Restore system even on failure
     echo ""
     log_warn "Restoring system after failure..."
+    
+    # Restore dracut initrd if we backed it up
+    if [ -f "/boot/initrd.img-${KERNEL_VERSION}.dracut-backup" ]; then
+        rm -f "/boot/initrd.img-${KERNEL_VERSION}"
+        mv "/boot/initrd.img-${KERNEL_VERSION}.dracut-backup" "/boot/initrd.img-${KERNEL_VERSION}"
+    fi
     
     # Reinstall microcode packages
     if [ -n "$INTEL_MICROCODE" ] || [ -n "$AMD_MICROCODE" ]; then
