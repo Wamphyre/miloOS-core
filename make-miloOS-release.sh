@@ -68,6 +68,7 @@ cleanup() {
     
     # Unmount chroot filesystems
     if [ -d "$CHROOT_DIR" ]; then
+        log_info "Unmounting chroot filesystems..."
         umount -l "$CHROOT_DIR/proc" 2>/dev/null || true
         umount -l "$CHROOT_DIR/sys" 2>/dev/null || true
         umount -l "$CHROOT_DIR/dev/pts" 2>/dev/null || true
@@ -75,9 +76,21 @@ cleanup() {
     fi
     
     # Remove work directory if build failed
-    if [ "$BUILD_SUCCESS" != "true" ] && [ -d "$WORK_DIR" ]; then
-        log_warn "Build failed, removing work directory..."
-        rm -rf "$WORK_DIR"
+    if [ "$BUILD_SUCCESS" != "true" ]; then
+        if [ -d "$WORK_DIR" ]; then
+            log_warn "Build failed, removing work directory..."
+            rm -rf "$WORK_DIR" 2>/dev/null || true
+            log_info "Work directory removed: $WORK_DIR"
+        fi
+    else
+        # Build succeeded, optionally keep work directory for debugging
+        if [ "$VERBOSE" = true ]; then
+            log_info "Build succeeded. Work directory kept for debugging: $WORK_DIR"
+        else
+            log_info "Build succeeded. Removing work directory to free space..."
+            rm -rf "$WORK_DIR" 2>/dev/null || true
+            log_info "Work directory removed: $WORK_DIR"
+        fi
     fi
     
     log_info "Cleanup completed"
@@ -148,6 +161,44 @@ check_dependencies() {
         fi
     else
         log_success "All dependencies are installed"
+    fi
+}
+
+clean_old_builds() {
+    log_info "Cleaning old build directories..."
+    
+    local cleaned=0
+    
+    # Clean old builds in /var/tmp
+    if [ -d "/var/tmp" ]; then
+        for old_build in /var/tmp/miloOS-build-*; do
+            if [ -d "$old_build" ]; then
+                log_info "Removing old build: $old_build"
+                rm -rf "$old_build" 2>/dev/null || true
+                cleaned=$((cleaned + 1))
+            fi
+        done
+    fi
+    
+    # Clean old builds in /tmp
+    if [ -d "/tmp" ]; then
+        for old_build in /tmp/miloOS-build-*; do
+            if [ -d "$old_build" ]; then
+                log_info "Removing old build: $old_build"
+                rm -rf "$old_build" 2>/dev/null || true
+                cleaned=$((cleaned + 1))
+            fi
+        done
+    fi
+    
+    # Clean old logs
+    rm -f /var/tmp/miloOS-build-*.log 2>/dev/null || true
+    rm -f /tmp/miloOS-build-*.log 2>/dev/null || true
+    
+    if [ $cleaned -gt 0 ]; then
+        log_success "Cleaned $cleaned old build directories"
+    else
+        log_info "No old builds to clean"
     fi
 }
 
@@ -1805,6 +1856,7 @@ main() {
     check_root
     check_debian
     check_dependencies
+    clean_old_builds
     check_disk_space
     
     # Prepare skel with user configurations
