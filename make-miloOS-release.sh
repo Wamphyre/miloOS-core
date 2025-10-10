@@ -1,11 +1,9 @@
 #!/bin/bash
-# miloOS ISO Builder
+# miloOS ISO Builder using refractasnapshot
 # Creates a bootable Live ISO from current system
-# Version 3.0
+# Version 4.0
 
-set -Eeuo pipefail
-IFS=$'\n\t'
-umask 022
+set -e
 
 # Colors
 RED='\033[0;31m'
@@ -18,45 +16,11 @@ log_info() { echo -e "${GREEN}[INFO]${NC} $1"; }
 log_warn() { echo -e "${YELLOW}[WARN]${NC} $1"; }
 log_error() { echo -e "${RED}[ERROR]${NC} $1"; }
 
-# Keep track of mounts for reliable cleanup
-MOUNTS=()
-
-cleanup() {
-    # Attempt to unmount in reverse order to respect nesting
-    for (( idx=${#MOUNTS[@]}-1 ; idx>=0 ; idx-- )); do
-        m="${MOUNTS[$idx]}"
-        if mountpoint -q "$m"; then
-            umount -l "$m" 2>/dev/null || true
-        fi
-    done
-}
-
-on_error() {
-    log_error "Build failed (see logs above). Cleaning up mounts..."
-}
-
-trap on_error ERR
-trap cleanup EXIT
-
-require_cmd() {
-    command -v "$1" >/dev/null 2>&1 || {
-        log_error "Required command not found: $1"
-        exit 1
-    }
-}
-
-check_dependencies() {
-    local deps=(rsync mksquashfs xorriso grub-mkstandalone mkfs.vfat dd sha256sum chroot)
-    for dep in "${deps[@]}"; do
-        require_cmd "$dep"
-    done
-}
-
 # Configuration
-WORK_DIR="/home/miloOS-snapshot"
-SNAPSHOT_DIR="$WORK_DIR/myfs"
-ISO_DIR="$WORK_DIR/iso"
 ISO_NAME="miloOS-1.0-amd64.iso"
+LIVE_USER="milo"
+LIVE_PASSWORD="1234"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # Check root
 if [ "$(id -u)" -ne 0 ]; then
@@ -64,289 +28,352 @@ if [ "$(id -u)" -ne 0 ]; then
     exit 1
 fi
 
-check_dependencies
-
 log_info "========================================="
-log_info "miloOS ISO Builder v3.0"
+log_info "miloOS ISO Builder v4.0"
+log_info "Using refractasnapshot"
 log_info "========================================="
+echo ""
 
-# Clean old builds
-log_info "Cleaning old builds..."
-rm -rf "$WORK_DIR" 2>/dev/null || true
-mkdir -p "$SNAPSHOT_DIR"
-mkdir -p "$ISO_DIR"/{live,isolinux,boot/grub}
-
-# Step 1: Create snapshot of current system
-log_info "Creating system snapshot..."
-rsync -av --one-file-system \
-    --exclude=/proc/* \
-    --exclude=/sys/* \
-    --exclude=/dev/* \
-    --exclude=/run/* \
-    --exclude=/tmp/* \
-    --exclude=/mnt/* \
-    --exclude=/media/* \
-    --exclude=/lost+found \
-    --exclude=/home/*/.cache \
-    --exclude=/root/.cache \
-    --exclude=/var/cache/apt/archives/*.deb \
-    --exclude=/var/tmp/* \
-    --exclude="$WORK_DIR" \
-    / "$SNAPSHOT_DIR/"
-
-log_info "Snapshot created"
-
-# Step 2: Prepare snapshot for Live boot
-log_info "Preparing snapshot for Live boot..."
-
-# Create necessary directories
-mkdir -p "$SNAPSHOT_DIR"/{proc,sys,dev,run,tmp,mnt,media}
-mkdir -p "$SNAPSHOT_DIR/dev/pts"
-
-# Install live-boot in snapshot
-log_info "Installing live-boot packages..."
-mount --bind /proc "$SNAPSHOT_DIR/proc"; MOUNTS+=("$SNAPSHOT_DIR/proc")
-mount --bind /sys "$SNAPSHOT_DIR/sys"; MOUNTS+=("$SNAPSHOT_DIR/sys")
-mount --bind /dev "$SNAPSHOT_DIR/dev"; MOUNTS+=("$SNAPSHOT_DIR/dev")
-mount --bind /run "$SNAPSHOT_DIR/run" || log_warn "Could not bind-mount /run"; MOUNTS+=("$SNAPSHOT_DIR/run")
-mount --bind /dev/pts "$SNAPSHOT_DIR/dev/pts" 2>/dev/null || true; MOUNTS+=("$SNAPSHOT_DIR/dev/pts")
-
-chroot "$SNAPSHOT_DIR" env DEBIAN_FRONTEND=noninteractive apt-get update
-chroot "$SNAPSHOT_DIR" env DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends live-boot live-boot-initramfs-tools systemd-sysv
-
-# Update initramfs
-log_info "Updating initramfs..."
-chroot "$SNAPSHOT_DIR" update-initramfs -u
-
-# Unmounts handled by trap cleanup
-
-# Step 3: Extract kernel and initrd
-log_info "Extracting kernel and initrd..."
-KERNEL=$(ls "$SNAPSHOT_DIR/boot/vmlinuz-"* 2>/dev/null | head -n 1)
-INITRD=$(ls "$SNAPSHOT_DIR/boot/initrd.img-"* 2>/dev/null | head -n 1)
-
-if [ -z "$KERNEL" ] || [ ! -f "$KERNEL" ]; then
-    log_error "Kernel not found in $SNAPSHOT_DIR/boot/"
+# Check disk space
+AVAILABLE_GB=$(df -BG /home | awk 'NR==2 {print $4}' | sed 's/G//')
+if [ "$AVAILABLE_GB" -lt 20 ]; then
+    log_error "Insufficient disk space in /home. Need at least 20GB, have ${AVAILABLE_GB}GB"
     exit 1
 fi
+log_info "Available disk space: ${AVAILABLE_GB}GB"
+echo ""
 
-if [ -z "$INITRD" ] || [ ! -f "$INITRD" ]; then
-    log_error "Initrd not found in $SNAPSHOT_DIR/boot/"
-    exit 1
+# Step 1: Install refractasnapshot and refractainstaller
+log_info "Step 1: Installing refractasnapshot and refractainstaller..."
+
+if ! command -v refractasnapshot &> /dev/null; then
+    log_info "Installing refractasnapshot..."
+    apt-get update
+    apt-get install -y refractasnapshot refractainstaller
+else
+    log_info "refractasnapshot already installed"
 fi
 
-# Get kernel version
-KERNEL_VERSION=$(basename "$KERNEL" | sed 's/vmlinuz-//')
-KERNEL_NAME="vmlinuz-${KERNEL_VERSION}"
-INITRD_NAME="initrd.img-${KERNEL_VERSION}"
+# Step 2: Populate /etc/skel with user configuration
+log_info "Step 2: Populating /etc/skel with miloOS user configuration..."
 
-log_info "Kernel version: $KERNEL_VERSION"
-log_info "Kernel file: $KERNEL_NAME"
-log_info "Initrd file: $INITRD_NAME"
-
-# Copy with original names
-cp "$KERNEL" "$ISO_DIR/live/$KERNEL_NAME"
-cp "$INITRD" "$ISO_DIR/live/$INITRD_NAME"
-
-# Also create symlinks for compatibility
-ln -sf "$KERNEL_NAME" "$ISO_DIR/live/vmlinuz"
-ln -sf "$INITRD_NAME" "$ISO_DIR/live/initrd.img"
-
-# Step 4: Create squashfs
-log_info "Creating squashfs (this takes time)..."
-mksquashfs "$SNAPSHOT_DIR" "$ISO_DIR/live/filesystem.squashfs" \
-    -comp xz -e boot
-
-log_info "Squashfs created: $(du -h "$ISO_DIR/live/filesystem.squashfs" | cut -f1)"
-
-# Verify live directory contents
-log_info "Verifying live directory..."
-ls -lh "$ISO_DIR/live/"
-if [ ! -f "$ISO_DIR/live/$KERNEL_NAME" ]; then
-    log_error "Kernel not found: $KERNEL_NAME"
-    exit 1
-fi
-if [ ! -f "$ISO_DIR/live/$INITRD_NAME" ]; then
-    log_error "Initrd not found: $INITRD_NAME"
-    exit 1
-fi
-if [ ! -f "$ISO_DIR/live/filesystem.squashfs" ]; then
-    log_error "Squashfs not found!"
-    exit 1
-fi
-log_info "✓ Kernel: $KERNEL_NAME"
-log_info "✓ Initrd: $INITRD_NAME"
-log_info "✓ Squashfs: filesystem.squashfs"
-
-# Step 5: Install ISOLINUX/SYSLINUX
-log_info "Installing ISOLINUX..."
-
-# Find isolinux.bin
-ISOLINUX_BIN=""
-for path in /usr/lib/ISOLINUX/isolinux.bin \
-            /usr/lib/syslinux/modules/bios/isolinux.bin \
-            /usr/share/syslinux/isolinux.bin \
-            /usr/lib/syslinux/isolinux.bin; do
-    if [ -f "$path" ]; then
-        ISOLINUX_BIN="$path"
-        break
-    fi
-done
-
-if [ -z "$ISOLINUX_BIN" ]; then
-    log_warn "ISOLINUX not found, installing..."
-    apt-get install -y isolinux syslinux-common
-    
-    # Try again
-    for path in /usr/lib/ISOLINUX/isolinux.bin \
-                /usr/lib/syslinux/modules/bios/isolinux.bin \
-                /usr/share/syslinux/isolinux.bin; do
-        if [ -f "$path" ]; then
-            ISOLINUX_BIN="$path"
-            break
-        fi
-    done
+# Backup existing skel
+if [ -d "/etc/skel" ]; then
+    log_info "Backing up existing /etc/skel to /etc/skel.backup-$(date +%Y%m%d-%H%M%S)"
+    cp -a /etc/skel "/etc/skel.backup-$(date +%Y%m%d-%H%M%S)"
 fi
 
-if [ -z "$ISOLINUX_BIN" ]; then
-    log_error "Could not find isolinux.bin"
-    exit 1
+# Clear /etc/skel (except hidden files we want to keep)
+rm -rf /etc/skel/.config 2>/dev/null || true
+rm -rf /etc/skel/.local 2>/dev/null || true
+
+# Copy user configurations to /etc/skel
+log_info "Copying .config to /etc/skel..."
+if [ -d "$SCRIPT_DIR/configurations/xfce4" ]; then
+    mkdir -p /etc/skel/.config/xfce4
+    cp -R "$SCRIPT_DIR/configurations/xfce4"/* /etc/skel/.config/xfce4/ 2>/dev/null || true
 fi
 
-log_info "Using ISOLINUX from: $ISOLINUX_BIN"
-cp "$ISOLINUX_BIN" "$ISO_DIR/isolinux/"
-
-# Copy required modules
-SYSLINUX_DIR=$(dirname "$ISOLINUX_BIN")
-if [ -d "$SYSLINUX_DIR" ]; then
-    cp "$SYSLINUX_DIR"/*.c32 "$ISO_DIR/isolinux/" 2>/dev/null || true
+if [ -d "$SCRIPT_DIR/configurations/plank" ]; then
+    mkdir -p /etc/skel/.config/plank
+    cp -R "$SCRIPT_DIR/configurations/plank"/* /etc/skel/.config/plank/ 2>/dev/null || true
 fi
 
-# Also try common locations
-for dir in /usr/lib/syslinux/modules/bios \
-           /usr/share/syslinux \
-           /usr/lib/syslinux; do
-    if [ -d "$dir" ]; then
-        cp "$dir"/*.c32 "$ISO_DIR/isolinux/" 2>/dev/null || true
-    fi
-done
+if [ -d "$SCRIPT_DIR/configurations/autostart" ]; then
+    mkdir -p /etc/skel/.config/autostart
+    cp "$SCRIPT_DIR/configurations/autostart"/* /etc/skel/.config/autostart/ 2>/dev/null || true
+fi
 
-# Create ISOLINUX config
-log_info "Creating ISOLINUX configuration..."
-cat > "$ISO_DIR/isolinux/isolinux.cfg" << EOF
-DEFAULT live
-LABEL live
-  MENU LABEL miloOS Live
-  KERNEL /live/$KERNEL_NAME
-  APPEND initrd=/live/$INITRD_NAME boot=live quiet splash
-LABEL failsafe
-  MENU LABEL miloOS Live (failsafe)
-  KERNEL /live/$KERNEL_NAME
-  APPEND initrd=/live/$INITRD_NAME boot=live noapic noacpi nosplash
+if [ -d "$SCRIPT_DIR/configurations/gtk-3.0" ]; then
+    mkdir -p /etc/skel/.config/gtk-3.0
+    cp "$SCRIPT_DIR/configurations/gtk-3.0"/* /etc/skel/.config/gtk-3.0/ 2>/dev/null || true
+fi
+
+if [ -f "$SCRIPT_DIR/configurations/fonts.conf" ]; then
+    mkdir -p /etc/skel/.config/fontconfig
+    cp "$SCRIPT_DIR/configurations/fonts.conf" /etc/skel/.config/fontconfig/fonts.conf
+fi
+
+# Copy environment.d for PipeWire JACK
+if [ -d "$SCRIPT_DIR/configurations/environment.d" ]; then
+    mkdir -p /etc/skel/.config/environment.d
+    cp "$SCRIPT_DIR/configurations/environment.d"/* /etc/skel/.config/environment.d/ 2>/dev/null || true
+fi
+
+# Copy .local directory if exists
+if [ -d "$SCRIPT_DIR/configurations/.local" ]; then
+    log_info "Copying .local to /etc/skel..."
+    mkdir -p /etc/skel/.local
+    cp -R "$SCRIPT_DIR/configurations/.local"/* /etc/skel/.local/ 2>/dev/null || true
+fi
+
+# Create .bashrc with JACK configuration
+log_info "Creating .bashrc with JACK paths..."
+cat > /etc/skel/.bashrc << 'EOF'
+# miloOS .bashrc
+
+# Source global definitions
+if [ -f /etc/bashrc ]; then
+    . /etc/bashrc
+fi
+
+# User specific environment
+if ! [[ "$PATH" =~ "$HOME/.local/bin:$HOME/bin:" ]]
+then
+    PATH="$HOME/.local/bin:$HOME/bin:$PATH"
+fi
+export PATH
+
+# PipeWire JACK configuration
+export LD_LIBRARY_PATH=/usr/lib/x86_64-linux-gnu/pipewire-0.3/jack${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}
+export PIPEWIRE_JACK=1
+
+# Aliases
+alias ll='ls -lah'
+alias la='ls -A'
+alias l='ls -CF'
 EOF
 
-# Step 6: Create GRUB config (for UEFI boot)
-log_info "Creating GRUB configuration..."
-cat > "$ISO_DIR/boot/grub/grub.cfg" << EOF
-set timeout=10
-set default=0
+# Create .profile
+log_info "Creating .profile with JACK paths..."
+cat > /etc/skel/.profile << 'EOF'
+# miloOS .profile
 
-menuentry "miloOS Live" {
-    linux /live/$KERNEL_NAME boot=live quiet splash
-    initrd /live/$INITRD_NAME
+# if running bash
+if [ -n "$BASH_VERSION" ]; then
+    if [ -f "$HOME/.bashrc" ]; then
+        . "$HOME/.bashrc"
+    fi
+fi
+
+# PipeWire JACK configuration
+export LD_LIBRARY_PATH=/usr/lib/x86_64-linux-gnu/pipewire-0.3/jack${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}
+export PIPEWIRE_JACK=1
+EOF
+
+# Create .xsession
+log_info "Creating .xsession..."
+cat > /etc/skel/.xsession << 'EOF'
+#!/bin/sh
+# miloOS .xsession
+
+# PipeWire JACK configuration
+export LD_LIBRARY_PATH=/usr/lib/x86_64-linux-gnu/pipewire-0.3/jack${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}
+export PIPEWIRE_JACK=1
+
+# Start XFCE session
+exec startxfce4
+EOF
+chmod +x /etc/skel/.xsession
+
+log_info "/etc/skel populated successfully"
+echo ""
+
+# Step 3: Configure refractasnapshot
+log_info "Step 3: Configuring refractasnapshot..."
+
+# Get current kernel version
+KERNEL_VERSION=$(uname -r)
+log_info "Detected kernel: $KERNEL_VERSION"
+
+# Create refractasnapshot configuration
+cat > /etc/refractasnapshot.conf << 'EOF'
+# miloOS refractasnapshot configuration
+# Based on Refracta documentation
+
+# Directories
+snapshot_dir="/home/refracta"
+work_dir="/home/work"
+iso_dir="/home/iso"
+
+# Live system
+live_user="milo"
+live_user_fullname="miloOS Live User"
+live_hostname="miloOS"
+
+# Kernel (will be auto-detected)
+kernel_image=""
+initrd_image=""
+
+# Compression
+squashfs_compression="xz"
+squashfs_compression_options="-Xbcj x86 -b 1M"
+
+# ISO
+iso_name="miloOS-1.0-amd64.iso"
+iso_label="miloOS"
+
+# Boot
+boot_options="boot=live components quiet splash"
+
+# Architecture
+architecture="amd64"
+
+# Features
+make_efi="yes"
+make_isohybrid="yes"
+make_md5sum="yes"
+
+# Exclusions
+snapshot_excludes="
+/home/*/.cache
+/home/*/.thumbnails
+/home/*/Downloads
+/home/*/Descargas
+/root/.cache
+/var/cache/apt/archives/*.deb
+/var/tmp/*
+/tmp/*
+/swapfile
+/home/refracta
+/home/work
+/home/iso
+"
+EOF
+
+log_info "refractasnapshot configured"
+echo ""
+
+# Step 4: Configure GRUB for bilingual menu
+log_info "Step 4: Creating bilingual GRUB menu..."
+
+mkdir -p /etc/refractasnapshot/grub
+
+cat > /etc/refractasnapshot/grub/grub.cfg << GRUBEOF
+set default=0
+set timeout=30
+
+# Load video modules
+insmod all_video
+insmod gfxterm
+
+# Set graphics mode
+set gfxmode=auto
+terminal_output gfxterm
+
+# Menu colors
+set menu_color_normal=white/black
+set menu_color_highlight=black/light-gray
+
+# English/Spanish menu
+menuentry "miloOS Live (English)" {
+    set gfxpayload=keep
+    linux /live/vmlinuz-${KERNEL_VERSION} boot=live components quiet splash locales=en_US.UTF-8
+    initrd /live/initrd.img-${KERNEL_VERSION}
+}
+
+menuentry "miloOS Live (Español)" {
+    set gfxpayload=keep
+    linux /live/vmlinuz-${KERNEL_VERSION} boot=live components quiet splash locales=es_ES.UTF-8
+    initrd /live/initrd.img-${KERNEL_VERSION}
 }
 
 menuentry "miloOS Live (failsafe)" {
-    linux /live/$KERNEL_NAME boot=live noapic noacpi nosplash
-    initrd /live/$INITRD_NAME
+    linux /live/vmlinuz-${KERNEL_VERSION} boot=live components noapic noacpi nomodeset vga=normal
+    initrd /live/initrd.img-${KERNEL_VERSION}
 }
-EOF
 
-# Step 7: Create UEFI boot
-log_info "Creating UEFI boot..."
-mkdir -p "$ISO_DIR/EFI/boot"
+menuentry "Memory Test (memtest86+)" {
+    linux /live/memtest
+}
+GRUBEOF
 
-grub-mkstandalone \
-    --format=x86_64-efi \
-    --output="$ISO_DIR/EFI/boot/bootx64.efi" \
-    --locales="" \
-    --fonts="" \
-    "boot/grub/grub.cfg=$ISO_DIR/boot/grub/grub.cfg"
+log_info "GRUB menu configured (English/Spanish)"
+echo ""
 
-# Create EFI boot image
-dd if=/dev/zero of="$ISO_DIR/boot/grub/efi.img" bs=1M count=10 2>/dev/null
-mkfs.vfat "$ISO_DIR/boot/grub/efi.img" >/dev/null 2>&1
+# Step 4b: Configure ISOLINUX for Legacy BIOS
+log_info "Step 4b: Configuring ISOLINUX for Legacy BIOS..."
 
-MOUNT_POINT=$(mktemp -d)
-mount -o loop "$ISO_DIR/boot/grub/efi.img" "$MOUNT_POINT"
-mkdir -p "$MOUNT_POINT/EFI/boot"
-cp "$ISO_DIR/EFI/boot/bootx64.efi" "$MOUNT_POINT/EFI/boot/"
-umount "$MOUNT_POINT"
-rmdir "$MOUNT_POINT"
+mkdir -p /etc/refractasnapshot/isolinux
 
-# Step 8: Create ISO with both BIOS and UEFI support
-log_info "Creating hybrid ISO..."
+cat > /etc/refractasnapshot/isolinux/isolinux.cfg << ISOLINUXEOF
+default live
+label live
+  menu label ^miloOS Live
+  kernel /live/vmlinuz-${KERNEL_VERSION}
+  append initrd=/live/initrd.img-${KERNEL_VERSION} boot=live components quiet splash
 
-# Find isohdpfx.bin
-ISOHDPFX=""
-for path in /usr/lib/ISOLINUX/isohdpfx.bin \
-            /usr/lib/syslinux/modules/bios/isohdpfx.bin \
-            /usr/share/syslinux/isohdpfx.bin \
-            /usr/lib/syslinux/isohdpfx.bin; do
-    if [ -f "$path" ]; then
-        ISOHDPFX="$path"
-        break
-    fi
-done
+label live-en
+  menu label miloOS Live (^English)
+  kernel /live/vmlinuz-${KERNEL_VERSION}
+  append initrd=/live/initrd.img-${KERNEL_VERSION} boot=live components quiet splash locales=en_US.UTF-8
 
-if [ -n "$ISOHDPFX" ]; then
-    log_info "Using isohdpfx from: $ISOHDPFX"
-    ISOHYBRID_OPT="-isohybrid-mbr $ISOHDPFX"
-else
-    log_warn "isohdpfx.bin not found, ISO may not be USB bootable"
-    ISOHYBRID_OPT=""
+label live-es
+  menu label miloOS Live (^Español)
+  kernel /live/vmlinuz-${KERNEL_VERSION}
+  append initrd=/live/initrd.img-${KERNEL_VERSION} boot=live components quiet splash locales=es_ES.UTF-8
+
+label failsafe
+  menu label miloOS Live (^Failsafe)
+  kernel /live/vmlinuz-${KERNEL_VERSION}
+  append initrd=/live/initrd.img-${KERNEL_VERSION} boot=live components noapic noacpi nomodeset vga=normal
+
+prompt 0
+timeout 300
+ISOLINUXEOF
+
+log_info "ISOLINUX configured for Legacy BIOS"
+echo ""
+
+# Step 5: Clean old snapshots
+log_info "Step 5: Cleaning old snapshots..."
+rm -rf /home/refracta /home/work /home/iso 2>/dev/null || true
+mkdir -p /home/refracta /home/work /home/iso
+
+# Step 6: Run refractasnapshot
+log_info "Step 6: Running refractasnapshot to create ISO..."
+log_warn "This will take 30-60 minutes (xz compression is slow but produces smallest ISO)"
+echo ""
+
+# Verify refractasnapshot is installed
+if ! command -v refractasnapshot &> /dev/null; then
+    log_error "refractasnapshot command not found"
+    log_info "Please install with: apt-get install refractasnapshot"
+    exit 1
 fi
 
-xorriso -as mkisofs \
-    -iso-level 3 \
-    -full-iso9660-filenames \
-    -volid "miloOS" \
-    $ISOHYBRID_OPT \
-    -eltorito-boot isolinux/isolinux.bin \
-    -eltorito-catalog isolinux/boot.cat \
-    -no-emul-boot \
-    -boot-load-size 4 \
-    -boot-info-table \
-    -eltorito-alt-boot \
-    -e boot/grub/efi.img \
-    -no-emul-boot \
-    -isohybrid-gpt-basdat \
-    -output "$ISO_NAME" \
-    "$ISO_DIR"
+# Run refractasnapshot with the configuration file
+log_info "Starting snapshot process..."
+refractasnapshot -c /etc/refractasnapshot.conf 2>&1 | tee /tmp/refractasnapshot.log
 
-if [ -f "$ISO_NAME" ]; then
-    log_info "ISO created successfully: $ISO_NAME"
-    log_info "Size: $(du -h "$ISO_NAME" | cut -f1)"
+# Check if it completed successfully
+if [ $? -ne 0 ]; then
+    log_error "refractasnapshot failed. Check /tmp/refractasnapshot.log"
+    exit 1
+fi
+
+# Step 7: Move ISO to current directory and create checksum
+log_info "Step 7: Finalizing ISO..."
+
+if [ -f "/home/iso/$ISO_NAME" ]; then
+    mv "/home/iso/$ISO_NAME" "./$ISO_NAME"
     sync
-    # Calculate checksum
+    
+    log_info "Calculating SHA256 checksum..."
     sha256sum "$ISO_NAME" > "${ISO_NAME}.sha256"
-    log_info "Checksum: $(cut -d' ' -f1 "${ISO_NAME}.sha256")"
     
-    # Verify ISO contents
-    log_info "Verifying ISO contents..."
-    if command -v isoinfo &> /dev/null; then
-        log_info "ISO structure:"
-        isoinfo -l -i "$ISO_NAME" | grep -E "live/|boot/|EFI/" | head -20
-    fi
+    ISO_SIZE=$(du -h "$ISO_NAME" | cut -f1)
+    CHECKSUM=$(cut -d' ' -f1 "${ISO_NAME}.sha256")
     
-    # Cleanup
-    log_info "Cleaning up..."
-    rm -rf "$WORK_DIR"
-    
-    log_info "Done! Test with:"
+    log_info "========================================="
+    log_info "ISO created successfully!"
+    log_info "========================================="
+    log_info "File: $ISO_NAME"
+    log_info "Size: $ISO_SIZE"
+    log_info "SHA256: $CHECKSUM"
+    echo ""
+    log_info "Test with:"
     log_info "  BIOS: qemu-system-x86_64 -cdrom $ISO_NAME -m 2048"
     log_info "  UEFI: qemu-system-x86_64 -cdrom $ISO_NAME -m 2048 -bios /usr/share/ovmf/OVMF.fd"
+    echo ""
+    
+    # Cleanup
+    log_info "Cleaning up temporary files..."
+    rm -rf /home/refracta /home/work /home/iso
+    
+    log_info "Done!"
 else
-    log_error "Failed to create ISO"
+    log_error "ISO not found at /home/iso/$ISO_NAME"
+    log_error "Check refractasnapshot output for errors"
     exit 1
 fi
