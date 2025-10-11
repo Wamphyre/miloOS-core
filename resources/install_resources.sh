@@ -1406,22 +1406,30 @@ for dotfile in .bashrc .dmrc .profile .xsession .xsessionrc; do
     if [ -f "$CURRENT_DIR/configurations/$dotfile" ]; then
         cp "$CURRENT_DIR/configurations/$dotfile" "/etc/skel/$dotfile"
         chmod 644 "/etc/skel/$dotfile"
-        log_info "✓ $dotfile → /etc/skel"
+        
+        # Verify file was copied and is not empty
+        if [ -s "/etc/skel/$dotfile" ]; then
+            log_info "✓ $dotfile → /etc/skel"
+        else
+            log_error "✗ $dotfile is empty or failed to copy to /etc/skel!"
+        fi
+    else
+        log_warn "✗ $dotfile not found in configurations/"
     fi
 done
 
 # Copy .config to /etc/skel
 if [ -d "$CURRENT_DIR/configurations/.config" ]; then
     log_info "Copying .config to /etc/skel..."
-    cp -a "$CURRENT_DIR/configurations/.config" /etc/skel/
-    log_info "✓ .config → /etc/skel"
+    rsync -a --delete "$CURRENT_DIR/configurations/.config/" /etc/skel/.config/
+    log_info "✓ .config → /etc/skel/.config"
 fi
 
 # Copy .local to /etc/skel
 if [ -d "$CURRENT_DIR/configurations/.local" ]; then
     log_info "Copying .local to /etc/skel..."
-    cp -a "$CURRENT_DIR/configurations/.local" /etc/skel/
-    log_info "✓ .local → /etc/skel"
+    rsync -a --delete "$CURRENT_DIR/configurations/.local/" /etc/skel/.local/
+    log_info "✓ .local → /etc/skel/.local"
 fi
 
 echo ""
@@ -1441,24 +1449,32 @@ if [ -n "$TARGET_HOME" ] && [ -d "$TARGET_HOME" ]; then
             cp "$CURRENT_DIR/configurations/$dotfile" "$TARGET_HOME/$dotfile"
             chown "$TARGET_USER:$TARGET_USER" "$TARGET_HOME/$dotfile"
             chmod 644 "$TARGET_HOME/$dotfile"
-            log_info "✓ $dotfile → $TARGET_HOME"
+            
+            # Verify file was copied and is not empty
+            if [ -s "$TARGET_HOME/$dotfile" ]; then
+                log_info "✓ $dotfile → $TARGET_HOME"
+            else
+                log_error "✗ $dotfile is empty or failed to copy!"
+            fi
+        else
+            log_warn "✗ $dotfile not found in configurations/"
         fi
     done
     
     # Copy .config
     if [ -d "$CURRENT_DIR/configurations/.config" ]; then
         log_info "Copying .config to user home..."
-        cp -a "$CURRENT_DIR/configurations/.config" "$TARGET_HOME/"
+        rsync -a --delete "$CURRENT_DIR/configurations/.config/" "$TARGET_HOME/.config/"
         chown -R "$TARGET_USER:$TARGET_USER" "$TARGET_HOME/.config"
-        log_info "✓ .config → $TARGET_HOME"
+        log_info "✓ .config → $TARGET_HOME/.config"
     fi
     
     # Copy .local
     if [ -d "$CURRENT_DIR/configurations/.local" ]; then
         log_info "Copying .local to user home..."
-        cp -a "$CURRENT_DIR/configurations/.local" "$TARGET_HOME/"
+        rsync -a --delete "$CURRENT_DIR/configurations/.local/" "$TARGET_HOME/.local/"
         chown -R "$TARGET_USER:$TARGET_USER" "$TARGET_HOME/.local"
-        log_info "✓ .local → $TARGET_HOME"
+        log_info "✓ .local → $TARGET_HOME/.local"
     fi
     
     echo ""
