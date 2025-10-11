@@ -1421,15 +1421,15 @@ done
 # Copy .config to /etc/skel
 if [ -d "$CURRENT_DIR/configurations/.config" ]; then
     log_info "Copying .config to /etc/skel..."
-    rsync -a --delete "$CURRENT_DIR/configurations/.config/" /etc/skel/.config/
-    log_info "✓ .config → /etc/skel/.config"
+    cp -r "$CURRENT_DIR/configurations/.config" /etc/skel/
+    log_info "✓ .config → /etc/skel"
 fi
 
 # Copy .local to /etc/skel
 if [ -d "$CURRENT_DIR/configurations/.local" ]; then
     log_info "Copying .local to /etc/skel..."
-    rsync -a --delete "$CURRENT_DIR/configurations/.local/" /etc/skel/.local/
-    log_info "✓ .local → /etc/skel/.local"
+    cp -r "$CURRENT_DIR/configurations/.local" /etc/skel/
+    log_info "✓ .local → /etc/skel"
 fi
 
 echo ""
@@ -1464,17 +1464,17 @@ if [ -n "$TARGET_HOME" ] && [ -d "$TARGET_HOME" ]; then
     # Copy .config
     if [ -d "$CURRENT_DIR/configurations/.config" ]; then
         log_info "Copying .config to user home..."
-        rsync -a --delete "$CURRENT_DIR/configurations/.config/" "$TARGET_HOME/.config/"
+        cp -r "$CURRENT_DIR/configurations/.config" "$TARGET_HOME/"
         chown -R "$TARGET_USER:$TARGET_USER" "$TARGET_HOME/.config"
-        log_info "✓ .config → $TARGET_HOME/.config"
+        log_info "✓ .config → $TARGET_HOME"
     fi
     
     # Copy .local
     if [ -d "$CURRENT_DIR/configurations/.local" ]; then
         log_info "Copying .local to user home..."
-        rsync -a --delete "$CURRENT_DIR/configurations/.local/" "$TARGET_HOME/.local/"
+        cp -r "$CURRENT_DIR/configurations/.local" "$TARGET_HOME/"
         chown -R "$TARGET_USER:$TARGET_USER" "$TARGET_HOME/.local"
-        log_info "✓ .local → $TARGET_HOME/.local"
+        log_info "✓ .local → $TARGET_HOME"
     fi
     
     echo ""
