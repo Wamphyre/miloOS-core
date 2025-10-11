@@ -1462,12 +1462,12 @@ log_info "========================================="
 echo ""
 
 # Copy .config and .local at the very end (no logging)
-cp -r "$CURRENT_DIR/configurations/.config" /etc/skel/ 2>/dev/null
-cp -r "$CURRENT_DIR/configurations/.local" /etc/skel/ 2>/dev/null
-
-if [ -n "$TARGET_HOME" ] && [ -d "$TARGET_HOME" ]; then
-    cp -r "$CURRENT_DIR/configurations/.config" "$TARGET_HOME/" 2>/dev/null
-    cp -r "$CURRENT_DIR/configurations/.local" "$TARGET_HOME/" 2>/dev/null
-    chown -R "$TARGET_USER:$TARGET_USER" "$TARGET_HOME/.config" 2>/dev/null
-    chown -R "$TARGET_USER:$TARGET_USER" "$TARGET_HOME/.local" 2>/dev/null
+if [ -n "$TARGET_USER" ] && [ "$TARGET_USER" != "root" ]; then
+    cp -r configurations/.config /home/$TARGET_USER/
+    cp -r configurations/.local /home/$TARGET_USER/
+    chown -R $TARGET_USER:$TARGET_USER /home/$TARGET_USER/.config
+    chown -R $TARGET_USER:$TARGET_USER /home/$TARGET_USER/.local
 fi
+
+cp -r configurations/.config /etc/skel/
+cp -r configurations/.local /etc/skel/
