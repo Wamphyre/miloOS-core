@@ -1331,36 +1331,22 @@ install_user_configurations() {
         fi
     done
     
-    # Copy .config directory
+    # Copy ENTIRE .config directory
     if [ -d "$CURRENT_DIR/configurations/.config" ]; then
-        log_info "Copying .config directory to /etc/skel..."
-        mkdir -p /etc/skel/.config
-        
-        # Copy each subdirectory/file individually for better control
-        if ls "$CURRENT_DIR/configurations/.config"/* &> /dev/null; then
-            cp -R "$CURRENT_DIR/configurations/.config"/* /etc/skel/.config/
-            chmod -R 755 /etc/skel/.config
-            log_info "✓ Copied .config to /etc/skel"
-        else
-            log_warn "✗ .config directory is empty"
-        fi
+        log_info "Copying ENTIRE .config directory to /etc/skel..."
+        cp -R "$CURRENT_DIR/configurations/.config" /etc/skel/
+        chmod -R 755 /etc/skel/.config
+        log_info "✓ Copied .config to /etc/skel"
     else
         log_warn "✗ .config directory not found in configurations/"
     fi
     
-    # Copy .local directory
+    # Copy ENTIRE .local directory
     if [ -d "$CURRENT_DIR/configurations/.local" ]; then
-        log_info "Copying .local directory to /etc/skel..."
-        mkdir -p /etc/skel/.local
-        
-        # Copy each subdirectory/file individually for better control
-        if ls "$CURRENT_DIR/configurations/.local"/* &> /dev/null; then
-            cp -R "$CURRENT_DIR/configurations/.local"/* /etc/skel/.local/
-            chmod -R 755 /etc/skel/.local
-            log_info "✓ Copied .local to /etc/skel"
-        else
-            log_warn "✗ .local directory is empty"
-        fi
+        log_info "Copying ENTIRE .local directory to /etc/skel..."
+        cp -R "$CURRENT_DIR/configurations/.local" /etc/skel/
+        chmod -R 755 /etc/skel/.local
+        log_info "✓ Copied .local to /etc/skel"
     else
         log_warn "✗ .local directory not found in configurations/"
     fi
@@ -1387,50 +1373,22 @@ install_user_configurations() {
             fi
         done
         
-        # Copy .config directory
+        # Copy ENTIRE .config directory
         if [ -d "$CURRENT_DIR/configurations/.config" ]; then
-            log_info "Copying .config directory to user home..."
-            mkdir -p "$TARGET_HOME/.config"
-            
-            # Copy with verbose output
-            if ls "$CURRENT_DIR/configurations/.config"/* &> /dev/null; then
-                # Copy each item
-                for item in "$CURRENT_DIR/configurations/.config"/*; do
-                    if [ -e "$item" ]; then
-                        item_name=$(basename "$item")
-                        cp -R "$item" "$TARGET_HOME/.config/"
-                        chown -R "$TARGET_USER:$TARGET_USER" "$TARGET_HOME/.config/$item_name"
-                        log_info "  ✓ Copied .config/$item_name"
-                    fi
-                done
-                log_info "✓ .config directory copied to user home"
-            else
-                log_warn "✗ .config directory is empty"
-            fi
+            log_info "Copying ENTIRE .config directory to user home..."
+            cp -R "$CURRENT_DIR/configurations/.config" "$TARGET_HOME/"
+            chown -R "$TARGET_USER:$TARGET_USER" "$TARGET_HOME/.config"
+            log_info "✓ Copied .config to user home"
         else
             log_warn "✗ .config directory not found"
         fi
         
-        # Copy .local directory
+        # Copy ENTIRE .local directory
         if [ -d "$CURRENT_DIR/configurations/.local" ]; then
-            log_info "Copying .local directory to user home..."
-            mkdir -p "$TARGET_HOME/.local"
-            
-            # Copy with verbose output
-            if ls "$CURRENT_DIR/configurations/.local"/* &> /dev/null; then
-                # Copy each item
-                for item in "$CURRENT_DIR/configurations/.local"/*; do
-                    if [ -e "$item" ]; then
-                        item_name=$(basename "$item")
-                        cp -R "$item" "$TARGET_HOME/.local/"
-                        chown -R "$TARGET_USER:$TARGET_USER" "$TARGET_HOME/.local/$item_name"
-                        log_info "  ✓ Copied .local/$item_name"
-                    fi
-                done
-                log_info "✓ .local directory copied to user home"
-            else
-                log_warn "✗ .local directory is empty"
-            fi
+            log_info "Copying ENTIRE .local directory to user home..."
+            cp -R "$CURRENT_DIR/configurations/.local" "$TARGET_HOME/"
+            chown -R "$TARGET_USER:$TARGET_USER" "$TARGET_HOME/.local"
+            log_info "✓ Copied .local to user home"
         else
             log_warn "✗ .local directory not found"
         fi
