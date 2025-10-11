@@ -1391,9 +1391,14 @@ log_info "Final Step: Installing User Configurations"
 log_info "========================================="
 echo ""
 
-# Get the actual user (prefer explicit variables passed by the caller, then sudo caller)
-TARGET_USER="${USER_NAME_TO_CONFIG:-${SUDO_USER:-$USER}}"
-TARGET_HOME="${USER_TO_CONFIG:-}"
+# Get optional positional args passed from core_install.sh: <user_home> <username>
+# Usage: install_resources.sh [user_home] [username]
+TARGET_HOME_FROM_ARG="$1"
+TARGET_USER_FROM_ARG="$2"
+
+# Get the actual user (prefer positional args, then explicit env vars, then sudo caller)
+TARGET_USER="${TARGET_USER_FROM_ARG:-${USER_NAME_TO_CONFIG:-${SUDO_USER:-$USER}}}"
+TARGET_HOME="${TARGET_HOME_FROM_ARG:-${USER_TO_CONFIG:-}}"
 
 # If TARGET_HOME not provided, resolve it reliably: try getent, fallback to shell expansion
 if [ -z "$TARGET_HOME" ] && [ "$TARGET_USER" != "root" ]; then

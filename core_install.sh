@@ -65,8 +65,8 @@ install_and_configure() {
     log_info "The necessary resources will be installed."
     log_info "Please enter your sudo password!"
     
-    # Pass the intended user/home explicitly to the installer so it can copy per-user files
-    if sudo USER_TO_CONFIG="$USER_HOME" USER_NAME_TO_CONFIG="$EXEC_USER" bash "$SCRIPT_DIR/resources/install_resources.sh"; then
+    # Pass the intended user/home explicitly to the installer as positional arguments (more reliable with sudo)
+    if sudo bash "$SCRIPT_DIR/resources/install_resources.sh" "$USER_HOME" "$EXEC_USER"; then
         log_info "Resources installed successfully"
     else
         log_error "Failed to install resources"
