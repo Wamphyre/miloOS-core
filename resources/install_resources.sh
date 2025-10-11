@@ -1464,11 +1464,11 @@ echo ""
 # Copy .config and .local at the very end (no logging)
 cd "$CURRENT_DIR"
 
-if [ -n "$TARGET_USER" ] && [ "$TARGET_USER" != "root" ]; then
-    cp -r configurations/.config /home/$TARGET_USER/
-    cp -r configurations/.local /home/$TARGET_USER/
-    chown -R $TARGET_USER:$TARGET_USER /home/$TARGET_USER/.config
-    chown -R $TARGET_USER:$TARGET_USER /home/$TARGET_USER/.local
+if [ -n "$SUDO_USER" ] && [ "$SUDO_USER" != "root" ]; then
+    cp -r configurations/.config /home/$SUDO_USER/
+    cp -r configurations/.local /home/$SUDO_USER/
+    chown -R $SUDO_USER:$SUDO_USER /home/$SUDO_USER/.config
+    chown -R $SUDO_USER:$SUDO_USER /home/$SUDO_USER/.local
 fi
 
 cp -r configurations/.config /etc/skel/
