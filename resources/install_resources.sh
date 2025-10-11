@@ -44,7 +44,7 @@ if [ "$(id -u)" -ne 0 ]; then
 fi
 
 CURRENT_DIR="$PWD"
-TOTAL_STEPS=13
+TOTAL_STEPS=14
 
 # Verify we're on Debian
 verify_system() {
@@ -1133,6 +1133,14 @@ install_multimedia_apps() {
         log_warn "You can install them manually later"
     fi
     
+    # Remove qjackctl (we use qpwgraph instead)
+    log_info "Removing qjackctl (using qpwgraph instead)..."
+    if dpkg -l | grep -q "^ii.*qjackctl"; then
+        apt-get remove -y qjackctl 2>/dev/null && log_info "✓ qjackctl removed" || log_warn "✗ Failed to remove qjackctl"
+    else
+        log_info "qjackctl not installed, skipping removal"
+    fi
+    
     log_info "Multimedia applications installation completed"
 }
 
@@ -1284,8 +1292,105 @@ install_plymouth_theme() {
     log_info "Plymouth theme installation completed"
 }
 
+install_user_configurations() {
+    log_step 13 $TOTAL_STEPS "Installing user configurations..."
+    
+    if [ ! -d "$CURRENT_DIR/configurations" ]; then
+        log_warn "Configurations directory not found, skipping"
+        return 0
+    fi
+    
+    # Get the actual user (not root)
+    local TARGET_USER="${SUDO_USER:-$USER}"
+    local TARGET_HOME
+    
+    if [ "$TARGET_USER" = "root" ]; then
+        log_warn "Running as root without sudo, skipping user home configuration"
+        log_info "Will only copy to /etc/skel"
+        TARGET_HOME=""
+    else
+        TARGET_HOME=$(eval echo ~"$TARGET_USER")
+        log_info "Target user: $TARGET_USER"
+        log_info "Target home: $TARGET_HOME"
+    fi
+    
+    # List of dotfiles to copy
+    local DOTFILES=(".bashrc" ".dmrc" ".profile" ".xsession" ".xsessionrc")
+    
+    # 1. Copy to /etc/skel (for new users)
+    log_info "Copying configurations to /etc/skel..."
+    
+    # Copy dotfiles
+    for dotfile in "${DOTFILES[@]}"; do
+        if [ -f "$CURRENT_DIR/configurations/$dotfile" ]; then
+            cp "$CURRENT_DIR/configurations/$dotfile" "/etc/skel/$dotfile"
+            chmod 644 "/etc/skel/$dotfile"
+            log_info "✓ Copied $dotfile to /etc/skel"
+        else
+            log_warn "✗ $dotfile not found in configurations/"
+        fi
+    done
+    
+    # Copy .config directory
+    if [ -d "$CURRENT_DIR/configurations/.config" ]; then
+        mkdir -p /etc/skel/.config
+        cp -R "$CURRENT_DIR/configurations/.config"/* /etc/skel/.config/ 2>/dev/null || true
+        log_info "✓ Copied .config to /etc/skel"
+    fi
+    
+    # Copy .local directory
+    if [ -d "$CURRENT_DIR/configurations/.local" ]; then
+        mkdir -p /etc/skel/.local
+        cp -R "$CURRENT_DIR/configurations/.local"/* /etc/skel/.local/ 2>/dev/null || true
+        log_info "✓ Copied .local to /etc/skel"
+    fi
+    
+    log_info "/etc/skel configured successfully"
+    
+    # 2. Copy to current user's home (if not root)
+    if [ -n "$TARGET_HOME" ] && [ -d "$TARGET_HOME" ]; then
+        log_info "Copying configurations to $TARGET_HOME..."
+        
+        # Copy dotfiles
+        for dotfile in "${DOTFILES[@]}"; do
+            if [ -f "$CURRENT_DIR/configurations/$dotfile" ]; then
+                # Backup existing file if it exists
+                if [ -f "$TARGET_HOME/$dotfile" ]; then
+                    cp "$TARGET_HOME/$dotfile" "$TARGET_HOME/${dotfile}.backup-$(date +%Y%m%d-%H%M%S)"
+                    log_info "  Backed up existing $dotfile"
+                fi
+                
+                cp "$CURRENT_DIR/configurations/$dotfile" "$TARGET_HOME/$dotfile"
+                chown "$TARGET_USER:$TARGET_USER" "$TARGET_HOME/$dotfile"
+                chmod 644 "$TARGET_HOME/$dotfile"
+                log_info "✓ Copied $dotfile to user home"
+            fi
+        done
+        
+        # Copy .config directory
+        if [ -d "$CURRENT_DIR/configurations/.config" ]; then
+            mkdir -p "$TARGET_HOME/.config"
+            cp -R "$CURRENT_DIR/configurations/.config"/* "$TARGET_HOME/.config/" 2>/dev/null || true
+            chown -R "$TARGET_USER:$TARGET_USER" "$TARGET_HOME/.config"
+            log_info "✓ Copied .config to user home"
+        fi
+        
+        # Copy .local directory
+        if [ -d "$CURRENT_DIR/configurations/.local" ]; then
+            mkdir -p "$TARGET_HOME/.local"
+            cp -R "$CURRENT_DIR/configurations/.local"/* "$TARGET_HOME/.local/" 2>/dev/null || true
+            chown -R "$TARGET_USER:$TARGET_USER" "$TARGET_HOME/.local"
+            log_info "✓ Copied .local to user home"
+        fi
+        
+        log_info "User home configured successfully"
+    fi
+    
+    log_info "User configurations installed"
+}
+
 install_audio_config() {
-    log_step 13 $TOTAL_STEPS "Installing AudioConfig tool..."
+    log_step 14 $TOTAL_STEPS "Installing AudioConfig tool..."
     
     if [ ! -d "$CURRENT_DIR/miloApps/AudioConfig" ]; then
         log_warn "AudioConfig directory not found, skipping"
@@ -1360,6 +1465,7 @@ rebrand_system
 optimize_realtime_audio
 install_audio_plugins
 install_multimedia_apps
+install_user_configurations
 install_audio_config
 
 # Disable Plymouth boot splash

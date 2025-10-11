@@ -1,0 +1,5 @@
+[stream-properties]
+Audio/Sink:node.name:alsa_output.pci-0000_00_05.0.pro-output-0={"channelVolumes":[1.000000, 1.000000, 1.000000, 1.000000, 1.000000, 1.000000], "channelMap":["AUX0", "AUX1", "AUX2", "AUX3", "AUX4", "AUX5"]}
+Audio/Sink:node.name:auto_null={"mute":false, "channelVolumes":[1.000000, 1.000000], "volume":1.000000, "channelMap":["FL", "FR"]}
+Audio/Source:node.name:alsa_input.pci-0000_00_05.0.pro-input-0={"channelVolumes":[1.000000, 1.000000], "channelMap":["AUX0", "AUX1"]}
+Audio/Source:node.name:alsa_input.pci-0000_00_05.0.pro-input-1={"channelVolumes":[1.000000, 1.000000], "channelMap":["AUX0", "AUX1"]}

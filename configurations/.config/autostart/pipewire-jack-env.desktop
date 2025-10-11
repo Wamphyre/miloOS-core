@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=PipeWire JACK Environment
+Comment=Set LD_LIBRARY_PATH for JACK applications
+Exec=sh -c 'sleep 2; export LD_LIBRARY_PATH="/usr/lib/x86_64-linux-gnu/pipewire-0.3/jack"; dbus-update-activation-environment --systemd LD_LIBRARY_PATH'
+Hidden=false
+NoDisplay=true
+X-GNOME-Autostart-enabled=true
+X-XFCE-Autostart-enabled=true
+StartupNotify=false
