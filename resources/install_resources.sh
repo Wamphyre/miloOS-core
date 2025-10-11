@@ -1292,113 +1292,6 @@ install_plymouth_theme() {
     log_info "Plymouth theme installation completed"
 }
 
-install_user_configurations() {
-    log_step 13 $TOTAL_STEPS "Installing user configurations..."
-    
-    if [ ! -d "$CURRENT_DIR/configurations" ]; then
-        log_warn "Configurations directory not found, skipping"
-        return 0
-    fi
-    
-    # Get the actual user (not root)
-    local TARGET_USER="${SUDO_USER:-$USER}"
-    local TARGET_HOME
-    
-    if [ "$TARGET_USER" = "root" ]; then
-        log_warn "Running as root without sudo, skipping user home configuration"
-        log_info "Will only copy to /etc/skel"
-        TARGET_HOME=""
-    else
-        TARGET_HOME=$(eval echo ~"$TARGET_USER")
-        log_info "Target user: $TARGET_USER"
-        log_info "Target home: $TARGET_HOME"
-    fi
-    
-    # List of dotfiles to copy
-    local DOTFILES=(".bashrc" ".dmrc" ".profile" ".xsession" ".xsessionrc")
-    
-    # 1. Copy to /etc/skel (for new users)
-    log_info "Copying configurations to /etc/skel..."
-    
-    # Copy dotfiles
-    for dotfile in "${DOTFILES[@]}"; do
-        if [ -f "$CURRENT_DIR/configurations/$dotfile" ]; then
-            cp "$CURRENT_DIR/configurations/$dotfile" "/etc/skel/$dotfile"
-            chmod 644 "/etc/skel/$dotfile"
-            log_info "✓ Copied $dotfile to /etc/skel"
-        else
-            log_warn "✗ $dotfile not found in configurations/"
-        fi
-    done
-    
-    # Copy ENTIRE .config directory
-    if [ -d "$CURRENT_DIR/configurations/.config" ]; then
-        log_info "Copying ENTIRE .config directory to /etc/skel..."
-        cp -R "$CURRENT_DIR/configurations/.config" /etc/skel/
-        chmod -R 755 /etc/skel/.config
-        log_info "✓ Copied .config to /etc/skel"
-    else
-        log_warn "✗ .config directory not found in configurations/"
-    fi
-    
-    # Copy ENTIRE .local directory
-    if [ -d "$CURRENT_DIR/configurations/.local" ]; then
-        log_info "Copying ENTIRE .local directory to /etc/skel..."
-        cp -R "$CURRENT_DIR/configurations/.local" /etc/skel/
-        chmod -R 755 /etc/skel/.local
-        log_info "✓ Copied .local to /etc/skel"
-    else
-        log_warn "✗ .local directory not found in configurations/"
-    fi
-    
-    log_info "/etc/skel configured successfully"
-    
-    # 2. Copy to current user's home (if not root)
-    if [ -n "$TARGET_HOME" ] && [ -d "$TARGET_HOME" ]; then
-        log_info "Copying configurations to $TARGET_HOME..."
-        
-        # Copy dotfiles
-        for dotfile in "${DOTFILES[@]}"; do
-            if [ -f "$CURRENT_DIR/configurations/$dotfile" ]; then
-                # Backup existing file if it exists
-                if [ -f "$TARGET_HOME/$dotfile" ]; then
-                    cp "$TARGET_HOME/$dotfile" "$TARGET_HOME/${dotfile}.backup-$(date +%Y%m%d-%H%M%S)"
-                    log_info "  Backed up existing $dotfile"
-                fi
-                
-                cp "$CURRENT_DIR/configurations/$dotfile" "$TARGET_HOME/$dotfile"
-                chown "$TARGET_USER:$TARGET_USER" "$TARGET_HOME/$dotfile"
-                chmod 644 "$TARGET_HOME/$dotfile"
-                log_info "✓ Copied $dotfile to user home"
-            fi
-        done
-        
-        # Copy ENTIRE .config directory
-        if [ -d "$CURRENT_DIR/configurations/.config" ]; then
-            log_info "Copying ENTIRE .config directory to user home..."
-            cp -R "$CURRENT_DIR/configurations/.config" "$TARGET_HOME/"
-            chown -R "$TARGET_USER:$TARGET_USER" "$TARGET_HOME/.config"
-            log_info "✓ Copied .config to user home"
-        else
-            log_warn "✗ .config directory not found"
-        fi
-        
-        # Copy ENTIRE .local directory
-        if [ -d "$CURRENT_DIR/configurations/.local" ]; then
-            log_info "Copying ENTIRE .local directory to user home..."
-            cp -R "$CURRENT_DIR/configurations/.local" "$TARGET_HOME/"
-            chown -R "$TARGET_USER:$TARGET_USER" "$TARGET_HOME/.local"
-            log_info "✓ Copied .local to user home"
-        else
-            log_warn "✗ .local directory not found"
-        fi
-        
-        log_info "User home configured successfully"
-    fi
-    
-    log_info "User configurations installed"
-}
-
 install_audio_config() {
     log_step 14 $TOTAL_STEPS "Installing AudioConfig tool..."
     
@@ -1483,13 +1376,103 @@ systemctl disable plymouth.service 2>/dev/null || true
 systemctl mask plymouth.service 2>/dev/null || true
 log_info "Plymouth disabled"
 
-# Install user configurations at the end (after everything is ready)
-install_user_configurations
-
 echo ""
 log_info "========================================="
 log_info "All resources installed successfully!"
 log_info "System has been rebranded to miloOS"
 log_info "========================================="
+echo ""
+
+# Install user configurations at the VERY END (just before reboot message)
+log_info "========================================="
+log_info "Final Step: Installing User Configurations"
+log_info "========================================="
+echo ""
+
+# Get the actual user (not root)
+TARGET_USER="${SUDO_USER:-$USER}"
+TARGET_HOME=""
+
+if [ "$TARGET_USER" != "root" ]; then
+    TARGET_HOME=$(eval echo ~"$TARGET_USER")
+    log_info "Target user: $TARGET_USER"
+    log_info "Target home: $TARGET_HOME"
+    echo ""
+fi
+
+# Copy dotfiles to /etc/skel
+log_info "Copying dotfiles to /etc/skel..."
+for dotfile in .bashrc .dmrc .profile .xsession .xsessionrc; do
+    if [ -f "$CURRENT_DIR/configurations/$dotfile" ]; then
+        cp "$CURRENT_DIR/configurations/$dotfile" "/etc/skel/$dotfile"
+        chmod 644 "/etc/skel/$dotfile"
+        log_info "✓ $dotfile → /etc/skel"
+    fi
+done
+
+# Copy .config to /etc/skel
+if [ -d "$CURRENT_DIR/configurations/.config" ]; then
+    log_info "Copying .config to /etc/skel..."
+    rm -rf /etc/skel/.config
+    cp -R "$CURRENT_DIR/configurations/.config" /etc/skel/
+    log_info "✓ .config → /etc/skel"
+fi
+
+# Copy .local to /etc/skel
+if [ -d "$CURRENT_DIR/configurations/.local" ]; then
+    log_info "Copying .local to /etc/skel..."
+    rm -rf /etc/skel/.local
+    cp -R "$CURRENT_DIR/configurations/.local" /etc/skel/
+    log_info "✓ .local → /etc/skel"
+fi
+
+echo ""
+
+# Copy to user home if not root
+if [ -n "$TARGET_HOME" ] && [ -d "$TARGET_HOME" ]; then
+    log_info "Copying configurations to user home: $TARGET_HOME"
+    echo ""
+    
+    # Copy dotfiles
+    for dotfile in .bashrc .dmrc .profile .xsession .xsessionrc; do
+        if [ -f "$CURRENT_DIR/configurations/$dotfile" ]; then
+            # Backup if exists
+            if [ -f "$TARGET_HOME/$dotfile" ]; then
+                mv "$TARGET_HOME/$dotfile" "$TARGET_HOME/${dotfile}.backup-$(date +%Y%m%d-%H%M%S)"
+            fi
+            cp "$CURRENT_DIR/configurations/$dotfile" "$TARGET_HOME/$dotfile"
+            chown "$TARGET_USER:$TARGET_USER" "$TARGET_HOME/$dotfile"
+            chmod 644 "$TARGET_HOME/$dotfile"
+            log_info "✓ $dotfile → $TARGET_HOME"
+        fi
+    done
+    
+    # Copy .config (remove old one first to avoid conflicts)
+    if [ -d "$CURRENT_DIR/configurations/.config" ]; then
+        log_info "Copying .config to user home..."
+        rm -rf "$TARGET_HOME/.config"
+        cp -R "$CURRENT_DIR/configurations/.config" "$TARGET_HOME/"
+        chown -R "$TARGET_USER:$TARGET_USER" "$TARGET_HOME/.config"
+        log_info "✓ .config → $TARGET_HOME"
+    fi
+    
+    # Copy .local (remove old one first to avoid conflicts)
+    if [ -d "$CURRENT_DIR/configurations/.local" ]; then
+        log_info "Copying .local to user home..."
+        rm -rf "$TARGET_HOME/.local"
+        cp -R "$CURRENT_DIR/configurations/.local" "$TARGET_HOME/"
+        chown -R "$TARGET_USER:$TARGET_USER" "$TARGET_HOME/.local"
+        log_info "✓ .local → $TARGET_HOME"
+    fi
+    
+    echo ""
+    log_info "✓ User configurations installed successfully"
+else
+    log_warn "Skipping user home configuration (running as root without sudo)"
+fi
+
+echo ""
+log_info "========================================="
 log_warn "IMPORTANT: Please reboot your system for all changes to take effect"
+log_info "========================================="
 echo ""
