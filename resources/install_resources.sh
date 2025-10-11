@@ -43,7 +43,9 @@ if [ "$(id -u)" -ne 0 ]; then
     error_exit "This script must be run as root (use sudo)"
 fi
 
-CURRENT_DIR="$PWD"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# Repository root is the parent directory of resources/
+CURRENT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 TOTAL_STEPS=14
 
 # Verify we're on Debian
@@ -1389,12 +1391,16 @@ log_info "Final Step: Installing User Configurations"
 log_info "========================================="
 echo ""
 
-# Get the actual user (not root)
+# Get the actual user (prefer the sudo caller if present)
 TARGET_USER="${SUDO_USER:-$USER}"
 TARGET_HOME=""
 
+# Resolve target home reliably: try getent, fallback to shell expansion
 if [ "$TARGET_USER" != "root" ]; then
-    TARGET_HOME=$(eval echo ~"$TARGET_USER")
+    TARGET_HOME=$(getent passwd "$TARGET_USER" | cut -d: -f6 2>/dev/null || true)
+    if [ -z "$TARGET_HOME" ]; then
+        TARGET_HOME=$(eval echo ~"$TARGET_USER" 2>/dev/null || true)
+    fi
     log_info "Target user: $TARGET_USER"
     log_info "Target home: $TARGET_HOME"
     echo ""
