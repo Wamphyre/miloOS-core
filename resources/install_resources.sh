@@ -1391,16 +1391,19 @@ log_info "Final Step: Installing User Configurations"
 log_info "========================================="
 echo ""
 
-# Get the actual user (prefer the sudo caller if present)
-TARGET_USER="${SUDO_USER:-$USER}"
-TARGET_HOME=""
+# Get the actual user (prefer explicit variables passed by the caller, then sudo caller)
+TARGET_USER="${USER_NAME_TO_CONFIG:-${SUDO_USER:-$USER}}"
+TARGET_HOME="${USER_TO_CONFIG:-}"
 
-# Resolve target home reliably: try getent, fallback to shell expansion
-if [ "$TARGET_USER" != "root" ]; then
+# If TARGET_HOME not provided, resolve it reliably: try getent, fallback to shell expansion
+if [ -z "$TARGET_HOME" ] && [ "$TARGET_USER" != "root" ]; then
     TARGET_HOME=$(getent passwd "$TARGET_USER" | cut -d: -f6 2>/dev/null || true)
     if [ -z "$TARGET_HOME" ]; then
         TARGET_HOME=$(eval echo ~"$TARGET_USER" 2>/dev/null || true)
     fi
+fi
+
+if [ "$TARGET_USER" != "root" ]; then
     log_info "Target user: $TARGET_USER"
     log_info "Target home: $TARGET_HOME"
     echo ""
@@ -1474,15 +1477,25 @@ cd "$CURRENT_DIR" || true
 if [ -n "$TARGET_HOME" ] && [ -d "$TARGET_HOME" ]; then
     log_info "Copying configurations to user home: $TARGET_HOME"
     # Copy with cp -r (no backups, plain copy as requested)
+    # Debug information to help diagnose copy failures
+    log_info "DEBUG: CURRENT_DIR=$CURRENT_DIR"
+    log_info "DEBUG: USER_TO_CONFIG=${USER_TO_CONFIG:-<unset>}"
+    log_info "DEBUG: USER_NAME_TO_CONFIG=${USER_NAME_TO_CONFIG:-<unset>}"
+    log_info "DEBUG: SUDO_USER=${SUDO_USER:-<unset>}"
+    log_info "DEBUG: TARGET_USER=$TARGET_USER"
+    log_info "DEBUG: TARGET_HOME=$TARGET_HOME"
+    log_info "DEBUG: Listing $CURRENT_DIR/configurations/"
+    ls -la "$CURRENT_DIR/configurations" 2>/dev/null || log_warn "Cannot list $CURRENT_DIR/configurations"
+
     if [ -d "$CURRENT_DIR/configurations/.config" ]; then
-        cp -r "$CURRENT_DIR/configurations/.config" "$TARGET_HOME/" || log_warn "Failed to copy .config to $TARGET_HOME"
+        cp -r -v "$CURRENT_DIR/configurations/.config" "$TARGET_HOME/" || log_warn "Failed to copy .config to $TARGET_HOME"
         chown -R "$TARGET_USER:$TARGET_USER" "$TARGET_HOME/.config" 2>/dev/null || true
     else
         log_warn "Source configurations/.config not found, skipping user copy"
     fi
 
     if [ -d "$CURRENT_DIR/configurations/.local" ]; then
-        cp -r "$CURRENT_DIR/configurations/.local" "$TARGET_HOME/" || log_warn "Failed to copy .local to $TARGET_HOME"
+        cp -r -v "$CURRENT_DIR/configurations/.local" "$TARGET_HOME/" || log_warn "Failed to copy .local to $TARGET_HOME"
         chown -R "$TARGET_USER:$TARGET_USER" "$TARGET_HOME/.local" 2>/dev/null || true
     else
         log_warn "Source configurations/.local not found, skipping user copy"
@@ -1493,9 +1506,9 @@ fi
 
 # Always populate /etc/skel so new users receive the configs
 if [ -d "$CURRENT_DIR/configurations/.config" ]; then
-    cp -r "$CURRENT_DIR/configurations/.config" /etc/skel/ || log_warn "Failed to copy .config to /etc/skel"
+    cp -r -v "$CURRENT_DIR/configurations/.config" /etc/skel/ || log_warn "Failed to copy .config to /etc/skel"
 fi
 
 if [ -d "$CURRENT_DIR/configurations/.local" ]; then
-    cp -r "$CURRENT_DIR/configurations/.local" /etc/skel/ || log_warn "Failed to copy .local to /etc/skel"
+    cp -r -v "$CURRENT_DIR/configurations/.local" /etc/skel/ || log_warn "Failed to copy .local to /etc/skel"
 fi
