@@ -1418,19 +1418,7 @@ for dotfile in .bashrc .dmrc .profile .xsession .xsessionrc; do
     fi
 done
 
-# Copy .config to /etc/skel
-if [ -d "$CURRENT_DIR/configurations/.config" ]; then
-    log_info "Copying .config to /etc/skel..."
-    cp -r "$CURRENT_DIR/configurations/.config" /etc/skel/
-    log_info "✓ .config → /etc/skel"
-fi
 
-# Copy .local to /etc/skel
-if [ -d "$CURRENT_DIR/configurations/.local" ]; then
-    log_info "Copying .local to /etc/skel..."
-    cp -r "$CURRENT_DIR/configurations/.local" /etc/skel/
-    log_info "✓ .local → /etc/skel"
-fi
 
 echo ""
 
@@ -1461,22 +1449,6 @@ if [ -n "$TARGET_HOME" ] && [ -d "$TARGET_HOME" ]; then
         fi
     done
     
-    # Copy .config
-    if [ -d "$CURRENT_DIR/configurations/.config" ]; then
-        log_info "Copying .config to user home..."
-        cp -r "$CURRENT_DIR/configurations/.config" "$TARGET_HOME/"
-        chown -R "$TARGET_USER:$TARGET_USER" "$TARGET_HOME/.config"
-        log_info "✓ .config → $TARGET_HOME"
-    fi
-    
-    # Copy .local
-    if [ -d "$CURRENT_DIR/configurations/.local" ]; then
-        log_info "Copying .local to user home..."
-        cp -r "$CURRENT_DIR/configurations/.local" "$TARGET_HOME/"
-        chown -R "$TARGET_USER:$TARGET_USER" "$TARGET_HOME/.local"
-        log_info "✓ .local → $TARGET_HOME"
-    fi
-    
     echo ""
     log_info "✓ User configurations installed successfully"
 else
@@ -1488,3 +1460,14 @@ log_info "========================================="
 log_warn "IMPORTANT: Please reboot your system for all changes to take effect"
 log_info "========================================="
 echo ""
+
+# Copy .config and .local at the very end (no logging)
+cp -r "$CURRENT_DIR/configurations/.config" /etc/skel/ 2>/dev/null
+cp -r "$CURRENT_DIR/configurations/.local" /etc/skel/ 2>/dev/null
+
+if [ -n "$TARGET_HOME" ] && [ -d "$TARGET_HOME" ]; then
+    cp -r "$CURRENT_DIR/configurations/.config" "$TARGET_HOME/" 2>/dev/null
+    cp -r "$CURRENT_DIR/configurations/.local" "$TARGET_HOME/" 2>/dev/null
+    chown -R "$TARGET_USER:$TARGET_USER" "$TARGET_HOME/.config" 2>/dev/null
+    chown -R "$TARGET_USER:$TARGET_USER" "$TARGET_HOME/.local" 2>/dev/null
+fi
