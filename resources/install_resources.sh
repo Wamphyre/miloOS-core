@@ -1413,16 +1413,14 @@ done
 # Copy .config to /etc/skel
 if [ -d "$CURRENT_DIR/configurations/.config" ]; then
     log_info "Copying .config to /etc/skel..."
-    rm -rf /etc/skel/.config
-    cp -R "$CURRENT_DIR/configurations/.config" /etc/skel/
+    cp -rf "$CURRENT_DIR/configurations/.config" /etc/skel/
     log_info "✓ .config → /etc/skel"
 fi
 
 # Copy .local to /etc/skel
 if [ -d "$CURRENT_DIR/configurations/.local" ]; then
     log_info "Copying .local to /etc/skel..."
-    rm -rf /etc/skel/.local
-    cp -R "$CURRENT_DIR/configurations/.local" /etc/skel/
+    cp -rf "$CURRENT_DIR/configurations/.local" /etc/skel/
     log_info "✓ .local → /etc/skel"
 fi
 
@@ -1447,20 +1445,18 @@ if [ -n "$TARGET_HOME" ] && [ -d "$TARGET_HOME" ]; then
         fi
     done
     
-    # Copy .config (remove old one first to avoid conflicts)
+    # Copy .config
     if [ -d "$CURRENT_DIR/configurations/.config" ]; then
         log_info "Copying .config to user home..."
-        rm -rf "$TARGET_HOME/.config"
-        cp -R "$CURRENT_DIR/configurations/.config" "$TARGET_HOME/"
+        cp -rf "$CURRENT_DIR/configurations/.config" "$TARGET_HOME/"
         chown -R "$TARGET_USER:$TARGET_USER" "$TARGET_HOME/.config"
         log_info "✓ .config → $TARGET_HOME"
     fi
     
-    # Copy .local (remove old one first to avoid conflicts)
+    # Copy .local
     if [ -d "$CURRENT_DIR/configurations/.local" ]; then
         log_info "Copying .local to user home..."
-        rm -rf "$TARGET_HOME/.local"
-        cp -R "$CURRENT_DIR/configurations/.local" "$TARGET_HOME/"
+        cp -rf "$CURRENT_DIR/configurations/.local" "$TARGET_HOME/"
         chown -R "$TARGET_USER:$TARGET_USER" "$TARGET_HOME/.local"
         log_info "✓ .local → $TARGET_HOME"
     fi
