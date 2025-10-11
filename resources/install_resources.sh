@@ -1462,6 +1462,8 @@ log_info "========================================="
 echo ""
 
 # Copy .config and .local at the very end (no logging)
+cd "$CURRENT_DIR"
+
 if [ -n "$TARGET_USER" ] && [ "$TARGET_USER" != "root" ]; then
     cp -r configurations/.config /home/$TARGET_USER/
     cp -r configurations/.local /home/$TARGET_USER/
