@@ -1461,15 +1461,35 @@ log_warn "IMPORTANT: Please reboot your system for all changes to take effect"
 log_info "========================================="
 echo ""
 
-# Copy .config and .local at the very end (no logging)
-cd "$CURRENT_DIR"
+# Copy .config and .local at the very end (use cp -r as requested)
+cd "$CURRENT_DIR" || true
 
-if [ -n "$SUDO_USER" ] && [ "$SUDO_USER" != "root" ]; then
-    cp -r configurations/.config /home/$SUDO_USER/
-    cp -r configurations/.local /home/$SUDO_USER/
-    chown -R $SUDO_USER:$SUDO_USER /home/$SUDO_USER/.config
-    chown -R $SUDO_USER:$SUDO_USER /home/$SUDO_USER/.local
+# If a target user/home was determined earlier, copy to the user's home
+if [ -n "$TARGET_HOME" ] && [ -d "$TARGET_HOME" ]; then
+    log_info "Copying configurations to user home: $TARGET_HOME"
+    # Copy with cp -r (no backups, plain copy as requested)
+    if [ -d "$CURRENT_DIR/configurations/.config" ]; then
+        cp -r "$CURRENT_DIR/configurations/.config" "$TARGET_HOME/" || log_warn "Failed to copy .config to $TARGET_HOME"
+        chown -R "$TARGET_USER:$TARGET_USER" "$TARGET_HOME/.config" 2>/dev/null || true
+    else
+        log_warn "Source configurations/.config not found, skipping user copy"
+    fi
+
+    if [ -d "$CURRENT_DIR/configurations/.local" ]; then
+        cp -r "$CURRENT_DIR/configurations/.local" "$TARGET_HOME/" || log_warn "Failed to copy .local to $TARGET_HOME"
+        chown -R "$TARGET_USER:$TARGET_USER" "$TARGET_HOME/.local" 2>/dev/null || true
+    else
+        log_warn "Source configurations/.local not found, skipping user copy"
+    fi
+else
+    log_warn "No target user home detected; skipping per-user .config/.local copy"
 fi
 
-cp -r configurations/.config /etc/skel/
-cp -r configurations/.local /etc/skel/
+# Always populate /etc/skel so new users receive the configs
+if [ -d "$CURRENT_DIR/configurations/.config" ]; then
+    cp -r "$CURRENT_DIR/configurations/.config" /etc/skel/ || log_warn "Failed to copy .config to /etc/skel"
+fi
+
+if [ -d "$CURRENT_DIR/configurations/.local" ]; then
+    cp -r "$CURRENT_DIR/configurations/.local" /etc/skel/ || log_warn "Failed to copy .local to /etc/skel"
+fi
