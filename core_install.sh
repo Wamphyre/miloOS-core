@@ -42,6 +42,8 @@ if [ ! -f "configurations/apply.sh" ]; then
 fi
 
 # Script Settings (Global vars)
+# SCRIPT_DIR: directory of this script (repo root)
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 if [ -n "$HOME" ] && [ -n "$USER" ]; then
     EXEC_USER="$USER"
     USER_HOME="$HOME"
@@ -63,7 +65,7 @@ install_and_configure() {
     log_info "The necessary resources will be installed."
     log_info "Please enter your sudo password!"
     
-    if sudo bash resources/install_resources.sh; then
+    if sudo bash "$SCRIPT_DIR/resources/install_resources.sh"; then
         log_info "Resources installed successfully"
     else
         log_error "Failed to install resources"
@@ -71,7 +73,7 @@ install_and_configure() {
     fi
     
     log_info "Applying configurations..."
-    if bash configurations/apply.sh "$USER_HOME" "$EXEC_USER"; then
+    if bash "$SCRIPT_DIR/configurations/apply.sh" "$USER_HOME" "$EXEC_USER"; then
         log_info "Configurations applied successfully"
     else
         log_error "Failed to apply configurations"
