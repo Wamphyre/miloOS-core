@@ -145,7 +145,7 @@ The script will:
 ### Audio Optimization
 ```bash
 # Kernel parameters
-preempt=full nohz_full=all threadirqs mitigations=off
+preempt=full nohz_full=all mitigations=off
 
 # System limits
 @audio rtprio=99 memlock=unlimited nice=-20

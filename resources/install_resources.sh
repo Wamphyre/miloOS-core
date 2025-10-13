@@ -704,9 +704,9 @@ EOF
     if [ -f "/etc/default/grub" ]; then
         log_info "Configuring kernel parameters for real-time audio..."
         
-        # Audio profile: preempt=full nohz_full=all threadirqs mitigations=off
-        # This provides fully preemptible kernel + no tick on all CPUs + threaded IRQs + disabled CPU mitigations for better performance
-        local AUDIO_PARAMS="preempt=full nohz_full=all threadirqs mitigations=off"
+        # Audio profile: preempt=full nohz_full=all mitigations=off
+        # This provides fully preemptible kernel + no tick on all CPUs + disabled CPU mitigations for better performance
+        local AUDIO_PARAMS="preempt=full nohz_full=all mitigations=off"
         
         # Check if parameters already exist
         if grep -q "GRUB_CMDLINE_LINUX_DEFAULT=" /etc/default/grub; then
@@ -1474,46 +1474,3 @@ log_info "========================================="
 log_warn "IMPORTANT: Please reboot your system for all changes to take effect"
 log_info "========================================="
 echo ""
-
-# Copy .config and .local at the very end (use cp -r as requested)
-cd "$CURRENT_DIR" || true
-
-# If a target user/home was determined earlier, copy to the user's home
-if [ -n "$TARGET_HOME" ] && [ -d "$TARGET_HOME" ]; then
-    log_info "Copying configurations to user home: $TARGET_HOME"
-    # Copy with cp -r (no backups, plain copy as requested)
-    # Debug information to help diagnose copy failures
-    log_info "DEBUG: CURRENT_DIR=$CURRENT_DIR"
-    log_info "DEBUG: USER_TO_CONFIG=${USER_TO_CONFIG:-<unset>}"
-    log_info "DEBUG: USER_NAME_TO_CONFIG=${USER_NAME_TO_CONFIG:-<unset>}"
-    log_info "DEBUG: SUDO_USER=${SUDO_USER:-<unset>}"
-    log_info "DEBUG: TARGET_USER=$TARGET_USER"
-    log_info "DEBUG: TARGET_HOME=$TARGET_HOME"
-    log_info "DEBUG: Listing $CURRENT_DIR/configurations/"
-    ls -la "$CURRENT_DIR/configurations" 2>/dev/null || log_warn "Cannot list $CURRENT_DIR/configurations"
-
-    if [ -d "$CURRENT_DIR/configurations/.config" ]; then
-        cp -r -v "$CURRENT_DIR/configurations/.config" "$TARGET_HOME/" || log_warn "Failed to copy .config to $TARGET_HOME"
-        chown -R "$TARGET_USER:$TARGET_USER" "$TARGET_HOME/.config" 2>/dev/null || true
-    else
-        log_warn "Source configurations/.config not found, skipping user copy"
-    fi
-
-    if [ -d "$CURRENT_DIR/configurations/.local" ]; then
-        cp -r -v "$CURRENT_DIR/configurations/.local" "$TARGET_HOME/" || log_warn "Failed to copy .local to $TARGET_HOME"
-        chown -R "$TARGET_USER:$TARGET_USER" "$TARGET_HOME/.local" 2>/dev/null || true
-    else
-        log_warn "Source configurations/.local not found, skipping user copy"
-    fi
-else
-    log_warn "No target user home detected; skipping per-user .config/.local copy"
-fi
-
-# Always populate /etc/skel so new users receive the configs
-if [ -d "$CURRENT_DIR/configurations/.config" ]; then
-    cp -r -v "$CURRENT_DIR/configurations/.config" /etc/skel/ || log_warn "Failed to copy .config to /etc/skel"
-fi
-
-if [ -d "$CURRENT_DIR/configurations/.local" ]; then
-    cp -r -v "$CURRENT_DIR/configurations/.local" /etc/skel/ || log_warn "Failed to copy .local to /etc/skel"
-fi
