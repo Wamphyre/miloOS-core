@@ -664,13 +664,14 @@ class SysStatsWindow(Gtk.Window):
             # Try different methods to get dmidecode output
             result = None
             
-            # Method 1: Try with pkexec (GUI password prompt)
+            # Method 1: Try with pkexec using helper script (GUI password prompt)
             try:
-                result = subprocess.run(['pkexec', '--user', 'root', 'dmidecode', '-t', 'memory'], 
-                                      capture_output=True, text=True, timeout=15)
+                result = subprocess.run(['pkexec', '/usr/local/bin/sysstats-dmidecode-helper'], 
+                                      capture_output=True, text=True, timeout=30)
                 if result.returncode != 0:
                     result = None
-            except:
+            except Exception as e:
+                print(f"pkexec failed: {e}")
                 result = None
             
             # Method 2: Try with sudo (might be configured with NOPASSWD)
@@ -699,7 +700,8 @@ class SysStatsWindow(Gtk.Window):
                     line_stripped = line.strip()
                     
                     # Detect start of a memory device section
-                    if 'Memory Device' in line and 'Handle' in line:
+                    # "Memory Device" appears on its own line after "Handle"
+                    if line_stripped == 'Memory Device':
                         # Save previous module if it exists and has size
                         if current_module.get('size'):
                             info['modules'].append(current_module.copy())
@@ -710,17 +712,23 @@ class SysStatsWindow(Gtk.Window):
                     if not in_memory_device:
                         continue
                     
-                    if 'Size:' in line_stripped:
+                    if line_stripped.startswith('Size:'):
                         size = line_stripped.split(':', 1)[1].strip()
-                        if 'No Module Installed' not in size and size not in ['No Module Installed', 'Not Installed']:
-                            current_module['size'] = size
+                        # Skip empty modules but continue processing other modules
+                        if 'No Module Installed' in size or size in ['No Module Installed', 'Not Installed']:
+                            current_module = {}  # Reset to skip this module
+                            # Don't set in_memory_device to False, just skip this one
+                            continue
+                        current_module['size'] = size
                     elif 'Type:' in line_stripped and current_module.get('size'):
                         mem_type = line_stripped.split(':', 1)[1].strip()
-                        if mem_type not in ['Unknown', 'Other', '<OUT OF SPEC>']:
+                        # Only save if it's a real type and not "Type Detail"
+                        if mem_type not in ['Unknown', 'Other', '<OUT OF SPEC>'] and 'Detail' not in line_stripped:
                             current_module['type'] = mem_type
                     elif 'Speed:' in line_stripped and current_module.get('size'):
                         speed = line_stripped.split(':', 1)[1].strip()
-                        if speed not in ['Unknown', 'Not Specified']:
+                        # Avoid "Configured Memory Speed", only get "Speed"
+                        if speed not in ['Unknown', 'Not Specified'] and 'Configured' not in line_stripped and 'Memory' not in line_stripped:
                             current_module['speed'] = speed
                     elif 'Manufacturer:' in line_stripped and current_module.get('size'):
                         manufacturer = line_stripped.split(':', 1)[1].strip()
@@ -734,14 +742,30 @@ class SysStatsWindow(Gtk.Window):
         except Exception as e:
             print(f"Error getting memory info: {e}")
         
-        # If no modules found, create a generic entry
+        # If no modules found, create generic entries based on total memory
         if not info['modules']:
             mem = psutil.virtual_memory()
-            info['modules'].append({
-                'size': format_bytes(mem.total),
-                'type': 'DDR4',
-                'speed': 'Unknown'
-            })
+            total_gb = mem.total / (1024**3)
+            
+            # Estimate number of modules (common configurations)
+            if total_gb <= 8:
+                # Single module
+                info['modules'].append({
+                    'size': format_bytes(mem.total),
+                    'type': 'Unknown',
+                    'speed': 'Unknown',
+                    'manufacturer': 'Run with elevated privileges for details'
+                })
+            else:
+                # Assume 2 modules for larger amounts
+                module_size = mem.total // 2
+                for i in range(2):
+                    info['modules'].append({
+                        'size': format_bytes(module_size),
+                        'type': 'Unknown',
+                        'speed': 'Unknown',
+                        'manufacturer': 'Run with elevated privileges for details'
+                    })
         
         return info
     
@@ -922,40 +946,77 @@ class SysStatsWindow(Gtk.Window):
         disks = []
         
         try:
-            # Get disk info from lsblk
-            result = subprocess.run(['lsblk', '-d', '-n', '-o', 'NAME,MODEL,SIZE,ROTA'], 
+            # Get disk info from lsblk with better parsing
+            result = subprocess.run(['lsblk', '-d', '-n', '-o', 'NAME,MODEL,SIZE,ROTA,TYPE'], 
                                   capture_output=True, text=True)
             if result.returncode == 0:
                 lines = result.stdout.strip().split('\n')
                 for line in lines:
-                    parts = line.split(None, 3)
-                    if len(parts) >= 4:
-                        name = parts[0]
-                        # Skip loop devices and other virtual devices
-                        if name.startswith('loop') or name.startswith('ram'):
-                            continue
-                        
-                        disk_type = 'HDD' if parts[3].strip() == '1' else 'SSD/NVMe'
-                        
-                        # Get model (everything between name and last two fields)
-                        model = parts[1] if len(parts) > 1 else 'Unknown'
-                        size = parts[2] if len(parts) > 2 else 'Unknown'
-                        
-                        # Try to get more info from smartctl
-                        interface = 'SATA'
-                        if 'nvme' in name:
-                            interface = 'NVMe'
-                            disk_type = 'NVMe SSD'
-                        
-                        disks.append({
-                            'name': name,
-                            'model': model,
-                            'size': size,
-                            'type': disk_type,
-                            'interface': interface
-                        })
+                    if not line.strip():
+                        continue
+                    
+                    parts = line.split()
+                    if len(parts) < 3:
+                        continue
+                    
+                    name = parts[0]
+                    
+                    # Skip loop devices, ram, and other virtual devices
+                    if name.startswith('loop') or name.startswith('ram') or name.startswith('sr'):
+                        continue
+                    
+                    # Last part should be 'disk'
+                    if parts[-1] != 'disk':
+                        continue
+                    
+                    # ROTA is second to last
+                    rota = parts[-2]
+                    disk_type = 'HDD' if rota == '1' else 'SSD'
+                    
+                    # Size is third to last
+                    size = parts[-3]
+                    
+                    # Model is everything between name and size
+                    # parts[0] = name, parts[1:-3] = model, parts[-3] = size, parts[-2] = rota, parts[-1] = type
+                    if len(parts) > 3:
+                        model = ' '.join(parts[1:-3])
+                    else:
+                        model = 'Generic Disk'
+                    
+                    # Determine interface
+                    interface = 'SATA'
+                    if 'nvme' in name.lower():
+                        interface = 'NVMe'
+                        disk_type = 'NVMe SSD'
+                    elif 'mmc' in name.lower():
+                        interface = 'eMMC'
+                        disk_type = 'eMMC'
+                    
+                    disks.append({
+                        'name': name,
+                        'model': model if model else f'{name.upper()} Drive',
+                        'size': size,
+                        'type': disk_type,
+                        'interface': interface
+                    })
         except Exception as e:
             print(f"Error getting disk info: {e}")
+        
+        # If no disks found, try to get at least the root partition info
+        if not disks:
+            try:
+                partitions = psutil.disk_partitions()
+                if partitions:
+                    root_part = [p for p in partitions if p.mountpoint == '/'][0]
+                    disks.append({
+                        'name': root_part.device.split('/')[-1].rstrip('0123456789'),
+                        'model': 'System Disk',
+                        'size': format_bytes(psutil.disk_usage('/').total),
+                        'type': 'Unknown',
+                        'interface': 'Unknown'
+                    })
+            except:
+                pass
         
         return disks
     

@@ -1,0 +1,5 @@
+#!/bin/bash
+# Helper script to run dmidecode with elevated privileges
+# This script is called by pkexec from sysstats
+
+dmidecode -t memory

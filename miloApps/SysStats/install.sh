@@ -17,6 +17,12 @@ apt-get install -y python3-psutil 2>/dev/null || echo "psutil already installed 
 # Install Python script
 install -m 755 sysstats.py /usr/local/bin/sysstats
 
+# Install helper script for dmidecode
+if [ -f "sysstats-dmidecode-helper" ]; then
+    echo "Installing dmidecode helper..."
+    install -m 755 sysstats-dmidecode-helper /usr/local/bin/sysstats-dmidecode-helper
+fi
+
 # Install icon
 if [ -f "sysstats.svg" ]; then
     echo "Installing icon..."
