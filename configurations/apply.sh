@@ -188,8 +188,8 @@ log_info "Applying xfconf settings..."
 
 # Font rendering (optimized for clarity)
 log_info "Configuring font rendering..."
-xfconf-query -c xsettings -p /Xft/DPI -n -t int -s 96 2>/dev/null || \
-    xfconf-query -c xsettings -p /Xft/DPI -t int -s 96
+xfconf-query -c xsettings -p /Xft/DPI -n -t int -s 100 2>/dev/null || \
+    xfconf-query -c xsettings -p /Xft/DPI -t int -s 100
 
 xfconf-query -c xsettings -p /Xft/Antialias -n -t int -s 1 2>/dev/null || \
     xfconf-query -c xsettings -p /Xft/Antialias -t int -s 1
@@ -207,11 +207,11 @@ xfconf-query -c xsettings -p /Xft/Lcdfilter -n -t string -s "lcddefault" 2>/dev/
     xfconf-query -c xsettings -p /Xft/Lcdfilter -t string -s "lcddefault"
 
 # Font names (San Francisco Pro)
-xfconf-query -c xsettings -p /Gtk/FontName -n -t string -s "SF Pro Text 10" 2>/dev/null || \
-    xfconf-query -c xsettings -p /Gtk/FontName -t string -s "SF Pro Text 10"
+xfconf-query -c xsettings -p /Gtk/FontName -n -t string -s "SF Pro Text 11" 2>/dev/null || \
+    xfconf-query -c xsettings -p /Gtk/FontName -t string -s "SF Pro Text 11"
 
-xfconf-query -c xsettings -p /Gtk/MonospaceFontName -n -t string -s "SF Pro Text Regular 10" 2>/dev/null || \
-    xfconf-query -c xsettings -p /Gtk/MonospaceFontName -t string -s "SF Pro Text Regular 10"
+xfconf-query -c xsettings -p /Gtk/MonospaceFontName -n -t string -s "SF Mono 11" 2>/dev/null || \
+    xfconf-query -c xsettings -p /Gtk/MonospaceFontName -t string -s "SF Mono 11"
 
 # Hide window title completely
 xfconf-query -c xfwm4 -p /general/title_font -n -t string -s " " 2>/dev/null || \
