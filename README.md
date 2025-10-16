@@ -62,6 +62,7 @@ miloOS is **not a distribution**—it's a transformation kit. Install vanilla De
 - **Distraction-free** - Focus on your work, not the system
 
 ### 🛠️ miloApps Suite
+
 **AudioConfig** - Professional audio server configuration
 - Sample rates: 44.1kHz to 192kHz
 - Buffer sizes: 32 to 1024 samples
@@ -69,7 +70,15 @@ miloOS is **not a distribution**—it's a transformation kit. Install vanilla De
 - Bilingual interface (English/Spanish)
 - macOS-inspired design
 
-*More miloApps coming soon*
+**SysStats** - System statistics and hardware information
+- Real-time CPU, memory, disk, and network monitoring
+- Hardware details: CPU model, RAM modules, GPU, storage
+- Per-core CPU usage visualization
+- Network activity graphs
+- Process management
+- Replaces "About this computer" in system menu
+- Bilingual interface (English/Spanish)
+- Activity Monitor-inspired design
 
 ### ⚙️ System Integration
 - **Complete rebranding** - System identifies as miloOS

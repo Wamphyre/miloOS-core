@@ -1,13 +1,13 @@
 [Desktop Entry]
 Version=1.0
 Type=Application
-Exec=xfce4-about
-Icon=help-about
-StartupNotify=false
+Exec=/usr/local/bin/sysstats
+Icon=sysstats
+StartupNotify=true
 Terminal=false
-Categories=Utility;X-XFCE;X-Xfce-Toplevel;
+Categories=Utility;X-XFCE;X-Xfce-Toplevel;System;
 OnlyShowIn=XFCE;
 Name=About this computer
 Name[es]=Acerca de este equipo
-Comment=Information about your computer
-Comment[es]=Información sobre tu equipo
+Comment=System information and statistics
+Comment[es]=Información y estadísticas del sistema

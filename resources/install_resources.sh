@@ -1469,6 +1469,19 @@ else
     log_warn "Skipping user home configuration (running as root without sudo)"
 fi
 
+# Install SysStats application
+echo ""
+log_info "Installing SysStats application..."
+if [ -d "$CURRENT_DIR/miloApps/SysStats" ]; then
+    if bash "$CURRENT_DIR/miloApps/SysStats/install.sh"; then
+        log_info "✓ SysStats installed successfully"
+    else
+        log_warn "✗ SysStats installation failed (non-critical)"
+    fi
+else
+    log_warn "✗ SysStats directory not found, skipping"
+fi
+
 echo ""
 log_info "========================================="
 log_warn "IMPORTANT: Please reboot your system for all changes to take effect"
