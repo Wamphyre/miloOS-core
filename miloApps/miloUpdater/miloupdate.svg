@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg width="128" height="128" viewBox="0 0 128 128" xmlns="http://www.w3.org/2000/svg">
+  <!-- Background rounded square (WhiteSur style) -->
+  <rect x="8" y="8" width="112" height="112" rx="28" ry="28" fill="#007AFF" opacity="0.95"/>
+  
+  <!-- Circular arrows for update/sync symbol -->
+  <g fill="none" stroke="#FFFFFF" stroke-width="6" stroke-linecap="round" opacity="0.9">
+    <!-- Top circular arrow (clockwise) -->
+    <path d="M 64 30 A 24 24 0 1 1 40 54"/>
+    <!-- Arrow head top -->
+    <path d="M 40 54 L 35 48 M 40 54 L 46 52" stroke-width="5"/>
+    
+    <!-- Bottom circular arrow (counter-clockwise) -->
+    <path d="M 64 74 A 24 24 0 1 1 88 50"/>
+    <!-- Arrow head bottom -->
+    <path d="M 88 50 L 93 56 M 88 50 L 82 52" stroke-width="5"/>
+  </g>
+  
+  <!-- Download arrow in center -->
+  <g fill="#FFFFFF" opacity="0.9">
+    <!-- Arrow shaft -->
+    <rect x="60" y="50" width="8" height="28" rx="2" ry="2"/>
+    <!-- Arrow head -->
+    <path d="M 64 82 L 54 72 L 60 72 L 60 78 L 68 78 L 68 72 L 74 72 Z"/>
+  </g>
+  
+  <!-- Small indicator dots -->
+  <circle cx="64" cy="95" r="3" fill="#FFFFFF" opacity="0.7"/>
+  <circle cx="54" cy="95" r="3" fill="#FFFFFF" opacity="0.5"/>
+  <circle cx="74" cy="95" r="3" fill="#FFFFFF" opacity="0.5"/>
+</svg>

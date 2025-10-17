@@ -1,0 +1,17 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=System Updater
+Name[es]=Actualizador del Sistema
+Comment=Update your miloOS system
+Comment[es]=Actualiza tu sistema miloOS
+Exec=/usr/bin/miloupdate
+Icon=miloupdate
+Terminal=false
+Categories=Settings;System;X-XFCE-SettingsDialog;X-XFCE-SystemSettings;
+Keywords=update;upgrade;apt;software;packages;
+Keywords[es]=actualizar;actualización;apt;software;paquetes;
+StartupWMClass=miloupdate
+OnlyShowIn=XFCE;
+NotShowIn=
+StartupNotify=true

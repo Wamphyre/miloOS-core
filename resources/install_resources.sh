@@ -1482,6 +1482,19 @@ else
     log_warn "✗ SysStats directory not found, skipping"
 fi
 
+# Install miloUpdater application
+echo ""
+log_info "Installing miloUpdater application..."
+if [ -d "$CURRENT_DIR/miloApps/miloUpdater" ]; then
+    if bash "$CURRENT_DIR/miloApps/miloUpdater/install.sh"; then
+        log_info "✓ miloUpdater installed successfully"
+    else
+        log_warn "✗ miloUpdater installation failed (non-critical)"
+    fi
+else
+    log_warn "✗ miloUpdater directory not found, skipping"
+fi
+
 echo ""
 log_info "========================================="
 log_warn "IMPORTANT: Please reboot your system for all changes to take effect"
