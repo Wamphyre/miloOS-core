@@ -80,6 +80,15 @@ miloOS is **not a distribution**—it's a transformation kit. Install vanilla De
 - Bilingual interface (English/Spanish)
 - Activity Monitor-inspired design
 
+**miloUpdater** - System update manager
+- Check for system updates (apt update)
+- Install updates with one click (apt upgrade)
+- Real-time terminal output
+- Clean, modern interface
+- PolicyKit integration for secure authentication
+- Bilingual interface (English/Spanish)
+- Integrated in XFCE Settings and miloOS menu
+
 ### ⚙️ System Integration
 - **Complete rebranding** - System identifies as miloOS
 - **SLiM login manager** - Fast, lightweight, custom theme
