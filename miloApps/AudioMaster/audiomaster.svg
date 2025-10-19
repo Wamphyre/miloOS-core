@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg width="128" height="128" viewBox="0 0 128 128" xmlns="http://www.w3.org/2000/svg">
+  <!-- Background rounded square (WhiteSur style) -->
+  <rect x="8" y="8" width="112" height="112" rx="28" ry="28" fill="#FF6B35" opacity="0.95"/>
+  
+  <!-- Waveform bars -->
+  <g fill="#FFFFFF" opacity="0.9">
+    <!-- Left side bars (input) -->
+    <rect x="25" y="50" width="6" height="28" rx="2"/>
+    <rect x="34" y="40" width="6" height="48" rx="2"/>
+    <rect x="43" y="35" width="6" height="58" rx="2"/>
+    
+    <!-- Center arrow -->
+    <path d="M 55 60 L 65 64 L 55 68 Z" fill="#FFFFFF"/>
+    
+    <!-- Right side bars (output - taller/mastered) -->
+    <rect x="70" y="30" width="6" height="68" rx="2"/>
+    <rect x="79" y="25" width="6" height="78" rx="2"/>
+    <rect x="88" y="20" width="6" height="88" rx="2"/>
+    <rect x="97" y="25" width="6" height="78" rx="2"/>
+  </g>
+  
+  <!-- Sparkle effect -->
+  <g fill="#FFFFFF" opacity="0.8">
+    <circle cx="95" cy="35" r="2"/>
+    <circle cx="100" cy="30" r="1.5"/>
+    <circle cx="90" cy="30" r="1.5"/>
+  </g>
+</svg>

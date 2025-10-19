@@ -1495,6 +1495,19 @@ else
     log_warn "✗ miloUpdater directory not found, skipping"
 fi
 
+# Install AudioMaster application
+echo ""
+log_info "Installing AudioMaster application..."
+if [ -d "$CURRENT_DIR/miloApps/AudioMaster" ]; then
+    if bash "$CURRENT_DIR/miloApps/AudioMaster/install.sh"; then
+        log_info "✓ AudioMaster installed successfully"
+    else
+        log_warn "✗ AudioMaster installation failed (non-critical)"
+    fi
+else
+    log_warn "✗ AudioMaster directory not found, skipping"
+fi
+
 echo ""
 log_info "========================================="
 log_warn "IMPORTANT: Please reboot your system for all changes to take effect"

@@ -70,6 +70,15 @@ miloOS is **not a distribution**—it's a transformation kit. Install vanilla De
 - Bilingual interface (English/Spanish)
 - macOS-inspired design
 
+**AudioMaster** - Professional audio mastering tool
+- AI-powered audio mastering using Matchering
+- Reference-based mastering workflow
+- Quality presets: Fast, Balanced, Best
+- Normalize and limiter controls
+- Supports WAV, FLAC, MP3, OGG, M4A formats
+- Bilingual interface (English/Spanish)
+- Clean, professional interface
+
 **SysStats** - System statistics and hardware information
 - Real-time CPU, memory, disk, and network monitoring
 - Hardware details: CPU model, RAM modules, GPU, storage

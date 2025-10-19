@@ -1,0 +1,16 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=Audio Master
+Name[es]=Audio Master
+Comment=Professional audio mastering using Matchering
+Comment[es]=Masterización profesional de audio usando Matchering
+Exec=/usr/local/bin/audiomaster
+Icon=audiomaster
+Terminal=false
+Categories=AudioVideo;Audio;AudioVideoEditing;
+Keywords=audio;mastering;matchering;production;
+Keywords[es]=audio;masterización;matchering;producción;
+StartupWMClass=audiomaster
+OnlyShowIn=XFCE;
+NotShowIn=
