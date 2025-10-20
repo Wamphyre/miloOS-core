@@ -144,15 +144,7 @@ class AudioMasterWindow(Gtk.Window):
         main_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=20)
         self.add(main_box)
         
-        # Header
-        header_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
-        header_box.set_halign(Gtk.Align.CENTER)
-        
-        title_label = Gtk.Label()
-        title_label.set_markup(f'<span size="x-large" weight="bold">{_("title")}</span>')
-        header_box.pack_start(title_label, False, False, 0)
-        
-        main_box.pack_start(header_box, False, False, 0)
+        # Content area (no header)
         
         # Content area
         content_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=15)
