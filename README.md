@@ -174,8 +174,8 @@ The script will:
 # Kernel parameters
 preempt=full nohz_full=all mitigations=off
 
-# System limits
-@audio rtprio=99 memlock=unlimited nice=-20
+# System limits (Safe defaults)
+@audio rtprio=95 memlock=unlimited nice=-19
 
 # Sysctl tuning
 vm.swappiness=10 fs.inotify.max_user_watches=524288
@@ -184,7 +184,7 @@ vm.swappiness=10 fs.inotify.max_user_watches=524288
 ### Base System
 - **OS**: Debian 13 (Trixie)
 - **Desktop**: XFCE4
-- **Audio**: PipeWire 1.4+ with JACK compatibility
+- **Audio**: PipeWire & WirePlumber (Debian 13 native configuration)
 - **Display Manager**: SLiM
 - **Theme**: miloOS custom GTK theme
 - **Icons**: WhiteSur-light
@@ -198,8 +198,8 @@ vm.swappiness=10 fs.inotify.max_user_watches=524288
 - ✅ Core system complete
 - ✅ Audio optimization implemented
 - ✅ Visual theming finished
-- ✅ AudioConfig ready
-- ⏳ Additional miloApps in development
+- ✅ AudioConfig, AudioMaster, SysStats, and miloUpdater ready
+- ✅ Fully refactored for Debian 13 (Trixie) compatibility
 - ⏳ Documentation in progress
 
 ---

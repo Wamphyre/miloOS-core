@@ -302,7 +302,7 @@ class AudioMasterWindow(Gtk.Window):
             try:
                 # Install matchering and dependencies
                 result = subprocess.run(
-                    ['pip3', 'install', '--user', 'matchering'],
+                    ['pip3', 'install', '--user', '--break-system-packages', 'matchering'],
                     capture_output=True,
                     text=True
                 )

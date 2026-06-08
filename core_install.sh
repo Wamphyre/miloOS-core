@@ -44,6 +44,7 @@ fi
 # Script Settings (Global vars)
 # SCRIPT_DIR: directory of this script (repo root)
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+cd "$SCRIPT_DIR" || exit 1
 if [ -n "$HOME" ] && [ -n "$USER" ]; then
     EXEC_USER="$USER"
     USER_HOME="$HOME"

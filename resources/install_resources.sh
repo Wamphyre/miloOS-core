@@ -46,6 +46,7 @@ fi
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # Repository root is the parent directory of resources/
 CURRENT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+cd "$CURRENT_DIR" || exit 1
 TOTAL_STEPS=14
 
 # Verify we're on Debian
@@ -588,86 +589,49 @@ EOF
     # Configure JACK library path for all users
     log_info "Configuring JACK library path..."
     mkdir -p /etc/profile.d
-    cat > /etc/profile.d/pipewire-jack.sh << 'EOF'
+    cat > /etc/profile.d/pipewire-jack.sh << EOF
 # PipeWire JACK library path configuration for miloOS
 # This allows JACK applications to use PipeWire's JACK implementation
-export LD_LIBRARY_PATH="/usr/lib/x86_64-linux-gnu/pipewire-0.3/jack:${LD_LIBRARY_PATH}"
+MULTIARCH=\$(dpkg-architecture -qDEB_HOST_MULTIARCH 2>/dev/null || echo "x86_64-linux-gnu")
+export LD_LIBRARY_PATH="/usr/lib/\${MULTIARCH}/pipewire-0.3/jack\${LD_LIBRARY_PATH:+:\$LD_LIBRARY_PATH}"
 EOF
     chmod 644 /etc/profile.d/pipewire-jack.sh
     
     # Also configure for systemd user sessions
+    MULTIARCH=$(dpkg-architecture -qDEB_HOST_MULTIARCH 2>/dev/null || echo "x86_64-linux-gnu")
     mkdir -p /etc/systemd/user.conf.d
-    cat > /etc/systemd/user.conf.d/pipewire-jack.conf << 'EOF'
+    cat > /etc/systemd/user.conf.d/pipewire-jack.conf << EOF
 [Manager]
-DefaultEnvironment="LD_LIBRARY_PATH=/usr/lib/x86_64-linux-gnu/pipewire-0.3/jack:${LD_LIBRARY_PATH}"
+DefaultEnvironment="LD_LIBRARY_PATH=/usr/lib/\${MULTIARCH}/pipewire-0.3/jack"
 EOF
     
     log_info "JACK library path configured globally"
     
     # Create WirePlumber low-latency and pro-audio configuration
-    mkdir -p /etc/wireplumber/main.lua.d
-    mkdir -p /etc/wireplumber/policy.lua.d
+    mkdir -p /etc/wireplumber/wireplumber.conf.d
     
-    cat > /etc/wireplumber/main.lua.d/99-lowlatency.lua << 'EOF'
--- Low-latency audio configuration for miloOS
-alsa_monitor.rules = {
+    cat > /etc/wireplumber/wireplumber.conf.d/99-lowlatency.conf << 'EOF'
+monitor.alsa.rules = [
   {
-    matches = {
+    matches = [
       {
-        { "node.name", "matches", "alsa_output.*" },
-      },
-    },
-    apply_properties = {
-      ["audio.format"] = "S32LE",
-      ["audio.rate"] = 48000,
-      ["api.alsa.period-size"] = 256,
-      ["api.alsa.headroom"] = 1024,
-    },
-  },
-}
+        node.name = "~alsa_output.*"
+      }
+    ]
+    actions = {
+      update-props = {
+        audio.format = "S32LE"
+        audio.rate = 48000
+        api.alsa.period-size = 256
+        api.alsa.headroom = 1024
+      }
+    }
+  }
+]
 EOF
     
     # Set pro-audio profile as default for ALL audio devices
-    cat > /etc/wireplumber/main.lua.d/51-pro-audio-profile.lua << 'EOF'
--- Set pro-audio profile as default for all ALSA cards in miloOS
-alsa_monitor.rules = {
-  {
-    matches = {
-      {
-        { "device.name", "matches", "alsa_card.*" },
-      },
-    },
-    apply_properties = {
-      ["device.profile"] = "pro-audio",
-    },
-  },
-}
-EOF
-    
-    # Create WirePlumber bluetooth config to also use pro-audio
-    mkdir -p /etc/wireplumber/bluetooth.lua.d
-    cat > /etc/wireplumber/bluetooth.lua.d/51-pro-audio-bluetooth.lua << 'EOF'
--- Set pro-audio profile for bluetooth devices in miloOS
-bluez_monitor.rules = {
-  {
-    matches = {
-      {
-        { "device.name", "matches", "bluez_card.*" },
-      },
-    },
-    apply_properties = {
-      ["device.profile"] = "a2dp-sink",
-    },
-  },
-}
-EOF
-    
-    log_info "Pro-audio profile set as default for all devices"
-    
-    # Create global WirePlumber configuration for pro-audio
-    mkdir -p /etc/wireplumber/wireplumber.conf.d
-    cat > /etc/wireplumber/wireplumber.conf.d/51-miloOS-pro-audio.conf << 'EOF'
-# miloOS pro-audio configuration
+    cat > /etc/wireplumber/wireplumber.conf.d/51-pro-audio-profile.conf << 'EOF'
 monitor.alsa.rules = [
   {
     matches = [
@@ -677,8 +641,26 @@ monitor.alsa.rules = [
     ]
     actions = {
       update-props = {
-        api.alsa.use-acp = true
         device.profile = "pro-audio"
+        api.alsa.use-acp = true
+      }
+    }
+  }
+]
+EOF
+    
+    # Create WirePlumber bluetooth config to also use pro-audio
+    cat > /etc/wireplumber/wireplumber.conf.d/51-pro-audio-bluetooth.conf << 'EOF'
+monitor.bluez.rules = [
+  {
+    matches = [
+      {
+        device.name = "~bluez_card.*"
+      }
+    ]
+    actions = {
+      update-props = {
+        device.profile = "a2dp-sink"
       }
     }
   }
@@ -710,13 +692,9 @@ EOF
         
         # Check if parameters already exist
         if grep -q "GRUB_CMDLINE_LINUX_DEFAULT=" /etc/default/grub; then
-            # Get current parameters
-            local CURRENT_PARAMS=$(grep "^GRUB_CMDLINE_LINUX_DEFAULT=" /etc/default/grub | sed 's/GRUB_CMDLINE_LINUX_DEFAULT="\(.*\)"/\1/')
-            
             # Add audio parameters if not present
-            if ! echo "$CURRENT_PARAMS" | grep -q "preempt=full"; then
-                local NEW_PARAMS="$CURRENT_PARAMS $AUDIO_PARAMS"
-                sed -i "s|^GRUB_CMDLINE_LINUX_DEFAULT=.*|GRUB_CMDLINE_LINUX_DEFAULT=\"$NEW_PARAMS\"|" /etc/default/grub
+            if ! grep -q "preempt=full" /etc/default/grub; then
+                sed -i 's/^\(GRUB_CMDLINE_LINUX_DEFAULT=".*\)"/\1 '"$AUDIO_PARAMS"'"/' /etc/default/grub
                 log_info "Added real-time audio kernel parameters"
             else
                 log_info "Real-time audio parameters already present"
@@ -798,10 +776,7 @@ else
 LIMITS
 fi
 
-# Add user to audio group if not already
-if [ -n "$SUDO_USER" ] && [ "$SUDO_USER" != "root" ]; then
-    usermod -aG audio "$SUDO_USER" 2>/dev/null || true
-fi
+# Limits are handled globally now
 
 exit 0
 EOF
@@ -825,12 +800,10 @@ EOF
     # Enhanced audio limits
     cat > /etc/security/limits.d/99-audio-production.conf << 'EOF'
 # Audio production limits for miloOS
-@audio   -  rtprio     99
+@audio   -  rtprio     95
 @audio   -  memlock    unlimited
 @audio   -  nice      -20
 @audio   -  nofile     524288
-@audio   soft  nproc      unlimited
-@audio   hard  nproc      unlimited
 
 # For all users (general improvements)
 *        -  nofile     524288
@@ -1444,19 +1417,31 @@ if [ -n "$TARGET_HOME" ] && [ -d "$TARGET_HOME" ]; then
     # Copy dotfiles
     for dotfile in .bashrc .dmrc .profile .xsession .xsessionrc; do
         if [ -f "$CURRENT_DIR/configurations/$dotfile" ]; then
-            # Backup if exists
-            if [ -f "$TARGET_HOME/$dotfile" ]; then
-                mv "$TARGET_HOME/$dotfile" "$TARGET_HOME/${dotfile}.backup-$(date +%Y%m%d-%H%M%S)"
-            fi
-            cp "$CURRENT_DIR/configurations/$dotfile" "$TARGET_HOME/$dotfile"
-            chown "$TARGET_USER:$TARGET_USER" "$TARGET_HOME/$dotfile"
-            chmod 644 "$TARGET_HOME/$dotfile"
-            
-            # Verify file was copied and is not empty
-            if [ -s "$TARGET_HOME/$dotfile" ]; then
-                log_info "✓ $dotfile → $TARGET_HOME"
+            # Handle .bashrc and .profile differently to avoid overwriting user data
+            if [ "$dotfile" = ".bashrc" ] || [ "$dotfile" = ".profile" ]; then
+                if [ ! -f "$TARGET_HOME/$dotfile" ]; then
+                    cp "$CURRENT_DIR/configurations/$dotfile" "$TARGET_HOME/$dotfile"
+                else
+                    log_info "Leaving existing $dotfile intact to avoid breaking user settings"
+                fi
+                chown "$TARGET_USER:$TARGET_USER" "$TARGET_HOME/$dotfile"
+                chmod 644 "$TARGET_HOME/$dotfile"
+                log_info "✓ $dotfile processed"
             else
-                log_error "✗ $dotfile is empty or failed to copy!"
+                # Backup if exists
+                if [ -f "$TARGET_HOME/$dotfile" ]; then
+                    mv "$TARGET_HOME/$dotfile" "$TARGET_HOME/${dotfile}.backup-$(date +%Y%m%d-%H%M%S)"
+                fi
+                cp "$CURRENT_DIR/configurations/$dotfile" "$TARGET_HOME/$dotfile"
+                chown "$TARGET_USER:$TARGET_USER" "$TARGET_HOME/$dotfile"
+                chmod 644 "$TARGET_HOME/$dotfile"
+                
+                # Verify file was copied and is not empty
+                if [ -s "$TARGET_HOME/$dotfile" ]; then
+                    log_info "✓ $dotfile → $TARGET_HOME"
+                else
+                    log_error "✗ $dotfile is empty or failed to copy!"
+                fi
             fi
         else
             log_warn "✗ $dotfile not found in configurations/"

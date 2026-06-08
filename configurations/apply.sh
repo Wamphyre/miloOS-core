@@ -63,13 +63,14 @@ pkill plank 2>/dev/null || true
 pkill xfce4-panel 2>/dev/null || true
 sleep 1
 
-# Remove old configurations (no backup needed)
-log_info "Removing old configurations..."
-rm -f "$USER_HOME/.gtkrc-2.0"
-rm -f "$USER_HOME/.config/gtk-3.0/gtk.css"
-rm -rf "$USER_HOME/.config/xfce4/panel"
-rm -rf "$USER_HOME/.config/xfce4/xfconf"
-rm -rf "$USER_HOME/.config/plank/dock1"
+# Backup old configurations
+log_info "Backing up old configurations..."
+BACKUP_SUFFIX="backup-$(date +%Y%m%d-%H%M%S)"
+[ -f "$USER_HOME/.gtkrc-2.0" ] && mv "$USER_HOME/.gtkrc-2.0" "$USER_HOME/.gtkrc-2.0.$BACKUP_SUFFIX"
+[ -f "$USER_HOME/.config/gtk-3.0/gtk.css" ] && mv "$USER_HOME/.config/gtk-3.0/gtk.css" "$USER_HOME/.config/gtk-3.0/gtk.css.$BACKUP_SUFFIX"
+[ -d "$USER_HOME/.config/xfce4/panel" ] && mv "$USER_HOME/.config/xfce4/panel" "$USER_HOME/.config/xfce4/panel.$BACKUP_SUFFIX"
+[ -d "$USER_HOME/.config/xfce4/xfconf" ] && mv "$USER_HOME/.config/xfce4/xfconf" "$USER_HOME/.config/xfce4/xfconf.$BACKUP_SUFFIX"
+[ -d "$USER_HOME/.config/plank/dock1" ] && mv "$USER_HOME/.config/plank/dock1" "$USER_HOME/.config/plank/dock1.$BACKUP_SUFFIX"
 
 # Create necessary directories
 log_info "Creating configuration directories..."
@@ -401,6 +402,7 @@ log_info "Applications menu configured (miloOS items only in logo menu)"
 
 # Configure PipeWire JACK library path
 log_info "Configuring PipeWire JACK library path..."
+MULTIARCH=$(dpkg-architecture -qDEB_HOST_MULTIARCH 2>/dev/null || echo "x86_64-linux-gnu")
 
 # Method 1: .profile (loaded by display managers for graphical sessions)
 if ! grep -q "pipewire-0.3/jack" "$USER_HOME/.profile" 2>/dev/null; then
@@ -408,7 +410,7 @@ if ! grep -q "pipewire-0.3/jack" "$USER_HOME/.profile" 2>/dev/null; then
     cat >> "$USER_HOME/.profile" << 'EOF'
 
 # PipeWire JACK library path for audio applications (miloOS)
-export LD_LIBRARY_PATH="/usr/lib/x86_64-linux-gnu/pipewire-0.3/jack:${LD_LIBRARY_PATH}"
+export LD_LIBRARY_PATH="/usr/lib/${MULTIARCH}/pipewire-0.3/jack\${LD_LIBRARY_PATH:+:\$LD_LIBRARY_PATH}"
 EOF
     chown "$EXEC_USER:$EXEC_USER" "$USER_HOME/.profile"
 fi
@@ -419,7 +421,7 @@ if ! grep -q "pipewire-0.3/jack" "$USER_HOME/.bashrc" 2>/dev/null; then
     cat >> "$USER_HOME/.bashrc" << 'EOF'
 
 # PipeWire JACK library path for audio applications (miloOS)
-export LD_LIBRARY_PATH="/usr/lib/x86_64-linux-gnu/pipewire-0.3/jack:${LD_LIBRARY_PATH}"
+export LD_LIBRARY_PATH="/usr/lib/${MULTIARCH}/pipewire-0.3/jack\${LD_LIBRARY_PATH:+:\$LD_LIBRARY_PATH}"
 EOF
     chown "$EXEC_USER:$EXEC_USER" "$USER_HOME/.bashrc"
 fi
@@ -430,7 +432,7 @@ if ! grep -q "pipewire-0.3/jack" "$USER_HOME/.xsessionrc" 2>/dev/null; then
     cat >> "$USER_HOME/.xsessionrc" << 'EOF'
 
 # PipeWire JACK library path for audio applications (miloOS)
-export LD_LIBRARY_PATH="/usr/lib/x86_64-linux-gnu/pipewire-0.3/jack:${LD_LIBRARY_PATH}"
+export LD_LIBRARY_PATH="/usr/lib/${MULTIARCH}/pipewire-0.3/jack\${LD_LIBRARY_PATH:+:\$LD_LIBRARY_PATH}"
 EOF
     chmod 644 "$USER_HOME/.xsessionrc"
     chown "$EXEC_USER:$EXEC_USER" "$USER_HOME/.xsessionrc"
@@ -445,7 +447,7 @@ if [ ! -f "$USER_HOME/.xsession" ]; then
 # miloOS .xsession for SLiM
 
 # PipeWire JACK library path for audio applications
-export LD_LIBRARY_PATH="/usr/lib/x86_64-linux-gnu/pipewire-0.3/jack:${LD_LIBRARY_PATH}"
+export LD_LIBRARY_PATH="/usr/lib/${MULTIARCH}/pipewire-0.3/jack\${LD_LIBRARY_PATH:+:\$LD_LIBRARY_PATH}"
 
 # Start XFCE session
 exec startxfce4
@@ -455,13 +457,13 @@ EOF
 elif ! grep -q "pipewire-0.3/jack" "$USER_HOME/.xsession"; then
     log_info "Adding JACK library path to existing .xsession..."
     # Insert before the exec line
-    sed -i '/^exec /i # PipeWire JACK library path\nexport LD_LIBRARY_PATH="/usr/lib/x86_64-linux-gnu/pipewire-0.3/jack:${LD_LIBRARY_PATH}"\n' "$USER_HOME/.xsession"
+    sed -i "/^exec /i # PipeWire JACK library path\nexport LD_LIBRARY_PATH=\"/usr/lib/${MULTIARCH}/pipewire-0.3/jack\${LD_LIBRARY_PATH:+:\$LD_LIBRARY_PATH}\"\n" "$USER_HOME/.xsession"
 fi
 
 # Method 4: environment.d (for systemd user sessions)
 mkdir -p "$USER_HOME/.config/environment.d"
-cat > "$USER_HOME/.config/environment.d/pipewire-jack.conf" << 'EOF'
-LD_LIBRARY_PATH=/usr/lib/x86_64-linux-gnu/pipewire-0.3/jack:${LD_LIBRARY_PATH}
+cat > "$USER_HOME/.config/environment.d/pipewire-jack.conf" << EOF
+LD_LIBRARY_PATH=/usr/lib/${MULTIARCH}/pipewire-0.3/jack\${LD_LIBRARY_PATH:+:\$LD_LIBRARY_PATH}
 EOF
 chmod 644 "$USER_HOME/.config/environment.d/pipewire-jack.conf"
 chown "$EXEC_USER:$EXEC_USER" "$USER_HOME/.config/environment.d/pipewire-jack.conf"
@@ -476,7 +478,7 @@ cat > "$USER_HOME/.config/autostart/pipewire-jack-env.desktop" << 'EOF'
 Type=Application
 Name=PipeWire JACK Environment
 Comment=Set LD_LIBRARY_PATH for JACK applications
-Exec=sh -c 'sleep 2; export LD_LIBRARY_PATH="/usr/lib/x86_64-linux-gnu/pipewire-0.3/jack"; dbus-update-activation-environment --systemd LD_LIBRARY_PATH'
+Exec=sh -c 'sleep 2; export LD_LIBRARY_PATH="/usr/lib/'${MULTIARCH}'/pipewire-0.3/jack"; dbus-update-activation-environment --systemd LD_LIBRARY_PATH'
 Hidden=false
 NoDisplay=true
 X-GNOME-Autostart-enabled=true
@@ -491,7 +493,7 @@ mkdir -p "$USER_HOME/.config/xfce4/xinitrc.d"
 cat > "$USER_HOME/.config/xfce4/xinitrc.d/50-pipewire-jack.sh" << 'EOF'
 #!/bin/sh
 # PipeWire JACK library path
-export LD_LIBRARY_PATH="/usr/lib/x86_64-linux-gnu/pipewire-0.3/jack:${LD_LIBRARY_PATH}"
+export LD_LIBRARY_PATH="/usr/lib/${MULTIARCH}/pipewire-0.3/jack\${LD_LIBRARY_PATH:+:\$LD_LIBRARY_PATH}"
 EOF
 chmod 755 "$USER_HOME/.config/xfce4/xinitrc.d/50-pipewire-jack.sh"
 chown "$EXEC_USER:$EXEC_USER" "$USER_HOME/.config/xfce4/xinitrc.d/50-pipewire-jack.sh"
@@ -501,9 +503,9 @@ log_info "XFCE autostart configured for JACK"
 # Method 7: Create systemd user environment override
 log_info "Configuring systemd user environment for JACK..."
 mkdir -p "$USER_HOME/.config/systemd/user.conf.d"
-cat > "$USER_HOME/.config/systemd/user.conf.d/pipewire-jack.conf" << 'EOF'
+cat > "$USER_HOME/.config/systemd/user.conf.d/pipewire-jack.conf" << EOF
 [Manager]
-DefaultEnvironment="LD_LIBRARY_PATH=/usr/lib/x86_64-linux-gnu/pipewire-0.3/jack"
+DefaultEnvironment="LD_LIBRARY_PATH=/usr/lib/${MULTIARCH}/pipewire-0.3/jack"
 EOF
 chmod 644 "$USER_HOME/.config/systemd/user.conf.d/pipewire-jack.conf"
 chown "$EXEC_USER:$EXEC_USER" "$USER_HOME/.config/systemd/user.conf.d/pipewire-jack.conf"
