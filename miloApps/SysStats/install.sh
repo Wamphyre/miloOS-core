@@ -3,6 +3,10 @@
 
 set -e
 
+# Get the directory where the script is located
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+cd "$SCRIPT_DIR"
+
 if [ "$EUID" -ne 0 ]; then
     echo "Please run as root (sudo)"
     exit 1

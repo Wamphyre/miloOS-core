@@ -13,10 +13,10 @@ miloOS is a collection of scripts and configurations that converts a clean Debia
 miloOS is **not a distribution**—it's a transformation kit. Install vanilla Debian 13 with XFCE, run our scripts, and get a complete professional audio workstation with:
 
 - **Optimized kernel** for low-latency audio
-- **PipeWire + JACK** pre-configured and working out-of-the-box
+- **PipeWire + WirePlumber + JACK** pre-configured and working out-of-the-box
 - **Professional audio plugins** (LSP, Calf, x42, ZynAddSubFX, and more)
 - **Clean, elegant interface** inspired by professional workflows
-- **Custom miloApps** for system management
+- **Custom miloApps** for system management and audio configuration
 - **Zero configuration needed**—just install and create
 
 ---
@@ -48,9 +48,10 @@ miloOS is **not a distribution**—it's a transformation kit. Install vanilla De
 ## Features
 
 ### 🎵 Professional Audio
-- **Real-time kernel parameters** - Fully preemptible, no timer ticks, threaded IRQs
-- **PipeWire + JACK** - Full compatibility with professional DAWs (Reaper, Ardour, Bitwig)
+- **Real-time kernel parameters** - Fully preemptible kernel, tickless operation
+- **PipeWire + WirePlumber** - Modern audio stack with full JACK compatibility
 - **Pro-audio profile** - Automatic device configuration for lowest latency
+- **Unified audio configuration** - AudioConfig controls PipeWire, WirePlumber, and JACK as a single coherent stack
 - **Professional plugins included** - LSP Plugins, Calf, x42, Guitarix, Hydrogen, and more
 - **Zero configuration** - Launch your DAW from anywhere, it just works
 
@@ -64,11 +65,14 @@ miloOS is **not a distribution**—it's a transformation kit. Install vanilla De
 ### 🛠️ miloApps Suite
 
 **AudioConfig** - Professional audio server configuration
+- Single source of truth for the entire audio stack
+- Configures PipeWire, WirePlumber, and JACK simultaneously
 - Sample rates: 44.1kHz to 192kHz
-- Buffer sizes: 32 to 1024 samples
-- Audio formats: 16/24/32-bit, float
+- Buffer sizes: 32 to 2048 samples
+- Audio formats: 16/24/32-bit integer, 32-bit float
+- Per-device settings with persistent configuration
 - Bilingual interface (English/Spanish)
-- macOS-inspired design
+- macOS Audio MIDI Setup-inspired design
 
 **AudioMaster** - Professional audio mastering tool
 - AI-powered audio mastering using Matchering
@@ -110,7 +114,7 @@ miloOS is **not a distribution**—it's a transformation kit. Install vanilla De
 ## Installation
 
 ### Requirements
-- Fresh Debian 13 (Trixie) installation
+- Fresh Debian 13 (Trixie) installation with XFCE desktop
 - 20GB free disk space
 - Internet connection
 
@@ -126,15 +130,21 @@ cd miloOS-core
 ```
 
 The script will:
-1. Install required packages
-2. Configure audio system for real-time performance
+1. Install required packages (PipeWire, WirePlumber, GTK themes, etc.)
+2. Configure PipeWire and WirePlumber for real-time audio performance
 3. Install professional audio plugins
-4. Apply visual themes and fonts
-5. Install miloApps
-6. Configure user environment
-7. Optimize system for audio production
+4. Apply visual themes, icons, and fonts
+5. Install miloApps (AudioConfig, AudioMaster, SysStats, miloUpdater)
+6. Configure user environment and JACK library paths
+7. Optimize kernel parameters and system limits for audio production
 
 **Reboot after installation to apply all changes.**
+
+### Verify Installation
+
+```bash
+./verify_installation.sh
+```
 
 ---
 
@@ -158,6 +168,7 @@ The script will:
 - **GIMP** - Image editing
 - **Shotcut** - Video editing
 - **DigiKam** - Photo management
+- **Upscayl** - AI image upscaler
 
 ### System Tools
 - **qpwgraph** - PipeWire graph manager
@@ -169,22 +180,55 @@ The script will:
 
 ## Technical Details
 
-### Audio Optimization
-```bash
-# Kernel parameters
-preempt=full nohz_full=all mitigations=off
+### Audio Stack Architecture
 
-# System limits (Safe defaults)
-@audio rtprio=95 memlock=unlimited nice=-19
+miloOS uses a layered audio configuration where AudioConfig acts as the single source of truth:
 
-# Sysctl tuning
-vm.swappiness=10 fs.inotify.max_user_watches=524288
+```
+┌─────────────────────────────────────────────────────────┐
+│                    AudioConfig (miloApp)                 │
+│          User-facing configuration interface             │
+└────────────┬──────────────┬──────────────┬──────────────┘
+             │              │              │
+             ▼              ▼              ▼
+┌────────────────┐ ┌────────────────┐ ┌────────────────────┐
+│   PipeWire     │ │     JACK       │ │    WirePlumber     │
+│ ~/.config/     │ │ ~/.config/     │ │ ~/.config/         │
+│ pipewire/      │ │ pipewire/      │ │ wireplumber/       │
+│ pipewire.conf.d│ │ jack.conf.d/   │ │ wireplumber.conf.d/│
+│                │ │                │ │                    │
+│ • clock.rate   │ │ • node.latency │ │ • audio.format     │
+│ • quantum      │ │ • merge-monitor│ │ • audio.rate       │
+│ • min/max-q    │ │ • short-name   │ │ • period-size      │
+│ • rtkit module │ │                │ │ • headroom         │
+└────────────────┘ └────────────────┘ └────────────────────┘
+         ▲                  ▲                  ▲
+         │    Overrides     │    Overrides      │
+         ▼                  ▼                   ▼
+┌────────────────┐ ┌────────────────┐ ┌────────────────────┐
+│ System defaults│ │ System defaults│ │  System defaults    │
+│ /etc/pipewire/ │ │ /etc/pipewire/ │ │  /etc/wireplumber/  │
+│ pipewire.conf.d│ │ jack.conf.d/   │ │  wireplumber.conf.d/│
+└────────────────┘ └────────────────┘ └────────────────────┘
+```
+
+User configs (`~/.config/`) always override system defaults (`/etc/`).
+
+### System Defaults (installed by core_install.sh)
+
+```
+PipeWire:    48kHz, quantum=256, min=64, max=2048
+WirePlumber: S32LE, period-size=256, headroom=0, pro-audio profile
+JACK:        node.latency=256/48000
+Kernel:      preempt=full nohz_full=all mitigations=off
+Limits:      @audio rtprio=95 memlock=unlimited nice=-20
+Sysctl:      vm.swappiness=10 fs.inotify.max_user_watches=524288
 ```
 
 ### Base System
 - **OS**: Debian 13 (Trixie)
 - **Desktop**: XFCE4
-- **Audio**: PipeWire & WirePlumber (Debian 13 native configuration)
+- **Audio**: PipeWire + WirePlumber (with full JACK compatibility)
 - **Display Manager**: SLiM
 - **Theme**: miloOS custom GTK theme
 - **Icons**: WhiteSur-light
@@ -200,6 +244,7 @@ vm.swappiness=10 fs.inotify.max_user_watches=524288
 - ✅ Visual theming finished
 - ✅ AudioConfig, AudioMaster, SysStats, and miloUpdater ready
 - ✅ Fully refactored for Debian 13 (Trixie) compatibility
+- ✅ Unified audio configuration (AudioConfig → PipeWire + WirePlumber + JACK)
 - ⏳ Documentation in progress
 
 ---
@@ -222,8 +267,10 @@ GNU General Public License v3.0 - See [LICENSE](LICENSE)
 - Debian: Various licenses
 - XFCE4: GPL-2.0
 - PipeWire: MIT
+- WirePlumber: MIT
 - San Francisco Pro: Apple (personal use)
 - WhiteSur Icons: GPL-3.0
+- Matchering: GPL-3.0
 
 ---
 
@@ -234,7 +281,7 @@ GNU General Public License v3.0 - See [LICENSE](LICENSE)
 Special thanks to:
 - Debian Project
 - XFCE Team
-- PipeWire Developers
+- PipeWire & WirePlumber Developers
 - Linux Audio Community
 
 ---

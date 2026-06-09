@@ -623,7 +623,7 @@ monitor.alsa.rules = [
         audio.format = "S32LE"
         audio.rate = 48000
         api.alsa.period-size = 256
-        api.alsa.headroom = 1024
+        api.alsa.headroom = 0
       }
     }
   }
@@ -642,7 +642,6 @@ monitor.alsa.rules = [
     actions = {
       update-props = {
         device.profile = "pro-audio"
-        api.alsa.use-acp = true
       }
     }
   }

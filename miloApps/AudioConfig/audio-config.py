@@ -683,8 +683,7 @@ context.properties = {{
     default.clock.rate          = {rate}
     default.clock.quantum       = {buffer}
     default.clock.min-quantum   = {buffer}
-    default.clock.max-quantum   = {buffer}
-    default.format              = {audio_format}
+    default.clock.max-quantum   = 2048
 }}
 
 context.modules = [
@@ -718,6 +717,7 @@ jack.properties = {{
             with open(jack_config_path, 'w') as f:
                 f.write(jack_config_content)
             
+
             # Save configuration to a JSON file for persistence
             config_file = os.path.expanduser("~/.config/pipewire/audioconfig-settings.json")
             import json
