@@ -115,12 +115,11 @@ class AudioMasterWindow(Gtk.Window):
     def __init__(self):
         super().__init__(title=_('title'))
         self.set_icon_name("audiomaster")
-        self.set_default_size(700, 500)
+        self.set_default_size(700, 580)
         self.set_position(Gtk.WindowPosition.CENTER)
-        self.set_border_width(20)
+        self.set_border_width(24)
         
-        # Set WM_CLASS for proper dock integration
-        self.set_wmclass("audiomaster", "audiomaster")
+        # WM_CLASS is set automatically by Gtk, so no set_wmclass needed
         
         # File paths
         self.reference_path = None
@@ -144,12 +143,17 @@ class AudioMasterWindow(Gtk.Window):
         main_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=20)
         self.add(main_box)
         
-        # Content area (no header)
-        
         # Content area
         content_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=15)
         content_box.set_halign(Gtk.Align.CENTER)
         content_box.set_valign(Gtk.Align.CENTER)
+        
+        # Title Label
+        title_label = Gtk.Label()
+        title_label.set_markup(f"<span font_desc='Inter, System-UI, sans-serif 18' weight='bold' foreground='#2c3e50'>{_('title')}</span>")
+        title_label.set_halign(Gtk.Align.START)
+        title_label.set_margin_bottom(10)
+        content_box.pack_start(title_label, False, False, 0)
         
         # Reference track
         self.reference_box = self.create_file_selector(
@@ -194,11 +198,13 @@ class AudioMasterWindow(Gtk.Window):
         
         self.master_button = Gtk.Button(label=_('start_mastering'))
         self.master_button.set_size_request(200, 40)
+        self.master_button.get_style_context().add_class("master-btn")
         self.master_button.connect('clicked', self.on_start_mastering)
         button_box.pack_start(self.master_button, False, False, 0)
         
         self.close_button = Gtk.Button(label=_('close'))
         self.close_button.set_size_request(100, 40)
+        self.close_button.get_style_context().add_class("close-btn")
         self.close_button.connect('clicked', lambda w: self.destroy())
         button_box.pack_start(self.close_button, False, False, 0)
         
@@ -209,47 +215,97 @@ class AudioMasterWindow(Gtk.Window):
         css_provider = Gtk.CssProvider()
         css = b"""
         window {
-            background-color: #f5f5f7;
+            background-color: #f1f2f6;
         }
         button {
             border-radius: 8px;
-            padding: 8px 16px;
+            padding: 6px 14px;
+            font-size: 13px;
             font-weight: 500;
-            background-image: linear-gradient(to bottom, #ffffff, #f0f0f0);
-            border: 1px solid #d0d0d0;
+            color: #2c3e50;
+            background-color: #ffffff;
+            border: 1px solid #dcdde1;
+            box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
+            transition: all 0.2s ease;
         }
         button:hover {
-            background-image: linear-gradient(to bottom, #ffffff, #e8e8e8);
+            background-color: #f8f9fa;
+            border-color: #b1b2b9;
         }
         button:disabled {
             opacity: 0.5;
         }
+        .master-btn {
+            background-color: #007AFF;
+            color: #ffffff;
+            border: none;
+            border-radius: 8px;
+            font-size: 13px;
+            font-weight: 600;
+            transition: background-color 0.2s ease;
+            box-shadow: 0 2px 6px rgba(0, 122, 255, 0.2);
+        }
+        .master-btn:hover {
+            background-color: #0066d6;
+        }
+        .master-btn:active {
+            background-color: #0051b5;
+        }
+        .close-btn {
+            background-color: #ffffff;
+            color: #2c3e50;
+            border: 1px solid #dcdde1;
+        }
         .file-box {
             background-color: #ffffff;
-            border: 1px solid #d0d0d0;
-            border-radius: 8px;
-            padding: 15px;
+            border: 1px solid #e3e4e9;
+            border-radius: 10px;
+            padding: 16px 20px;
             min-width: 500px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.02);
         }
         .file-label {
-            color: #666666;
-            font-size: 12px;
-            font-weight: 600;
+            color: #7f8c8d;
+            font-size: 11px;
+            font-weight: 700;
+            letter-spacing: 0.5px;
         }
         .file-path {
-            color: #333333;
+            color: #2c3e50;
+            font-size: 13px;
+            font-weight: 500;
+        }
+        comboboxText combobox {
+            background-color: #ffffff;
+            color: #2c3e50;
+            border: 1px solid #dcdde1;
+            border-radius: 8px;
+            padding: 4px 10px;
             font-size: 13px;
         }
+        comboboxText combobox:hover {
+            border-color: #b1b2b9;
+        }
+        checkbutton {
+            font-size: 13px;
+            color: #2c3e50;
+            margin-top: 4px;
+        }
         progressbar {
-            min-height: 8px;
+            margin: 10px 0;
         }
         progressbar trough {
-            background-color: #e0e0e0;
-            border-radius: 4px;
+            background-color: #e3e4e9;
+            border-radius: 6px;
+            min-height: 8px;
+            border: none;
         }
         progressbar progress {
             background-color: #007AFF;
-            border-radius: 4px;
+            border-radius: 6px;
+            min-height: 8px;
+            border: none;
+            box-shadow: 0 1px 2px rgba(0, 122, 255, 0.2);
         }
         """
         css_provider.load_from_data(css)
@@ -355,7 +411,7 @@ class AudioMasterWindow(Gtk.Window):
         box.get_style_context().add_class("file-box")
         
         # Label
-        label = Gtk.Label(label=_('options'))
+        label = Gtk.Label(label=_('options').upper())
         label.set_halign(Gtk.Align.START)
         label.get_style_context().add_class("file-label")
         box.pack_start(label, False, False, 0)
@@ -407,7 +463,7 @@ class AudioMasterWindow(Gtk.Window):
         box.get_style_context().add_class("file-box")
         
         # Label
-        label = Gtk.Label(label=label_text)
+        label = Gtk.Label(label=label_text.upper())
         label.set_halign(Gtk.Align.START)
         label.get_style_context().add_class("file-label")
         box.pack_start(label, False, False, 0)

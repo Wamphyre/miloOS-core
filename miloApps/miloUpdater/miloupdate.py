@@ -27,6 +27,7 @@ TRANSLATIONS = {
         'success': 'Updates installed successfully',
         'close': 'Close',
         'output': 'Output',
+        'ready': 'Ready to check for updates',
     },
     'es': {
         'title': 'Actualizador del Sistema',
@@ -40,6 +41,7 @@ TRANSLATIONS = {
         'success': 'Actualizaciones instaladas correctamente',
         'close': 'Cerrar',
         'output': 'Salida',
+        'ready': 'Listo para buscar actualizaciones',
     }
 }
 
@@ -59,15 +61,12 @@ class UpdaterWindow(Gtk.Window):
         self.lang = get_system_language()
         self.t = TRANSLATIONS[self.lang]
         
-        self.set_default_size(700, 500)
-        self.set_border_width(20)
+        self.set_default_size(750, 540)
+        self.set_border_width(24)
         self.set_position(Gtk.WindowPosition.CENTER)
         
         # Set window icon
         self.set_icon_name("miloupdate")
-        
-        # Set WM_CLASS for proper dock integration
-        self.set_wmclass("miloupdate", "miloupdate")
         
         # Apply CSS styling
         self.apply_css()
@@ -76,22 +75,40 @@ class UpdaterWindow(Gtk.Window):
         main_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=20)
         self.add(main_box)
         
-        # Status label
+        # Title & Status Header
+        header_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
+        header_box.set_halign(Gtk.Align.START)
+        
+        title_label = Gtk.Label()
+        title_label.set_markup(f"<span font_desc='Inter, System-UI, sans-serif 18' weight='bold' foreground='#2c3e50'>{self.t['title']}</span>")
+        title_label.set_halign(Gtk.Align.START)
+        header_box.pack_start(title_label, False, False, 0)
+        
         self.status_label = Gtk.Label()
-        self.status_label.set_markup('<span size="large">Ready</span>')
-        self.status_label.set_halign(Gtk.Align.CENTER)
-        main_box.pack_start(self.status_label, False, False, 0)
+        self.status_label.set_markup(f'<span font_desc="11" foreground="#7f8c8d">{self.t["ready"]}</span>')
+        self.status_label.set_halign(Gtk.Align.START)
+        header_box.pack_start(self.status_label, False, False, 0)
+        
+        main_box.pack_start(header_box, False, False, 0)
         
         # Terminal output
         scrolled = Gtk.ScrolledWindow()
         scrolled.set_vexpand(True)
         scrolled.set_hexpand(True)
+        scrolled.get_style_context().add_class("terminal-card")
         
         self.terminal = Vte.Terminal()
         self.terminal.set_scroll_on_output(True)
         self.terminal.set_scrollback_lines(10000)
-        scrolled.add(self.terminal)
         
+        # Apply dark mode theme to terminal
+        bg_color = Gdk.RGBA()
+        bg_color.parse("#1c1c1e")
+        fg_color = Gdk.RGBA()
+        fg_color.parse("#f4f4f6")
+        self.terminal.set_colors(fg_color, bg_color, [])
+        
+        scrolled.add(self.terminal)
         main_box.pack_start(scrolled, True, True, 0)
         
         # Button box
@@ -105,6 +122,7 @@ class UpdaterWindow(Gtk.Window):
         
         self.update_button = Gtk.Button(label=self.t['install_updates'])
         self.update_button.set_size_request(180, 40)
+        self.update_button.get_style_context().add_class("update-btn")
         self.update_button.set_sensitive(False)
         self.update_button.connect('clicked', self.on_install_updates)
         button_box.pack_start(self.update_button, False, False, 0)
@@ -123,20 +141,58 @@ class UpdaterWindow(Gtk.Window):
         css_provider = Gtk.CssProvider()
         css = b"""
         window {
-            background-color: #f5f5f7;
+            background-color: #f1f2f6;
         }
         button {
             border-radius: 8px;
-            padding: 8px 16px;
+            padding: 6px 14px;
+            font-size: 13px;
             font-weight: 500;
-            background-image: linear-gradient(to bottom, #ffffff, #f0f0f0);
-            border: 1px solid #d0d0d0;
+            color: #2c3e50;
+            background-color: #ffffff;
+            border: 1px solid #dcdde1;
+            box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
+            transition: all 0.2s ease;
         }
         button:hover {
-            background-image: linear-gradient(to bottom, #ffffff, #e8e8e8);
+            background-color: #f8f9fa;
+            border-color: #b1b2b9;
         }
         button:disabled {
             opacity: 0.5;
+            background-color: #e3e4e9;
+            color: #8e8e93;
+            border-color: #dcdde1;
+        }
+        .update-btn {
+            background-color: #007AFF;
+            color: #ffffff;
+            border: none;
+            border-radius: 8px;
+            font-size: 13px;
+            font-weight: 600;
+            transition: background-color 0.2s ease;
+            box-shadow: 0 2px 6px rgba(0, 122, 255, 0.2);
+        }
+        .update-btn:hover {
+            background-color: #0066d6;
+        }
+        .update-btn:active {
+            background-color: #0051b5;
+        }
+        .update-btn:disabled {
+            background-color: #e3e4e9;
+            color: #8e8e93;
+            border: none;
+            box-shadow: none;
+            opacity: 0.6;
+        }
+        .terminal-card {
+            background-color: #ffffff;
+            border: 1px solid #e3e4e9;
+            border-radius: 10px;
+            padding: 12px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.02);
         }
         """
         css_provider.load_from_data(css)

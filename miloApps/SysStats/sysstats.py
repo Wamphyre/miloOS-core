@@ -12,6 +12,7 @@ import subprocess
 import os
 import locale
 import psutil
+import cairo
 import time
 import re
 from collections import deque
@@ -137,52 +138,72 @@ class SysStatsWindow(Gtk.Window):
         self.set_position(Gtk.WindowPosition.CENTER)
         
         # Network history for graphs
-        self.net_download_history = deque(maxlen=60)
-        self.net_upload_history = deque(maxlen=60)
+        self.net_download_history = deque([0.0] * 60, maxlen=60)
+        self.net_upload_history = deque([0.0] * 60, maxlen=60)
         self.last_net_io = psutil.net_io_counters()
         
         # Disk activity history
-        self.disk_activity_history = deque(maxlen=60)
+        self.disk_activity_history = deque([0.0] * 60, maxlen=60)
         self.last_disk_io = psutil.disk_io_counters()
         
         # Apply miloOS styling
         css_provider = Gtk.CssProvider()
         css_provider.load_from_data(b"""
             window {
-                background-color: #f5f5f5;
+                background-color: #f1f2f6;
             }
             .header-bar {
-                background-color: #ffffff;
-                border-bottom: 1px solid #d0d0d0;
-                padding: 12px;
+                background-color: #f1f2f6;
+                border-bottom: 1px solid #dcdde1;
+                padding: 10px 16px;
+            }
+            .segmented-control {
+                background-color: #e3e4e9;
+                border-radius: 8px;
+                padding: 2px;
+                border: 1px solid #d2d3d8;
             }
             .tab-button {
                 background-color: transparent;
                 border: none;
-                color: #666666;
-                padding: 8px 20px;
+                color: #4a4a4a;
+                padding: 6px 16px;
                 border-radius: 6px;
                 font-size: 13px;
-                margin: 0 4px;
+                font-weight: 500;
+                margin: 0;
+            }
+            .tab-button:hover {
+                background-color: rgba(255, 255, 255, 0.4);
+                color: #111111;
             }
             .tab-button:checked {
-                background-color: #007AFF;
-                color: #ffffff;
+                background-color: #ffffff;
+                color: #111111;
+                box-shadow: 0 1px 3px rgba(0,0,0,0.12), 0 1px 2px rgba(0,0,0,0.08);
             }
             .content-area {
                 background-color: #ffffff;
-                padding: 20px;
-                margin: 20px;
-                border-radius: 8px;
-                border: 1px solid #e0e0e0;
+                padding: 24px;
+                margin: 16px;
+                border-radius: 12px;
+                border: 1px solid #e3e4e9;
+                box-shadow: 0 4px 6px rgba(0, 0, 0, 0.02);
+            }
+            .stat-card {
+                background-color: #f8f9fa;
+                border: 1px solid #e9ecef;
+                border-radius: 10px;
+                padding: 16px;
+                margin: 8px;
             }
             .stat-label {
-                color: #333333;
+                color: #2c3e50;
                 font-size: 13px;
                 font-weight: 600;
             }
             .stat-value {
-                color: #666666;
+                color: #7f8c8d;
                 font-size: 12px;
             }
             .progress-bar {
@@ -199,13 +220,22 @@ class SysStatsWindow(Gtk.Window):
             }
             .process-list {
                 background-color: #ffffff;
+                border: none;
+            }
+            .process-list treeview {
+                background-color: #ffffff;
+                color: #2c3e50;
+            }
+            .process-list treeview:selected {
+                background-color: #007AFF;
+                color: #ffffff;
             }
             .process-header {
-                background-color: #f5f5f5;
-                color: #333333;
+                background-color: #f8f9fa;
+                color: #2c3e50;
                 font-weight: 600;
-                font-size: 11px;
-                padding: 8px;
+                font-size: 12px;
+                border-bottom: 1px solid #e3e4e9;
             }
         """)
         Gtk.StyleContext.add_provider_for_screen(
@@ -242,43 +272,56 @@ class SysStatsWindow(Gtk.Window):
         """Create header with tab buttons"""
         header_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL)
         header_box.get_style_context().add_class("header-bar")
-        header_box.set_halign(Gtk.Align.CENTER)
+        header_box.set_halign(Gtk.Align.FILL)
+        header_box.set_hexpand(True)
+        
+        # Inner segmented control container
+        seg_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL)
+        seg_box.get_style_context().add_class("segmented-control")
+        seg_box.set_halign(Gtk.Align.CENTER)
+        header_box.pack_start(seg_box, True, False, 0)
         
         # Tab buttons
         self.overview_btn = Gtk.RadioButton(label=_('overview'))
+        self.overview_btn.set_mode(False)
         self.overview_btn.get_style_context().add_class("tab-button")
         self.overview_btn.connect("toggled", self.on_tab_changed, "overview")
-        header_box.pack_start(self.overview_btn, False, False, 0)
+        seg_box.pack_start(self.overview_btn, False, False, 0)
         
         self.cpu_btn = Gtk.RadioButton(label=_('cpu'))
         self.cpu_btn.join_group(self.overview_btn)
+        self.cpu_btn.set_mode(False)
         self.cpu_btn.get_style_context().add_class("tab-button")
         self.cpu_btn.connect("toggled", self.on_tab_changed, "cpu")
-        header_box.pack_start(self.cpu_btn, False, False, 0)
+        seg_box.pack_start(self.cpu_btn, False, False, 0)
         
         self.memory_btn = Gtk.RadioButton(label=_('memory'))
         self.memory_btn.join_group(self.overview_btn)
+        self.memory_btn.set_mode(False)
         self.memory_btn.get_style_context().add_class("tab-button")
         self.memory_btn.connect("toggled", self.on_tab_changed, "memory")
-        header_box.pack_start(self.memory_btn, False, False, 0)
+        seg_box.pack_start(self.memory_btn, False, False, 0)
         
         self.disk_btn = Gtk.RadioButton(label=_('disk'))
         self.disk_btn.join_group(self.overview_btn)
+        self.disk_btn.set_mode(False)
         self.disk_btn.get_style_context().add_class("tab-button")
         self.disk_btn.connect("toggled", self.on_tab_changed, "disk")
-        header_box.pack_start(self.disk_btn, False, False, 0)
+        seg_box.pack_start(self.disk_btn, False, False, 0)
         
         self.network_btn = Gtk.RadioButton(label=_('network'))
         self.network_btn.join_group(self.overview_btn)
+        self.network_btn.set_mode(False)
         self.network_btn.get_style_context().add_class("tab-button")
         self.network_btn.connect("toggled", self.on_tab_changed, "network")
-        header_box.pack_start(self.network_btn, False, False, 0)
+        seg_box.pack_start(self.network_btn, False, False, 0)
         
         self.processes_btn = Gtk.RadioButton(label=_('processes'))
         self.processes_btn.join_group(self.overview_btn)
+        self.processes_btn.set_mode(False)
         self.processes_btn.get_style_context().add_class("tab-button")
         self.processes_btn.connect("toggled", self.on_tab_changed, "processes")
-        header_box.pack_start(self.processes_btn, False, False, 0)
+        seg_box.pack_start(self.processes_btn, False, False, 0)
         
         return header_box
     
@@ -405,65 +448,103 @@ class SysStatsWindow(Gtk.Window):
         page = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
         page.get_style_context().add_class("content-area")
         
-        # Get system info
+        # Main layout: horizontal box with two cards
+        cards_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=20)
+        cards_box.set_homogeneous(True)
+        page.pack_start(cards_box, True, True, 0)
+        
         sys_info = self.get_system_info()
         
-        # Create grid for info
-        grid = Gtk.Grid()
-        grid.set_column_spacing(40)
-        grid.set_row_spacing(12)
-        grid.set_halign(Gtk.Align.CENTER)
-        grid.set_valign(Gtk.Align.CENTER)
+        # Left card: System Info
+        left_card = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
+        left_card.get_style_context().add_class("stat-card")
+        cards_box.pack_start(left_card, True, True, 0)
         
-        row = 0
-        
-        # miloOS logo
+        # OS logo
         logo_path = '/usr/share/themes/miloOS/logo.png'
         if os.path.exists(logo_path):
             try:
-                pixbuf = GdkPixbuf.Pixbuf.new_from_file_at_scale(logo_path, 80, 80, True)
+                pixbuf = GdkPixbuf.Pixbuf.new_from_file_at_scale(logo_path, 64, 64, True)
                 logo_image = Gtk.Image.new_from_pixbuf(pixbuf)
-                logo_image.set_margin_bottom(20)
-                grid.attach(logo_image, 0, row, 2, 1)
-                row += 1
+                logo_image.set_alignment(0.5, 0.5)
+                left_card.pack_start(logo_image, False, False, 10)
             except:
                 pass
+                
+        left_title = Gtk.Label()
+        left_title.set_markup(f"<span size='12000' weight='bold'>{_('system_info')}</span>")
+        left_title.set_alignment(0.5, 0.5)
+        left_card.pack_start(left_title, False, False, 10)
         
-        # System info section
-        title = Gtk.Label()
-        title.set_markup(f"<span size='14000' weight='bold'>{_('system_info')}</span>")
-        grid.attach(title, 0, row, 2, 1)
-        row += 1
-        
-        info_items = [
+        system_items = [
             (_('milos_version'), sys_info['os']),
             (_('kernel'), sys_info['kernel']),
             (_('desktop_env'), sys_info['desktop']),
             (_('xfce_version'), sys_info.get('xfce_version', 'N/A')),
-            (_('gtk_version'), sys_info.get('gtk_version', 'N/A')),
-            (_('window_system'), sys_info.get('window_system', 'N/A')),
-            (_('gpu'), sys_info.get('gpu', 'N/A')),
-            (_('processor'), sys_info.get('cpu', 'N/A')),
-            (_('total_memory'), sys_info.get('ram', 'N/A')),
-            (_('packages'), sys_info['packages']),
             (_('uptime'), sys_info['uptime'])
         ]
         
-        for label_text, value_text in info_items:
+        sys_grid = Gtk.Grid()
+        sys_grid.set_column_spacing(15)
+        sys_grid.set_row_spacing(8)
+        sys_grid.set_halign(Gtk.Align.CENTER)
+        left_card.pack_start(sys_grid, False, False, 0)
+        
+        for r, (label_text, value_text) in enumerate(system_items):
             label = Gtk.Label()
             label.set_markup(f"<b>{label_text}:</b>")
             label.set_halign(Gtk.Align.END)
-            label.set_valign(Gtk.Align.START)
-            grid.attach(label, 0, row, 1, 1)
+            sys_grid.attach(label, 0, r, 1, 1)
+            
+            value = Gtk.Label(label=value_text)
+            value.set_halign(Gtk.Align.START)
+            sys_grid.attach(value, 1, r, 1, 1)
+            
+        # Right card: Hardware Specifications
+        right_card = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
+        right_card.get_style_context().add_class("stat-card")
+        cards_box.pack_start(right_card, True, True, 0)
+        
+        # Hardware Icon
+        try:
+            icon_theme = Gtk.IconTheme.get_default()
+            pixbuf = icon_theme.load_icon("computer", 64, Gtk.IconLookupFlags.FORCE_SIZE)
+            hw_image = Gtk.Image.new_from_pixbuf(pixbuf)
+            right_card.pack_start(hw_image, False, False, 10)
+        except:
+            pass
+            
+        right_title = Gtk.Label()
+        right_title.set_markup(f"<span size='12000' weight='bold'>Hardware</span>")
+        right_title.set_alignment(0.5, 0.5)
+        right_card.pack_start(right_title, False, False, 10)
+        
+        hardware_items = [
+            (_('processor'), sys_info.get('cpu', 'N/A')),
+            (_('gpu'), sys_info.get('gpu', 'N/A')),
+            (_('total_memory'), sys_info.get('ram', 'N/A')),
+            (_('packages'), sys_info['packages']),
+            (_('window_system'), sys_info.get('window_system', 'N/A'))
+        ]
+        
+        hw_grid = Gtk.Grid()
+        hw_grid.set_column_spacing(15)
+        hw_grid.set_row_spacing(8)
+        hw_grid.set_halign(Gtk.Align.CENTER)
+        right_card.pack_start(hw_grid, False, False, 0)
+        
+        for r, (label_text, value_text) in enumerate(hardware_items):
+            label = Gtk.Label()
+            label.set_markup(f"<b>{label_text}:</b>")
+            label.set_halign(Gtk.Align.END)
+            hw_grid.attach(label, 0, r, 1, 1)
             
             value = Gtk.Label(label=value_text)
             value.set_halign(Gtk.Align.START)
             value.set_line_wrap(True)
-            value.set_max_width_chars(50)
-            grid.attach(value, 1, row, 1, 1)
-            row += 1
-        
-        page.pack_start(grid, True, True, 0)
+            value.set_max_width_chars(30)
+            hw_grid.attach(value, 1, r, 1, 1)
+            
         self.content_stack.add_named(page, "overview")
     
     def get_cpu_name(self):
@@ -477,6 +558,15 @@ class SysStatsWindow(Gtk.Window):
             pass
         return 'Unknown CPU'
     
+    def draw_rounded_rect(self, cr, x, y, w, h, r):
+        """Draw a rounded rectangle in Cairo"""
+        cr.new_sub_path()
+        cr.arc(x + r, y + r, r, 3.14159, 4.712388)
+        cr.arc(x + w - r, y + r, r, 4.712388, 0)
+        cr.arc(x + w - r, y + h - r, r, 0, 1.570796)
+        cr.arc(x + r, y + h - r, r, 1.570796, 3.14159)
+        cr.close_path()
+
     def draw_cpu_core(self, widget, cr, core_index):
         """Draw CPU core usage square"""
         width = widget.get_allocated_width()
@@ -485,29 +575,34 @@ class SysStatsWindow(Gtk.Window):
         # Get usage for this core
         usage = self.cpu_core_widgets[core_index]['usage'] if core_index < len(self.cpu_core_widgets) else 0
         
-        # Background
-        cr.set_source_rgb(0.9, 0.9, 0.9)
-        cr.rectangle(0, 0, width, height)
+        # Background: light gray rounded rectangle
+        cr.set_source_rgb(0.92, 0.92, 0.94) # #E5E5EA
+        self.draw_rounded_rect(cr, 2, 2, width - 4, height - 4, 8)
         cr.fill()
         
         # Usage fill (from bottom)
-        fill_height = height * (usage / 100.0)
-        
-        # Color based on usage
-        if usage < 50:
-            cr.set_source_rgb(0.2, 0.78, 0.35)  # Green
-        elif usage < 80:
-            cr.set_source_rgb(1.0, 0.77, 0.25)  # Orange
-        else:
-            cr.set_source_rgb(0.78, 0.15, 0.18)  # Red
-        
-        cr.rectangle(0, height - fill_height, width, fill_height)
-        cr.fill()
-        
-        # Border
-        cr.set_source_rgb(0.7, 0.7, 0.7)
+        fill_height = (height - 4) * (usage / 100.0)
+        if fill_height > 0:
+            cr.save()
+            self.draw_rounded_rect(cr, 2, 2, width - 4, height - 4, 8)
+            cr.clip()
+            
+            # Select color based on load
+            if usage < 50:
+                cr.set_source_rgb(0.20, 0.78, 0.35)  # Apple Green
+            elif usage < 80:
+                cr.set_source_rgb(1.0, 0.58, 0.0)   # Apple Orange
+            else:
+                cr.set_source_rgb(1.0, 0.23, 0.18)  # Apple Red
+                
+            cr.rectangle(2, height - 2 - fill_height, width - 4, fill_height)
+            cr.fill()
+            cr.restore()
+            
+        # Draw a very subtle outline
+        cr.set_source_rgba(0.0, 0.0, 0.0, 0.08)
         cr.set_line_width(1)
-        cr.rectangle(0, 0, width, height)
+        self.draw_rounded_rect(cr, 2, 2, width - 4, height - 4, 8)
         cr.stroke()
         
         return False
@@ -774,7 +869,8 @@ class SysStatsWindow(Gtk.Window):
         page = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=20)
         page.get_style_context().add_class("content-area")
         
-        mem_info = self.get_memory_info()
+        self.mem_info = self.get_memory_info()
+        mem_info = self.mem_info
         
         # Memory modules visualization (squares)
         modules_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
@@ -901,42 +997,107 @@ class SysStatsWindow(Gtk.Window):
         width = widget.get_allocated_width()
         height = widget.get_allocated_height()
         
-        # Get overall memory usage (same for all modules since we can't get per-module usage)
+        # Helper to parse size string to bytes
+        def parse_size_to_bytes(size_str):
+            try:
+                parts = size_str.strip().split()
+                if len(parts) < 2:
+                    return 0
+                value = float(parts[0])
+                unit = parts[1].upper()
+                if 'KB' in unit:
+                    return value * 1024
+                elif 'MB' in unit:
+                    return value * 1024**2
+                elif 'GB' in unit:
+                    return value * 1024**3
+                elif 'TB' in unit:
+                    return value * 1024**4
+                return value
+            except:
+                return 0
+
+        # Get overall memory usage
         mem = psutil.virtual_memory()
-        usage = mem.percent
+        used_bytes = mem.used
         
-        # Background
-        cr.set_source_rgb(0.9, 0.9, 0.9)
-        cr.rectangle(0, 0, width, height)
-        cr.fill()
+        # Retrieve cached memory info
+        mem_info = getattr(self, 'mem_info', None)
+        if not mem_info:
+            self.mem_info = self.get_memory_info()
+            mem_info = self.mem_info
+            
+        modules = mem_info.get('modules', [])
         
-        # Usage fill (from bottom)
-        fill_height = height * (usage / 100.0)
-        
-        # Color based on usage
-        if usage < 50:
-            cr.set_source_rgb(0.2, 0.78, 0.35)  # Green
-        elif usage < 80:
-            cr.set_source_rgb(1.0, 0.77, 0.25)  # Orange
+        # Calculate individual module usage using sequential fill
+        if not modules or module_index >= len(modules):
+            usage = mem.percent
         else:
-            cr.set_source_rgb(0.78, 0.15, 0.18)  # Red
+            module_sizes = []
+            for m in modules:
+                sz = parse_size_to_bytes(m.get('size', ''))
+                module_sizes.append(sz if sz > 0 else 8 * 1024**3) # Fallback to 8GB
+                
+            accumulated = sum(module_sizes[:module_index])
+            current_capacity = module_sizes[module_index]
+            used_in_this_module = max(0, min(current_capacity, used_bytes - accumulated))
+            usage = (used_in_this_module / current_capacity) * 100.0
         
-        cr.rectangle(0, height - fill_height, width, fill_height)
+        # Outer card (RAM module container)
+        cr.set_source_rgb(0.95, 0.95, 0.97) # #F2F2F7
+        self.draw_rounded_rect(cr, 4, 4, width - 8, height - 8, 10)
         cr.fill()
         
-        # Border
-        cr.set_source_rgb(0.7, 0.7, 0.7)
+        # Subtle border
+        cr.set_source_rgba(0.0, 0.0, 0.0, 0.08)
+        cr.set_line_width(1.5)
+        self.draw_rounded_rect(cr, 4, 4, width - 8, height - 8, 10)
+        cr.stroke()
+        
+        # Draw physical RAM stick pins at the bottom
+        cr.set_source_rgb(0.82, 0.82, 0.84)
+        cr.set_line_width(2)
+        cr.move_to(12, height - 10)
+        cr.line_to(width - 12, height - 10)
+        cr.stroke()
+        
+        # Notch in the middle of pins
+        cr.set_source_rgb(0.95, 0.95, 0.97)
+        cr.arc(width / 2, height - 10, 3, 0, 2 * 3.14159)
+        cr.fill()
+        
+        # Inner usage fill (vertical fill)
+        fill_height = (height - 24) * (usage / 100.0)
+        if fill_height > 0:
+            cr.save()
+            self.draw_rounded_rect(cr, 8, 8, width - 16, height - 24, 6)
+            cr.clip()
+            
+            # Select color based on load
+            if usage < 50:
+                cr.set_source_rgb(0.20, 0.78, 0.35)  # Green
+            elif usage < 80:
+                cr.set_source_rgb(1.0, 0.58, 0.0)   # Orange
+            else:
+                cr.set_source_rgb(1.0, 0.23, 0.18)  # Red
+                
+            cr.rectangle(8, height - 16 - fill_height, width - 16, fill_height)
+            cr.fill()
+            cr.restore()
+            
+        # Draw a clean inner border for the fill container
+        cr.set_source_rgba(0.0, 0.0, 0.0, 0.05)
         cr.set_line_width(1)
-        cr.rectangle(0, 0, width, height)
+        self.draw_rounded_rect(cr, 8, 8, width - 16, height - 24, 6)
         cr.stroke()
         
         # Draw percentage text
-        cr.set_source_rgb(0.2, 0.2, 0.2)
+        cr.set_source_rgb(0.1, 0.1, 0.1)
         cr.select_font_face("Sans", 0, 1)
-        cr.set_font_size(14)
+        cr.set_font_size(13)
         text = f"{usage:.0f}%"
         extents = cr.text_extents(text)
-        cr.move_to((width - extents.width) / 2, (height + extents.height) / 2)
+        cr.move_to((width - extents.width) / 2, 28)
         cr.show_text(text)
         
         return False
@@ -1133,45 +1294,47 @@ class SysStatsWindow(Gtk.Window):
         self.content_stack.add_named(page, "disk")
     
     def draw_disk(self, widget, cr, disk_index):
-        """Draw disk usage square"""
+        """Draw disk usage radial ring"""
         width = widget.get_allocated_width()
         height = widget.get_allocated_height()
         
         # Get usage for this disk
         usage = self.disk_widgets[disk_index]['usage'] if disk_index < len(self.disk_widgets) else 0
         
-        # Background
-        cr.set_source_rgb(0.9, 0.9, 0.9)
-        cr.rectangle(0, 0, width, height)
-        cr.fill()
+        cx = width / 2
+        cy = height / 2
+        radius = min(width, height) / 2 - 12
         
-        # Usage fill (from bottom)
-        fill_height = height * (usage / 100.0)
+        cr.set_antialias(1)
         
-        # Color based on usage
-        if usage < 50:
-            cr.set_source_rgb(0.2, 0.78, 0.35)  # Green
-        elif usage < 80:
-            cr.set_source_rgb(1.0, 0.77, 0.25)  # Orange
-        else:
-            cr.set_source_rgb(0.78, 0.15, 0.18)  # Red
-        
-        cr.rectangle(0, height - fill_height, width, fill_height)
-        cr.fill()
-        
-        # Border
-        cr.set_source_rgb(0.7, 0.7, 0.7)
-        cr.set_line_width(1)
-        cr.rectangle(0, 0, width, height)
+        # Background track
+        cr.set_source_rgb(0.92, 0.92, 0.94)
+        cr.set_line_width(8)
+        cr.arc(cx, cy, radius, 0, 2 * 3.14159)
         cr.stroke()
         
-        # Draw percentage text
-        cr.set_source_rgb(0.2, 0.2, 0.2)
+        # Active progress arc
+        if usage > 0:
+            if usage < 50:
+                cr.set_source_rgb(0.20, 0.78, 0.35)  # Green
+            elif usage < 80:
+                cr.set_source_rgb(1.0, 0.58, 0.0)   # Orange
+            else:
+                cr.set_source_rgb(1.0, 0.23, 0.18)  # Red
+                
+            cr.set_line_width(8)
+            start_angle = -1.570796
+            end_angle = start_angle + (2 * 3.14159 * (usage / 100.0))
+            cr.arc(cx, cy, radius, start_angle, end_angle)
+            cr.stroke()
+            
+        # Draw percentage text in the center
+        cr.set_source_rgb(0.1, 0.1, 0.1)
         cr.select_font_face("Sans", 0, 1)
-        cr.set_font_size(16)
+        cr.set_font_size(14)
         text = f"{usage:.0f}%"
         extents = cr.text_extents(text)
-        cr.move_to((width - extents.width) / 2, (height + extents.height) / 2)
+        cr.move_to(cx - extents.width / 2, cy + extents.height / 2)
         cr.show_text(text)
         
         return False
@@ -1181,13 +1344,20 @@ class SysStatsWindow(Gtk.Window):
         width = widget.get_allocated_width()
         height = widget.get_allocated_height()
         
-        # Background
-        cr.set_source_rgb(0.96, 0.96, 0.96)
-        cr.rectangle(0, 0, width, height)
+        # Background: soft clean white
+        cr.set_source_rgb(0.98, 0.98, 0.99)
+        self.draw_rounded_rect(cr, 1, 1, width - 2, height - 2, 8)
         cr.fill()
+        
+        # Border
+        cr.set_source_rgba(0.0, 0.0, 0.0, 0.06)
+        cr.set_line_width(1)
+        self.draw_rounded_rect(cr, 1, 1, width - 2, height - 2, 8)
+        cr.stroke()
         
         # Get data
         data = list(self.disk_activity_history)
+        line_color = (0.69, 0.32, 0.87) # #AF52DE (Apple Purple)
         
         if not data or len(data) < 2:
             return False
@@ -1195,42 +1365,49 @@ class SysStatsWindow(Gtk.Window):
         # Find max value for scaling
         max_val = max(data) if max(data) > 0 else 1
         
-        # Draw grid lines
-        cr.set_source_rgb(0.9, 0.9, 0.9)
+        # Draw fine grid lines
+        cr.set_source_rgba(0.0, 0.0, 0.0, 0.03)
         cr.set_line_width(1)
-        for i in range(5):
+        for i in range(1, 4):
             y = height * i / 4
-            cr.move_to(0, y)
-            cr.line_to(width, y)
+            cr.move_to(4, y)
+            cr.line_to(width - 4, y)
             cr.stroke()
-        
-        # Draw graph line
-        cr.set_source_rgb(0.6, 0.4, 0.8)  # Purple color
-        cr.set_line_width(2)
-        
-        step = width / (len(data) - 1)
-        for i, value in enumerate(data):
-            x = i * step
-            y = height - (value / max_val * height * 0.9)
             
+        # Draw graph line
+        cr.set_antialias(1)
+        cr.save()
+        self.draw_rounded_rect(cr, 2, 2, width - 4, height - 4, 6)
+        cr.clip()
+        
+        # Fill area under curve with gradient
+        pat = cairo.LinearGradient(0.0, 0.0, 0.0, float(height))
+        pat.add_color_stop_rgba(0, line_color[0], line_color[1], line_color[2], 0.25)
+        pat.add_color_stop_rgba(1, line_color[0], line_color[1], line_color[2], 0.0)
+        
+        step = (width - 4) / (len(data) - 1)
+        cr.move_to(2, height - 2)
+        for i, value in enumerate(data):
+            x = 2 + i * step
+            y = height - 2 - (value / max_val * (height - 8))
+            cr.line_to(x, y)
+        cr.line_to(width - 2, height - 2)
+        cr.close_path()
+        cr.set_source(pat)
+        cr.fill()
+        
+        # Draw line
+        cr.set_source_rgb(line_color[0], line_color[1], line_color[2])
+        cr.set_line_width(1.8)
+        for i, value in enumerate(data):
+            x = 2 + i * step
+            y = height - 2 - (value / max_val * (height - 8))
             if i == 0:
                 cr.move_to(x, y)
             else:
                 cr.line_to(x, y)
-        
         cr.stroke()
-        
-        # Fill area under curve
-        cr.set_source_rgba(0.6, 0.4, 0.8, 0.2)
-        step = width / (len(data) - 1)
-        cr.move_to(0, height)
-        for i, value in enumerate(data):
-            x = i * step
-            y = height - (value / max_val * height * 0.9)
-            cr.line_to(x, y)
-        cr.line_to(width, height)
-        cr.close_path()
-        cr.fill()
+        cr.restore()
         
         return False
     
@@ -1360,16 +1537,24 @@ class SysStatsWindow(Gtk.Window):
         width = widget.get_allocated_width()
         height = widget.get_allocated_height()
         
-        # Background
-        cr.set_source_rgb(0.96, 0.96, 0.96)
-        cr.rectangle(0, 0, width, height)
+        # Background: soft clean white
+        cr.set_source_rgb(0.98, 0.98, 0.99)
+        self.draw_rounded_rect(cr, 1, 1, width - 2, height - 2, 8)
         cr.fill()
+        
+        # Border
+        cr.set_source_rgba(0.0, 0.0, 0.0, 0.06)
+        cr.set_line_width(1)
+        self.draw_rounded_rect(cr, 1, 1, width - 2, height - 2, 8)
+        cr.stroke()
         
         # Get data
         if graph_type == 'download':
             data = list(self.net_download_history)
+            line_color = (0.0, 0.48, 1.0) # #007AFF
         else:
             data = list(self.net_upload_history)
+            line_color = (1.0, 0.58, 0.0) # #FF9500
         
         if not data or len(data) < 2:
             return False
@@ -1377,42 +1562,49 @@ class SysStatsWindow(Gtk.Window):
         # Find max value for scaling
         max_val = max(data) if max(data) > 0 else 1
         
-        # Draw grid lines
-        cr.set_source_rgb(0.9, 0.9, 0.9)
+        # Draw fine grid lines
+        cr.set_source_rgba(0.0, 0.0, 0.0, 0.03)
         cr.set_line_width(1)
-        for i in range(5):
+        for i in range(1, 4):
             y = height * i / 4
-            cr.move_to(0, y)
-            cr.line_to(width, y)
+            cr.move_to(4, y)
+            cr.line_to(width - 4, y)
             cr.stroke()
-        
-        # Draw graph line
-        cr.set_source_rgb(0.0, 0.48, 1.0)  # Blue color
-        cr.set_line_width(2)
-        
-        step = width / (len(data) - 1)
-        for i, value in enumerate(data):
-            x = i * step
-            y = height - (value / max_val * height * 0.9)
             
+        # Draw graph line
+        cr.set_antialias(1)
+        cr.save()
+        self.draw_rounded_rect(cr, 2, 2, width - 4, height - 4, 6)
+        cr.clip()
+        
+        # Fill area under curve with gradient
+        pat = cairo.LinearGradient(0.0, 0.0, 0.0, float(height))
+        pat.add_color_stop_rgba(0, line_color[0], line_color[1], line_color[2], 0.25)
+        pat.add_color_stop_rgba(1, line_color[0], line_color[1], line_color[2], 0.0)
+        
+        step = (width - 4) / (len(data) - 1)
+        cr.move_to(2, height - 2)
+        for i, value in enumerate(data):
+            x = 2 + i * step
+            y = height - 2 - (value / max_val * (height - 8))
+            cr.line_to(x, y)
+        cr.line_to(width - 2, height - 2)
+        cr.close_path()
+        cr.set_source(pat)
+        cr.fill()
+        
+        # Draw line
+        cr.set_source_rgb(line_color[0], line_color[1], line_color[2])
+        cr.set_line_width(1.8)
+        for i, value in enumerate(data):
+            x = 2 + i * step
+            y = height - 2 - (value / max_val * (height - 8))
             if i == 0:
                 cr.move_to(x, y)
             else:
                 cr.line_to(x, y)
-        
         cr.stroke()
-        
-        # Fill area under curve
-        cr.set_source_rgba(0.0, 0.48, 1.0, 0.2)
-        step = width / (len(data) - 1)
-        cr.move_to(0, height)
-        for i, value in enumerate(data):
-            x = i * step
-            y = height - (value / max_val * height * 0.9)
-            cr.line_to(x, y)
-        cr.line_to(width, height)
-        cr.close_path()
-        cr.fill()
+        cr.restore()
         
         return False
     
@@ -1460,8 +1652,45 @@ class SysStatsWindow(Gtk.Window):
         value = model.get_value(iter, col_id)
         cell.set_property('text', f'{value:.1f}%')
     
+    def update_network_history(self):
+        """Update network IO history in the background"""
+        try:
+            net_io = psutil.net_io_counters()
+            if net_io and self.last_net_io:
+                time_delta = 1.0
+                download_speed = (net_io.bytes_recv - self.last_net_io.bytes_recv) / time_delta
+                upload_speed = (net_io.bytes_sent - self.last_net_io.bytes_sent) / time_delta
+                
+                # Prevent negative speeds (e.g. counter resets)
+                download_speed = max(0.0, download_speed)
+                upload_speed = max(0.0, upload_speed)
+                
+                self.net_download_history.append(download_speed)
+                self.net_upload_history.append(upload_speed)
+            self.last_net_io = net_io
+        except Exception as e:
+            print(f"Error updating network history: {e}")
+
+    def update_disk_history(self):
+        """Update disk IO history in the background"""
+        try:
+            disk_io = psutil.disk_io_counters()
+            if disk_io and self.last_disk_io:
+                time_delta = 1.0
+                read_speed = (disk_io.read_bytes - self.last_disk_io.read_bytes) / time_delta
+                write_speed = (disk_io.write_bytes - self.last_disk_io.write_bytes) / time_delta
+                total_speed = max(0.0, read_speed + write_speed)
+                
+                self.disk_activity_history.append(total_speed)
+            self.last_disk_io = disk_io
+        except Exception as e:
+            print(f"Error updating disk history: {e}")
+
     def update_stats(self):
         """Update all statistics"""
+        self.update_network_history()
+        self.update_disk_history()
+        
         visible_page = self.content_stack.get_visible_child_name()
         
         if visible_page == "cpu":
@@ -1524,27 +1753,18 @@ class SysStatsWindow(Gtk.Window):
             summary = f"{total_text}  |  {used_text}  |  {free_text}"
             self.disk_summary_label.set_text(summary)
         
-        # Update disk activity
+        # Update disk activity UI
         if hasattr(self, 'disk_activity_graph'):
-            disk_io = psutil.disk_io_counters()
-            if disk_io and self.last_disk_io:
-                # Calculate bytes per second
-                time_delta = 1.0
-                read_speed = (disk_io.read_bytes - self.last_disk_io.read_bytes) / time_delta
-                write_speed = (disk_io.write_bytes - self.last_disk_io.write_bytes) / time_delta
-                total_speed = read_speed + write_speed
+            if self.disk_activity_history:
+                total_speed = self.disk_activity_history[-1]
+            else:
+                total_speed = 0.0
                 
-                # Update history
-                self.disk_activity_history.append(total_speed)
-                
-                # Update label
-                self.disk_activity_label.set_text(f"{format_bytes(total_speed)}/s")
-                
-                # Redraw graph
-                self.disk_activity_graph.queue_draw()
-                
-                # Save current values
-                self.last_disk_io = disk_io
+            # Update label
+            self.disk_activity_label.set_text(f"{format_bytes(total_speed)}/s")
+            
+            # Redraw graph
+            self.disk_activity_graph.queue_draw()
     
     def update_cpu_stats(self):
         """Update CPU statistics"""
@@ -1576,16 +1796,12 @@ class SysStatsWindow(Gtk.Window):
     
     def update_network_stats(self):
         """Update network statistics with graphs"""
-        net_io = psutil.net_io_counters()
-        
-        # Calculate speed (bytes per second)
-        time_delta = 1.0  # 1 second update interval
-        download_speed = (net_io.bytes_recv - self.last_net_io.bytes_recv) / time_delta
-        upload_speed = (net_io.bytes_sent - self.last_net_io.bytes_sent) / time_delta
-        
-        # Update history
-        self.net_download_history.append(download_speed)
-        self.net_upload_history.append(upload_speed)
+        if self.net_download_history:
+            download_speed = self.net_download_history[-1]
+            upload_speed = self.net_upload_history[-1]
+        else:
+            download_speed = 0.0
+            upload_speed = 0.0
         
         # Update labels
         self.download_speed_label.set_text(f"{format_bytes(download_speed)}/s")
@@ -1594,9 +1810,6 @@ class SysStatsWindow(Gtk.Window):
         # Redraw graphs
         self.download_graph.queue_draw()
         self.upload_graph.queue_draw()
-        
-        # Save current values
-        self.last_net_io = net_io
     
     def update_processes(self):
         """Update process list"""

@@ -96,98 +96,134 @@ class AudioConfigWindow(Gtk.Window):
         css_provider = Gtk.CssProvider()
         css_provider.load_from_data(b"""
             window {
-                background-color: #f5f5f5;
+                background-color: #f1f2f6;
             }
             .device-sidebar {
-                background-color: #ffffff;
-                border-right: 1px solid #d0d0d0;
+                background-color: #f1f2f6;
+                border-right: 1px solid #dcdde1;
             }
             .device-list {
-                background-color: #ffffff;
+                background-color: transparent;
             }
             .device-row {
-                padding: 12px;
-                border-radius: 6px;
-                color: #333333;
-                min-height: 50px;
+                background-color: #ffffff;
+                border-radius: 8px;
+                color: #2c3e50;
+                margin: 6px 12px;
+                border: 1px solid #e3e4e9;
+                box-shadow: 0 1px 3px rgba(0, 0, 0, 0.02);
             }
             .device-row:hover {
-                background-color: #f0f0f0;
+                background-color: #fafbfc;
+                border-color: #dcdde1;
             }
             .device-row:selected {
                 background-color: #007AFF;
                 color: #ffffff;
-            }
-            .device-row:selected .device-sublabel {
-                color: rgba(255, 255, 255, 0.8);
-            }
-            .device-icon {
-                font-size: 32px;
-                margin-right: 12px;
-            }
-            .device-label {
-                color: #333333;
-                font-size: 13px;
+                border-color: #0066d6;
+                box-shadow: 0 2px 8px rgba(0, 122, 255, 0.2);
             }
             .device-row:selected .device-label {
                 color: #ffffff;
             }
+            .device-row:selected .device-sublabel {
+                color: rgba(255, 255, 255, 0.85);
+            }
+            .device-icon {
+                font-size: 24px;
+                margin-right: 12px;
+            }
+            .device-label {
+                color: #2c3e50;
+                font-size: 13px;
+                font-weight: 600;
+            }
             .device-sublabel {
-                color: #666666;
+                color: #7f8c8d;
                 font-size: 11px;
             }
             .detail-panel {
-                background-color: #f5f5f5;
-                padding: 20px;
+                background-color: #ffffff;
+                padding: 24px;
+                margin: 16px;
+                border-radius: 12px;
+                border: 1px solid #e3e4e9;
+                box-shadow: 0 4px 6px rgba(0, 0, 0, 0.02);
+            }
+            .detail-panel scrolledwindow {
+                background-color: transparent;
+            }
+            .detail-panel viewport {
+                background-color: transparent;
             }
             .section-title {
-                color: #333333;
-                font-size: 20px;
-                font-weight: 600;
+                color: #2c3e50;
+                font-size: 18px;
+                font-weight: 700;
                 margin-bottom: 20px;
             }
             .tabs {
-                background-color: #e8e8e8;
-                border-radius: 6px;
-                padding: 4px;
+                background-color: #e3e4e9;
+                border-radius: 8px;
+                padding: 2px;
+                border: 1px solid #d2d3d8;
             }
             .tab-button {
                 background-color: transparent;
                 border: none;
-                color: #666666;
+                color: #4a4a4a;
                 padding: 6px 16px;
-                border-radius: 4px;
-                font-size: 12px;
+                border-radius: 6px;
+                font-size: 13px;
+                font-weight: 500;
+                margin: 0;
+            }
+            .tab-button:hover {
+                background-color: rgba(255, 255, 255, 0.4);
+                color: #111111;
             }
             .tab-button:checked {
                 background-color: #ffffff;
-                color: #333333;
-                box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+                color: #111111;
+                box-shadow: 0 1px 3px rgba(0,0,0,0.12), 0 1px 2px rgba(0,0,0,0.08);
             }
             .info-label {
-                color: #666666;
-                font-size: 12px;
+                color: #2c3e50;
+                font-size: 13px;
+                font-weight: 600;
                 min-width: 150px;
             }
             .info-combo {
                 background-color: #ffffff;
-                color: #333333;
-                border: 1px solid #d0d0d0;
-                border-radius: 6px;
+                color: #2c3e50;
+                border: 1px solid #dcdde1;
+                border-radius: 8px;
                 padding: 6px 12px;
                 min-width: 300px;
+                font-size: 13px;
+            }
+            .info-combo:hover {
+                border-color: #b1b2b9;
             }
             .apply-button {
                 background-color: #007AFF;
                 color: #ffffff;
                 border: none;
-                border-radius: 6px;
+                border-radius: 8px;
                 padding: 8px 24px;
                 font-size: 13px;
                 font-weight: 500;
+                transition: background-color 0.2s ease;
             }
             .apply-button:hover {
-                background-color: #0051D5;
+                background-color: #0066d6;
+            }
+            .apply-button:active {
+                background-color: #0051b5;
+            }
+            paned > separator {
+                background-color: #dcdde1;
+                min-width: 1px;
             }
         """)
         Gtk.StyleContext.add_provider_for_screen(
@@ -499,11 +535,13 @@ class AudioConfigWindow(Gtk.Window):
         tabs_box.set_margin_bottom(20)
         
         input_btn = Gtk.RadioButton(label=_('input'))
+        input_btn.set_mode(False)
         input_btn.get_style_context().add_class("tab-button")
         tabs_box.pack_start(input_btn, False, False, 0)
         
         output_btn = Gtk.RadioButton(label=_('output'))
         output_btn.join_group(input_btn)
+        output_btn.set_mode(False)
         output_btn.get_style_context().add_class("tab-button")
         
         # Set active tab based on device type
