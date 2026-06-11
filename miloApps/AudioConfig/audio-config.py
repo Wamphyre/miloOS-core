@@ -683,7 +683,7 @@ context.properties = {{
     default.clock.rate          = {rate}
     default.clock.quantum       = {buffer}
     default.clock.min-quantum   = {buffer}
-    default.clock.max-quantum   = 2048
+    default.clock.max-quantum   = {buffer}
 }}
 
 context.modules = [
@@ -713,10 +713,33 @@ jack.properties = {{
     jack.short-name = true
 }}
 """
-            
             with open(jack_config_path, 'w') as f:
                 f.write(jack_config_content)
             
+            # Create WirePlumber configuration
+            wp_config_dir = os.path.expanduser("~/.config/wireplumber/wireplumber.conf.d")
+            os.makedirs(wp_config_dir, exist_ok=True)
+            wp_config_path = os.path.join(wp_config_dir, "99-custom.conf")
+            wp_config_content = f"""monitor.alsa.rules = [
+  {{
+    matches = [
+      {{
+        node.name = "~alsa_output.*"
+      }}
+      {{
+        node.name = "~alsa_input.*"
+      }}
+    ]
+    actions = {{
+      update-props = {{
+        api.alsa.period-size = {buffer}
+      }}
+    }}
+  }}
+]
+"""
+            with open(wp_config_path, 'w') as f:
+                f.write(wp_config_content)
 
             # Save configuration to a JSON file for persistence
             config_file = os.path.expanduser("~/.config/pipewire/audioconfig-settings.json")
@@ -745,8 +768,8 @@ jack.properties = {{
             device.current_rate = rate
             device.current_format = audio_format
             
-            # Restart PipeWire services
-            subprocess.run(['systemctl', '--user', 'restart', 'pipewire'], 
+            # Restart PipeWire and WirePlumber services
+            subprocess.run(['systemctl', '--user', 'restart', 'pipewire', 'wireplumber'], 
                          capture_output=True)
             subprocess.run(['systemctl', '--user', 'restart', 'pipewire-pulse'], 
                          capture_output=True)
