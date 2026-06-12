@@ -138,33 +138,49 @@ class UpdaterWindow(Gtk.Window):
         
     def apply_css(self):
         """Apply custom CSS styling"""
+        settings = Gtk.Settings.get_default()
+        theme_name = settings.get_property("gtk-theme-name")
+        is_dark = (theme_name == "miloOS-Dark")
+        
+        bg_window = "#1e1e1e" if is_dark else "#f1f2f6"
+        bg_button = "#2b2b2b" if is_dark else "#ffffff"
+        text_button = "#f5f6fa" if is_dark else "#2c3e50"
+        border_button = "#3d3d3d" if is_dark else "#dcdde1"
+        bg_button_hover = "#353535" if is_dark else "#f8f9fa"
+        border_button_hover = "#4a4a4a" if is_dark else "#b1b2b9"
+        bg_button_disabled = "#1e1e1e" if is_dark else "#e3e4e9"
+        text_button_disabled = "#555555" if is_dark else "#8e8e93"
+        border_button_disabled = "#2d2d2d" if is_dark else "#dcdde1"
+        bg_terminal_card = "#2b2b2b" if is_dark else "#ffffff"
+        border_terminal_card = "#3d3d3d" if is_dark else "#e3e4e9"
+
         css_provider = Gtk.CssProvider()
-        css = b"""
-        window {
-            background-color: #f1f2f6;
-        }
-        button {
+        css = f"""
+        window {{
+            background-color: {bg_window};
+        }}
+        button {{
             border-radius: 8px;
             padding: 6px 14px;
             font-size: 13px;
             font-weight: 500;
-            color: #2c3e50;
-            background-color: #ffffff;
-            border: 1px solid #dcdde1;
+            color: {text_button};
+            background-color: {bg_button};
+            border: 1px solid {border_button};
             box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
             transition: all 0.2s ease;
-        }
-        button:hover {
-            background-color: #f8f9fa;
-            border-color: #b1b2b9;
-        }
-        button:disabled {
+        }}
+        button:hover {{
+            background-color: {bg_button_hover};
+            border-color: {border_button_hover};
+        }}
+        button:disabled {{
             opacity: 0.5;
-            background-color: #e3e4e9;
-            color: #8e8e93;
-            border-color: #dcdde1;
-        }
-        .update-btn {
+            background-color: {bg_button_disabled};
+            color: {text_button_disabled};
+            border-color: {border_button_disabled};
+        }}
+        .update-btn {{
             background-color: #007AFF;
             color: #ffffff;
             border: none;
@@ -173,29 +189,29 @@ class UpdaterWindow(Gtk.Window):
             font-weight: 600;
             transition: background-color 0.2s ease;
             box-shadow: 0 2px 6px rgba(0, 122, 255, 0.2);
-        }
-        .update-btn:hover {
+        }}
+        .update-btn:hover {{
             background-color: #0066d6;
-        }
-        .update-btn:active {
+        }}
+        .update-btn:active {{
             background-color: #0051b5;
-        }
-        .update-btn:disabled {
-            background-color: #e3e4e9;
-            color: #8e8e93;
+        }}
+        .update-btn:disabled {{
+            background-color: {bg_button_disabled};
+            color: {text_button_disabled};
             border: none;
             box-shadow: none;
             opacity: 0.6;
-        }
-        .terminal-card {
-            background-color: #ffffff;
-            border: 1px solid #e3e4e9;
+        }}
+        .terminal-card {{
+            background-color: {bg_terminal_card};
+            border: 1px solid {border_terminal_card};
             border-radius: 10px;
             padding: 12px;
             box-shadow: 0 4px 6px rgba(0, 0, 0, 0.02);
-        }
+        }}
         """
-        css_provider.load_from_data(css)
+        css_provider.load_from_data(css.encode('utf-8'))
         Gtk.StyleContext.add_provider_for_screen(
             Gdk.Screen.get_default(),
             css_provider,

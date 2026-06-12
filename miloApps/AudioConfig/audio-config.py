@@ -92,120 +92,149 @@ class AudioConfigWindow(Gtk.Window):
         self.set_default_size(900, 550)
         self.set_position(Gtk.WindowPosition.CENTER)
         
-        # Apply miloOS light theme styling
+        # Apply miloOS theme styling dynamically
+        settings = Gtk.Settings.get_default()
+        theme_name = settings.get_property("gtk-theme-name")
+        is_dark = (theme_name == "miloOS-Dark")
+        
+        bg_window = "#1e1e1e" if is_dark else "#f1f2f6"
+        bg_sidebar = "#1e1e1e" if is_dark else "#f1f2f6"
+        border_sidebar = "#2d2d2d" if is_dark else "#dcdde1"
+        bg_row = "#2b2b2b" if is_dark else "#ffffff"
+        text_row = "#f5f6fa" if is_dark else "#2c3e50"
+        border_row = "#3d3d3d" if is_dark else "#e3e4e9"
+        bg_row_hover = "#353535" if is_dark else "#fafbfc"
+        border_row_hover = "#4a4a4a" if is_dark else "#dcdde1"
+        text_sublabel = "#a0a0a0" if is_dark else "#7f8c8d"
+        bg_panel = "#2b2b2b" if is_dark else "#ffffff"
+        border_panel = "#3d3d3d" if is_dark else "#e3e4e9"
+        text_title = "#f5f6fa" if is_dark else "#2c3e50"
+        bg_tabs = "#3d3d3d" if is_dark else "#e3e4e9"
+        border_tabs = "#2d2d2d" if is_dark else "#d2d3d8"
+        text_tab_btn = "#cccccc" if is_dark else "#4a4a4a"
+        text_tab_btn_hover = "#ffffff" if is_dark else "#111111"
+        bg_tab_btn_hover = "rgba(255, 255, 255, 0.15)" if is_dark else "rgba(255, 255, 255, 0.4)"
+        bg_tab_btn_checked = "#ffffff" if is_dark else "#ffffff"
+        text_tab_btn_checked = "#111111" if is_dark else "#111111"
+        bg_combo = "#3d3d3d" if is_dark else "#ffffff"
+        text_combo = "#f5f6fa" if is_dark else "#2c3e50"
+        border_combo = "#4a4a4a" if is_dark else "#dcdde1"
+        border_combo_hover = "#666666" if is_dark else "#b1b2b9"
+        border_paned = "#2d2d2d" if is_dark else "#dcdde1"
+
         css_provider = Gtk.CssProvider()
-        css_provider.load_from_data(b"""
-            window {
-                background-color: #f1f2f6;
-            }
-            .device-sidebar {
-                background-color: #f1f2f6;
-                border-right: 1px solid #dcdde1;
-            }
-            .device-list {
+        css = f"""
+            window {{
+                background-color: {bg_window};
+            }}
+            .device-sidebar {{
+                background-color: {bg_sidebar};
+                border-right: 1px solid {border_sidebar};
+            }}
+            .device-list {{
                 background-color: transparent;
-            }
-            .device-row {
-                background-color: #ffffff;
+            }}
+            .device-row {{
+                background-color: {bg_row};
                 border-radius: 8px;
-                color: #2c3e50;
+                color: {text_row};
                 margin: 6px 12px;
-                border: 1px solid #e3e4e9;
+                border: 1px solid {border_row};
                 box-shadow: 0 1px 3px rgba(0, 0, 0, 0.02);
-            }
-            .device-row:hover {
-                background-color: #fafbfc;
-                border-color: #dcdde1;
-            }
-            .device-row:selected {
+            }}
+            .device-row:hover {{
+                background-color: {bg_row_hover};
+                border-color: {border_row_hover};
+            }}
+            .device-row:selected {{
                 background-color: #007AFF;
                 color: #ffffff;
                 border-color: #0066d6;
                 box-shadow: 0 2px 8px rgba(0, 122, 255, 0.2);
-            }
-            .device-row:selected .device-label {
+            }}
+            .device-row:selected .device-label {{
                 color: #ffffff;
-            }
-            .device-row:selected .device-sublabel {
+            }}
+            .device-row:selected .device-sublabel {{
                 color: rgba(255, 255, 255, 0.85);
-            }
-            .device-icon {
+            }}
+            .device-icon {{
                 font-size: 24px;
                 margin-right: 12px;
-            }
-            .device-label {
-                color: #2c3e50;
+            }}
+            .device-label {{
+                color: {text_row};
                 font-size: 13px;
                 font-weight: 600;
-            }
-            .device-sublabel {
-                color: #7f8c8d;
+            }}
+            .device-sublabel {{
+                color: {text_sublabel};
                 font-size: 11px;
-            }
-            .detail-panel {
-                background-color: #ffffff;
+            }}
+            .detail-panel {{
+                background-color: {bg_panel};
                 padding: 24px;
                 margin: 16px;
                 border-radius: 12px;
-                border: 1px solid #e3e4e9;
+                border: 1px solid {border_panel};
                 box-shadow: 0 4px 6px rgba(0, 0, 0, 0.02);
-            }
-            .detail-panel scrolledwindow {
+            }}
+            .detail-panel scrolledwindow {{
                 background-color: transparent;
-            }
-            .detail-panel viewport {
+            }}
+            .detail-panel viewport {{
                 background-color: transparent;
-            }
-            .section-title {
-                color: #2c3e50;
+            }}
+            .section-title {{
+                color: {text_title};
                 font-size: 18px;
                 font-weight: 700;
                 margin-bottom: 20px;
-            }
-            .tabs {
-                background-color: #e3e4e9;
+            }}
+            .tabs {{
+                background-color: {bg_tabs};
                 border-radius: 8px;
                 padding: 2px;
-                border: 1px solid #d2d3d8;
-            }
-            .tab-button {
+                border: 1px solid {border_tabs};
+            }}
+            .tab-button {{
                 background-color: transparent;
                 border: none;
-                color: #4a4a4a;
+                color: {text_tab_btn};
                 padding: 6px 16px;
                 border-radius: 6px;
                 font-size: 13px;
                 font-weight: 500;
                 margin: 0;
-            }
-            .tab-button:hover {
-                background-color: rgba(255, 255, 255, 0.4);
-                color: #111111;
-            }
-            .tab-button:checked {
-                background-color: #ffffff;
-                color: #111111;
+            }}
+            .tab-button:hover {{
+                background-color: {bg_tab_btn_hover};
+                color: {text_tab_btn_hover};
+            }}
+            .tab-button:checked {{
+                background-color: {bg_tab_btn_checked};
+                color: {text_tab_btn_checked};
                 box-shadow: 0 1px 3px rgba(0,0,0,0.12), 0 1px 2px rgba(0,0,0,0.08);
-            }
-            .info-label {
-                color: #2c3e50;
+            }}
+            .info-label {{
+                color: {text_row};
                 font-size: 13px;
                 font-weight: 600;
                 min-width: 150px;
-            }
-            .info-combo {
-                background-color: #ffffff;
-                color: #2c3e50;
-                border: 1px solid #dcdde1;
+            }}
+            .info-combo {{
+                background-color: {bg_combo};
+                color: {text_combo};
+                border: 1px solid {border_combo};
                 border-radius: 8px;
                 padding: 6px 12px;
                 min-width: 300px;
                 font-size: 13px;
-            }
-            .info-combo:hover {
-                border-color: #b1b2b9;
-            }
-            .apply-button {
+            }}
+            .info-combo:hover {{
+                border-color: {border_combo_hover};
+            }}
+            .apply-button {{
                 background-color: #007AFF;
                 color: #ffffff;
                 border: none;
@@ -214,18 +243,19 @@ class AudioConfigWindow(Gtk.Window):
                 font-size: 13px;
                 font-weight: 500;
                 transition: background-color 0.2s ease;
-            }
-            .apply-button:hover {
+            }}
+            .apply-button:hover {{
                 background-color: #0066d6;
-            }
-            .apply-button:active {
+            }}
+            .apply-button:active {{
                 background-color: #0051b5;
-            }
-            paned > separator {
-                background-color: #dcdde1;
+            }}
+            paned > separator {{
+                background-color: {border_paned};
                 min-width: 1px;
-            }
-        """)
+            }}
+        """
+        css_provider.load_from_data(css.encode('utf-8'))
         Gtk.StyleContext.add_provider_for_screen(
             Gdk.Screen.get_default(),
             css_provider,

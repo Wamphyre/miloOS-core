@@ -17,6 +17,16 @@ import time
 import re
 from collections import deque
 
+def is_theme_dark():
+    try:
+        settings = Gtk.Settings.get_default()
+        if settings:
+            theme_name = settings.get_property("gtk-theme-name")
+            return theme_name == "miloOS-Dark"
+    except Exception:
+        pass
+    return False
+
 # Translations
 TRANSLATIONS = {
     'en': {
@@ -147,97 +157,122 @@ class SysStatsWindow(Gtk.Window):
         self.last_disk_io = psutil.disk_io_counters()
         
         # Apply miloOS styling
+        is_dark = is_theme_dark()
+        
+        bg_window = "#1e1e1e" if is_dark else "#f1f2f6"
+        bg_header = "#1e1e1e" if is_dark else "#f1f2f6"
+        border_header = "#2d2d2d" if is_dark else "#dcdde1"
+        bg_segmented = "#3d3d3d" if is_dark else "#e3e4e9"
+        border_segmented = "#2d2d2d" if is_dark else "#d2d3d8"
+        text_tab_btn = "#cccccc" if is_dark else "#4a4a4a"
+        text_tab_btn_hover = "#ffffff" if is_dark else "#111111"
+        bg_tab_btn_hover = "rgba(255, 255, 255, 0.15)" if is_dark else "rgba(255, 255, 255, 0.4)"
+        bg_tab_btn_checked = "#ffffff" if is_dark else "#ffffff"
+        text_tab_btn_checked = "#111111" if is_dark else "#111111"
+        bg_content = "#2b2b2b" if is_dark else "#ffffff"
+        border_content = "#3d3d3d" if is_dark else "#e3e4e9"
+        bg_stat_card = "#1e1e1e" if is_dark else "#f8f9fa"
+        border_stat_card = "#2d2d2d" if is_dark else "#e9ecef"
+        text_stat_label = "#f5f6fa" if is_dark else "#2c3e50"
+        text_stat_value = "#a0a0a0" if is_dark else "#7f8c8d"
+        bg_trough = "#3d3d3d" if is_dark else "#e0e0e0"
+        bg_process_list = "#2b2b2b" if is_dark else "#ffffff"
+        text_process_list = "#f5f6fa" if is_dark else "#2c3e50"
+        bg_process_header = "#1e1e1e" if is_dark else "#f8f9fa"
+        border_process_header = "#2d2d2d" if is_dark else "#e3e4e9"
+
         css_provider = Gtk.CssProvider()
-        css_provider.load_from_data(b"""
-            window {
-                background-color: #f1f2f6;
-            }
-            .header-bar {
-                background-color: #f1f2f6;
-                border-bottom: 1px solid #dcdde1;
+        css = f"""
+            window {{
+                background-color: {bg_window};
+            }}
+            .header-bar {{
+                background-color: {bg_header};
+                border-bottom: 1px solid {border_header};
                 padding: 10px 16px;
-            }
-            .segmented-control {
-                background-color: #e3e4e9;
+            }}
+            .segmented-control {{
+                background-color: {bg_segmented};
                 border-radius: 8px;
                 padding: 2px;
-                border: 1px solid #d2d3d8;
-            }
-            .tab-button {
+                border: 1px solid {border_segmented};
+            }}
+            .tab-button {{
                 background-color: transparent;
                 border: none;
-                color: #4a4a4a;
+                color: {text_tab_btn};
                 padding: 6px 16px;
                 border-radius: 6px;
                 font-size: 13px;
                 font-weight: 500;
                 margin: 0;
-            }
-            .tab-button:hover {
-                background-color: rgba(255, 255, 255, 0.4);
-                color: #111111;
-            }
-            .tab-button:checked {
-                background-color: #ffffff;
-                color: #111111;
+            }}
+            .tab-button:hover {{
+                background-color: {bg_tab_btn_hover};
+                color: {text_tab_btn_hover};
+            }}
+            .tab-button:checked {{
+                background-color: {bg_tab_btn_checked};
+                color: {text_tab_btn_checked};
                 box-shadow: 0 1px 3px rgba(0,0,0,0.12), 0 1px 2px rgba(0,0,0,0.08);
-            }
-            .content-area {
-                background-color: #ffffff;
+            }}
+            .content-area {{
+                background-color: {bg_content};
                 padding: 24px;
                 margin: 16px;
                 border-radius: 12px;
-                border: 1px solid #e3e4e9;
+                border: 1px solid {border_content};
                 box-shadow: 0 4px 6px rgba(0, 0, 0, 0.02);
-            }
-            .stat-card {
-                background-color: #f8f9fa;
-                border: 1px solid #e9ecef;
+            }}
+            .stat-card {{
+                background-color: {bg_stat_card};
+                border: 1px solid {border_stat_card};
                 border-radius: 10px;
                 padding: 16px;
                 margin: 8px;
-            }
-            .stat-label {
-                color: #2c3e50;
+            }}
+            .stat-label {{
+                color: {text_stat_label};
                 font-size: 13px;
                 font-weight: 600;
-            }
-            .stat-value {
-                color: #7f8c8d;
+            }}
+            .stat-value {{
+                color: {text_stat_value};
                 font-size: 12px;
-            }
-            .progress-bar {
+            }}
+            .progress-bar {{
                 min-height: 8px;
                 border-radius: 4px;
-            }
-            .progress-bar trough {
-                background-color: #e0e0e0;
+            }}
+            .progress-bar trough {{
+                background-color: {bg_trough};
                 border-radius: 4px;
-            }
-            .progress-bar progress {
+            }}
+            .progress-bar progress {{
                 background-color: #007AFF;
                 border-radius: 4px;
-            }
-            .process-list {
-                background-color: #ffffff;
+            }}
+            .process-list {{
+                background-color: {bg_process_list};
                 border: none;
-            }
-            .process-list treeview {
-                background-color: #ffffff;
-                color: #2c3e50;
-            }
-            .process-list treeview:selected {
+            }}
+            .process-list treeview {{
+                background-color: {bg_process_list};
+                color: {text_process_list};
+            }}
+            .process-list treeview:selected {{
                 background-color: #007AFF;
                 color: #ffffff;
-            }
-            .process-header {
-                background-color: #f8f9fa;
-                color: #2c3e50;
+            }}
+            .process-header {{
+                background-color: {bg_process_header};
+                color: {text_process_list};
                 font-weight: 600;
                 font-size: 12px;
-                border-bottom: 1px solid #e3e4e9;
-            }
-        """)
+                border-bottom: 1px solid {border_process_header};
+            }}
+        """
+        css_provider.load_from_data(css.encode('utf-8'))
         Gtk.StyleContext.add_provider_for_screen(
             Gdk.Screen.get_default(),
             css_provider,
@@ -461,7 +496,15 @@ class SysStatsWindow(Gtk.Window):
         cards_box.pack_start(left_card, True, True, 0)
         
         # OS logo
-        logo_path = '/usr/share/themes/miloOS/logo.png'
+        is_dark = is_theme_dark()
+        theme_dir = 'miloOS-Dark' if is_dark else 'miloOS'
+        logo_path = f'/usr/share/themes/{theme_dir}/logo.png'
+        if not os.path.exists(logo_path):
+            # Fallback to local development path relative to repository
+            local_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), 'resources', 'theme', theme_dir, 'logo.png')
+            if os.path.exists(local_path):
+                logo_path = local_path
+                
         if os.path.exists(logo_path):
             try:
                 pixbuf = GdkPixbuf.Pixbuf.new_from_file_at_scale(logo_path, 64, 64, True)
@@ -575,8 +618,14 @@ class SysStatsWindow(Gtk.Window):
         # Get usage for this core
         usage = self.cpu_core_widgets[core_index]['usage'] if core_index < len(self.cpu_core_widgets) else 0
         
-        # Background: light gray rounded rectangle
-        cr.set_source_rgb(0.92, 0.92, 0.94) # #E5E5EA
+        # Background: light/dark gray rounded rectangle
+        if is_theme_dark():
+            cr.set_source_rgb(0.18, 0.18, 0.20)
+            outline_color = (1.0, 1.0, 1.0, 0.08)
+        else:
+            cr.set_source_rgb(0.92, 0.92, 0.94)
+            outline_color = (0.0, 0.0, 0.0, 0.08)
+            
         self.draw_rounded_rect(cr, 2, 2, width - 4, height - 4, 8)
         cr.fill()
         
@@ -600,7 +649,7 @@ class SysStatsWindow(Gtk.Window):
             cr.restore()
             
         # Draw a very subtle outline
-        cr.set_source_rgba(0.0, 0.0, 0.0, 0.08)
+        cr.set_source_rgba(outline_color[0], outline_color[1], outline_color[2], outline_color[3])
         cr.set_line_width(1)
         self.draw_rounded_rect(cr, 2, 2, width - 4, height - 4, 8)
         cr.stroke()
@@ -1044,25 +1093,38 @@ class SysStatsWindow(Gtk.Window):
             usage = (used_in_this_module / current_capacity) * 100.0
         
         # Outer card (RAM module container)
-        cr.set_source_rgb(0.95, 0.95, 0.97) # #F2F2F7
+        if is_theme_dark():
+            bg_outer = (0.18, 0.18, 0.20)
+            outline_color = (1.0, 1.0, 1.0, 0.08)
+            pin_color = (0.4, 0.4, 0.45)
+            text_color = (0.9, 0.9, 0.95)
+            inner_outline_color = (1.0, 1.0, 1.0, 0.05)
+        else:
+            bg_outer = (0.95, 0.95, 0.97)
+            outline_color = (0.0, 0.0, 0.0, 0.08)
+            pin_color = (0.82, 0.82, 0.84)
+            text_color = (0.1, 0.1, 0.1)
+            inner_outline_color = (0.0, 0.0, 0.0, 0.05)
+
+        cr.set_source_rgb(bg_outer[0], bg_outer[1], bg_outer[2])
         self.draw_rounded_rect(cr, 4, 4, width - 8, height - 8, 10)
         cr.fill()
         
         # Subtle border
-        cr.set_source_rgba(0.0, 0.0, 0.0, 0.08)
+        cr.set_source_rgba(outline_color[0], outline_color[1], outline_color[2], outline_color[3])
         cr.set_line_width(1.5)
         self.draw_rounded_rect(cr, 4, 4, width - 8, height - 8, 10)
         cr.stroke()
         
         # Draw physical RAM stick pins at the bottom
-        cr.set_source_rgb(0.82, 0.82, 0.84)
+        cr.set_source_rgb(pin_color[0], pin_color[1], pin_color[2])
         cr.set_line_width(2)
         cr.move_to(12, height - 10)
         cr.line_to(width - 12, height - 10)
         cr.stroke()
         
         # Notch in the middle of pins
-        cr.set_source_rgb(0.95, 0.95, 0.97)
+        cr.set_source_rgb(bg_outer[0], bg_outer[1], bg_outer[2])
         cr.arc(width / 2, height - 10, 3, 0, 2 * 3.14159)
         cr.fill()
         
@@ -1086,13 +1148,13 @@ class SysStatsWindow(Gtk.Window):
             cr.restore()
             
         # Draw a clean inner border for the fill container
-        cr.set_source_rgba(0.0, 0.0, 0.0, 0.05)
+        cr.set_source_rgba(inner_outline_color[0], inner_outline_color[1], inner_outline_color[2], inner_outline_color[3])
         cr.set_line_width(1)
         self.draw_rounded_rect(cr, 8, 8, width - 16, height - 24, 6)
         cr.stroke()
         
         # Draw percentage text
-        cr.set_source_rgb(0.1, 0.1, 0.1)
+        cr.set_source_rgb(text_color[0], text_color[1], text_color[2])
         cr.select_font_face("Sans", 0, 1)
         cr.set_font_size(13)
         text = f"{usage:.0f}%"
@@ -1308,7 +1370,13 @@ class SysStatsWindow(Gtk.Window):
         cr.set_antialias(1)
         
         # Background track
-        cr.set_source_rgb(0.92, 0.92, 0.94)
+        if is_theme_dark():
+            cr.set_source_rgb(0.18, 0.18, 0.20)
+            text_color = (0.9, 0.9, 0.95)
+        else:
+            cr.set_source_rgb(0.92, 0.92, 0.94)
+            text_color = (0.1, 0.1, 0.1)
+
         cr.set_line_width(8)
         cr.arc(cx, cy, radius, 0, 2 * 3.14159)
         cr.stroke()
@@ -1329,7 +1397,7 @@ class SysStatsWindow(Gtk.Window):
             cr.stroke()
             
         # Draw percentage text in the center
-        cr.set_source_rgb(0.1, 0.1, 0.1)
+        cr.set_source_rgb(text_color[0], text_color[1], text_color[2])
         cr.select_font_face("Sans", 0, 1)
         cr.set_font_size(14)
         text = f"{usage:.0f}%"
@@ -1344,13 +1412,21 @@ class SysStatsWindow(Gtk.Window):
         width = widget.get_allocated_width()
         height = widget.get_allocated_height()
         
-        # Background: soft clean white
-        cr.set_source_rgb(0.98, 0.98, 0.99)
+        # Background: soft clean white/dark gray
+        if is_theme_dark():
+            cr.set_source_rgb(0.18, 0.18, 0.20)
+            border_color = (1.0, 1.0, 1.0, 0.08)
+            grid_color = (1.0, 1.0, 1.0, 0.03)
+        else:
+            cr.set_source_rgb(0.98, 0.98, 0.99)
+            border_color = (0.0, 0.0, 0.0, 0.06)
+            grid_color = (0.0, 0.0, 0.0, 0.03)
+            
         self.draw_rounded_rect(cr, 1, 1, width - 2, height - 2, 8)
         cr.fill()
         
         # Border
-        cr.set_source_rgba(0.0, 0.0, 0.0, 0.06)
+        cr.set_source_rgba(border_color[0], border_color[1], border_color[2], border_color[3] if len(border_color) > 3 else 0.08)
         cr.set_line_width(1)
         self.draw_rounded_rect(cr, 1, 1, width - 2, height - 2, 8)
         cr.stroke()
@@ -1366,7 +1442,7 @@ class SysStatsWindow(Gtk.Window):
         max_val = max(data) if max(data) > 0 else 1
         
         # Draw fine grid lines
-        cr.set_source_rgba(0.0, 0.0, 0.0, 0.03)
+        cr.set_source_rgba(grid_color[0], grid_color[1], grid_color[2], grid_color[3] if len(grid_color) > 3 else 0.03)
         cr.set_line_width(1)
         for i in range(1, 4):
             y = height * i / 4
@@ -1537,13 +1613,21 @@ class SysStatsWindow(Gtk.Window):
         width = widget.get_allocated_width()
         height = widget.get_allocated_height()
         
-        # Background: soft clean white
-        cr.set_source_rgb(0.98, 0.98, 0.99)
+        # Background: soft clean white/dark gray
+        if is_theme_dark():
+            cr.set_source_rgb(0.18, 0.18, 0.20)
+            border_color = (1.0, 1.0, 1.0, 0.08)
+            grid_color = (1.0, 1.0, 1.0, 0.03)
+        else:
+            cr.set_source_rgb(0.98, 0.98, 0.99)
+            border_color = (0.0, 0.0, 0.0, 0.06)
+            grid_color = (0.0, 0.0, 0.0, 0.03)
+            
         self.draw_rounded_rect(cr, 1, 1, width - 2, height - 2, 8)
         cr.fill()
         
         # Border
-        cr.set_source_rgba(0.0, 0.0, 0.0, 0.06)
+        cr.set_source_rgba(border_color[0], border_color[1], border_color[2], border_color[3] if len(border_color) > 3 else 0.08)
         cr.set_line_width(1)
         self.draw_rounded_rect(cr, 1, 1, width - 2, height - 2, 8)
         cr.stroke()
@@ -1563,7 +1647,7 @@ class SysStatsWindow(Gtk.Window):
         max_val = max(data) if max(data) > 0 else 1
         
         # Draw fine grid lines
-        cr.set_source_rgba(0.0, 0.0, 0.0, 0.03)
+        cr.set_source_rgba(grid_color[0], grid_color[1], grid_color[2], grid_color[3] if len(grid_color) > 3 else 0.03)
         cr.set_line_width(1)
         for i in range(1, 4):
             y = height * i / 4

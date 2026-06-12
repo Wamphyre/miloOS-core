@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=miloOS Theme Daemon
+Comment=Automatically switches icon theme and menu logo based on selected theme
+Exec=milo-theme-daemon
+Terminal=false
+Hidden=false
+NoDisplay=true
+X-GNOME-Autostart-enabled=true
+X-XFCE-Autostart-enabled=true
+StartupNotify=false

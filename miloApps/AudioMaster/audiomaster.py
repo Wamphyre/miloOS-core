@@ -212,30 +212,46 @@ class AudioMasterWindow(Gtk.Window):
     
     def apply_css(self):
         """Apply custom CSS styling"""
+        settings = Gtk.Settings.get_default()
+        theme_name = settings.get_property("gtk-theme-name")
+        is_dark = (theme_name == "miloOS-Dark")
+        
+        bg_window = "#1e1e1e" if is_dark else "#f1f2f6"
+        bg_button = "#2b2b2b" if is_dark else "#ffffff"
+        text_button = "#f5f6fa" if is_dark else "#2c3e50"
+        border_button = "#3d3d3d" if is_dark else "#dcdde1"
+        bg_button_hover = "#353535" if is_dark else "#f8f9fa"
+        border_button_hover = "#4a4a4a" if is_dark else "#b1b2b9"
+        bg_file_box = "#2b2b2b" if is_dark else "#ffffff"
+        border_file_box = "#3d3d3d" if is_dark else "#e3e4e9"
+        text_file_label = "#a0a0a0" if is_dark else "#7f8c8d"
+        text_file_path = "#f5f6fa" if is_dark else "#2c3e50"
+        bg_trough = "#3d3d3d" if is_dark else "#e3e4e9"
+
         css_provider = Gtk.CssProvider()
-        css = b"""
-        window {
-            background-color: #f1f2f6;
-        }
-        button {
+        css = f"""
+        window {{
+            background-color: {bg_window};
+        }}
+        button {{
             border-radius: 8px;
             padding: 6px 14px;
             font-size: 13px;
             font-weight: 500;
-            color: #2c3e50;
-            background-color: #ffffff;
-            border: 1px solid #dcdde1;
+            color: {text_button};
+            background-color: {bg_button};
+            border: 1px solid {border_button};
             box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
             transition: all 0.2s ease;
-        }
-        button:hover {
-            background-color: #f8f9fa;
-            border-color: #b1b2b9;
-        }
-        button:disabled {
+        }}
+        button:hover {{
+            background-color: {bg_button_hover};
+            border-color: {border_button_hover};
+        }}
+        button:disabled {{
             opacity: 0.5;
-        }
-        .master-btn {
+        }}
+        .master-btn {{
             background-color: #007AFF;
             color: #ffffff;
             border: none;
@@ -244,71 +260,71 @@ class AudioMasterWindow(Gtk.Window):
             font-weight: 600;
             transition: background-color 0.2s ease;
             box-shadow: 0 2px 6px rgba(0, 122, 255, 0.2);
-        }
-        .master-btn:hover {
+        }}
+        .master-btn:hover {{
             background-color: #0066d6;
-        }
-        .master-btn:active {
+        }}
+        .master-btn:active {{
             background-color: #0051b5;
-        }
-        .close-btn {
-            background-color: #ffffff;
-            color: #2c3e50;
-            border: 1px solid #dcdde1;
-        }
-        .file-box {
-            background-color: #ffffff;
-            border: 1px solid #e3e4e9;
+        }}
+        .close-btn {{
+            background-color: {bg_button};
+            color: {text_button};
+            border: 1px solid {border_button};
+        }}
+        .file-box {{
+            background-color: {bg_file_box};
+            border: 1px solid {border_file_box};
             border-radius: 10px;
             padding: 16px 20px;
             min-width: 500px;
             box-shadow: 0 4px 6px rgba(0, 0, 0, 0.02);
-        }
-        .file-label {
-            color: #7f8c8d;
+        }}
+        .file-label {{
+            color: {text_file_label};
             font-size: 11px;
             font-weight: 700;
             letter-spacing: 0.5px;
-        }
-        .file-path {
-            color: #2c3e50;
+        }}
+        .file-path {{
+            color: {text_file_path};
             font-size: 13px;
             font-weight: 500;
-        }
-        comboboxText combobox {
-            background-color: #ffffff;
-            color: #2c3e50;
-            border: 1px solid #dcdde1;
+        }}
+        comboboxText combobox {{
+            background-color: {bg_button};
+            color: {text_button};
+            border: 1px solid {border_button};
             border-radius: 8px;
             padding: 4px 10px;
             font-size: 13px;
-        }
-        comboboxText combobox:hover {
-            border-color: #b1b2b9;
-        }
-        checkbutton {
+        }}
+        comboboxText combobox:hover {{
+            border-color: {border_button_hover};
+        }}
+        checkbutton {{
             font-size: 13px;
-            color: #2c3e50;
+            color: {text_button};
             margin-top: 4px;
-        }
-        progressbar {
+        }}
+        progressbar {{
             margin: 10px 0;
-        }
-        progressbar trough {
-            background-color: #e3e4e9;
+        }}
+        progressbar trough {{
+            background-color: {bg_trough};
             border-radius: 6px;
             min-height: 8px;
             border: none;
-        }
-        progressbar progress {
+        }}
+        progressbar progress {{
             background-color: #007AFF;
             border-radius: 6px;
             min-height: 8px;
             border: none;
             box-shadow: 0 1px 2px rgba(0, 122, 255, 0.2);
-        }
+        }}
         """
-        css_provider.load_from_data(css)
+        css_provider.load_from_data(css.encode('utf-8'))
         Gtk.StyleContext.add_provider_for_screen(
             Gdk.Screen.get_default(),
             css_provider,

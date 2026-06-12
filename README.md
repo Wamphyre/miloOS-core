@@ -59,7 +59,8 @@ miloOS is **not a distribution**—it's a transformation kit. Install vanilla De
 - **Clean design** - Top panel, Plank dock, hidden window titles
 - **San Francisco Pro fonts** - Professional typography system-wide
 - **WhiteSur icons** - Consistent, modern visual language
-- **Custom miloOS theme** - Professional blue accent (#007AFF)
+- **Custom miloOS and miloOS-Dark themes** - Premium light/dark variants with macOS-style aesthetics and flat titlebars
+- **Translucent Plank themes** - Matching light and dark glassmorphic dock themes
 - **Distraction-free** - Focus on your work, not the system
 
 ### 🛠️ miloApps Suite
@@ -102,6 +103,12 @@ miloOS is **not a distribution**—it's a transformation kit. Install vanilla De
 - Bilingual interface (English/Spanish)
 - Integrated in XFCE Settings and miloOS menu
 
+**miloThemeDaemon** - System theme synchronization daemon
+- Automatically synchronizes GTK, Window Manager (xfwm4), icon themes, application menu logos, and Plank themes
+- Detects active theme mode shifts dynamically and handles safe background updates
+- Refreshes panel components instantly to guarantee consistent styling
+
+
 ### ⚙️ System Integration
 - **Complete rebranding** - System identifies as miloOS
 - **SLiM login manager** - Fast, lightweight, custom theme
@@ -133,8 +140,8 @@ The script will:
 1. Install required packages (PipeWire, WirePlumber, GTK themes, etc.)
 2. Configure PipeWire and WirePlumber for real-time audio performance
 3. Install professional audio plugins
-4. Apply visual themes, icons, and fonts
-5. Install miloApps (AudioConfig, AudioMaster, SysStats, miloUpdater)
+4. Apply visual themes (including miloOS-Dark and custom Plank layouts), icons, and fonts
+5. Install miloApps (AudioConfig, AudioMaster, SysStats, miloUpdater, and miloThemeDaemon)
 6. Configure user environment and JACK library paths
 7. Optimize kernel parameters and system limits for audio production
 
@@ -230,8 +237,8 @@ Sysctl:      vm.swappiness=10 fs.inotify.max_user_watches=524288
 - **Desktop**: XFCE4
 - **Audio**: PipeWire + WirePlumber (with full JACK compatibility)
 - **Display Manager**: SLiM
-- **Theme**: miloOS custom GTK theme
-- **Icons**: WhiteSur-light
+- **Theme**: miloOS & miloOS-Dark custom GTK themes
+- **Icons**: WhiteSur-light & WhiteSur-dark
 - **Fonts**: San Francisco Pro
 
 ---
@@ -242,7 +249,7 @@ Sysctl:      vm.swappiness=10 fs.inotify.max_user_watches=524288
 - ✅ Core system complete
 - ✅ Audio optimization implemented
 - ✅ Visual theming finished
-- ✅ AudioConfig, AudioMaster, SysStats, and miloUpdater ready
+- ✅ AudioConfig, AudioMaster, SysStats, miloUpdater, and miloThemeDaemon ready
 - ✅ Fully refactored for Debian 13 (Trixie) compatibility
 - ✅ Unified audio configuration (AudioConfig → PipeWire + WirePlumber + JACK)
 - ⏳ Documentation in progress

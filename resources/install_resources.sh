@@ -153,19 +153,17 @@ install_gtk_themes() {
     if [ ! -d "resources/theme/miloOS" ]; then
         error_exit "Theme directory resources/theme/miloOS not found!"
     fi
+    if [ ! -d "resources/theme/miloOS-Dark" ]; then
+        error_exit "Theme directory resources/theme/miloOS-Dark not found!"
+    fi
     
     cp -R resources/theme/miloOS /usr/share/themes/
     chown -R root:root /usr/share/themes/miloOS/
-    log_info "Gtk+ themes installed"
     
-    # Configure xfwm4 theme to hide window titles
-    log_info "Configuring window manager theme..."
-    mkdir -p /usr/share/themes/miloOS/xfwm4
-    cat >> /usr/share/themes/miloOS/xfwm4/themerc << 'EOF'
-title_vertical_offset_active=-100
-title_vertical_offset_inactive=-100
-EOF
-    log_info "Window titles hidden"
+    cp -R resources/theme/miloOS-Dark /usr/share/themes/
+    chown -R root:root /usr/share/themes/miloOS-Dark/
+    
+    log_info "Gtk+ themes (Light & Dark) installed"
     
     if [ -d "resources/milk" ]; then
         mkdir -p /usr/share/slim/themes
@@ -367,18 +365,28 @@ install_wallpaper() {
 }
 
 install_plank_theme() {
-    log_step 6 $TOTAL_STEPS "Installing Plank theme..."
+    log_step 6 $TOTAL_STEPS "Installing Plank themes..."
     
     if [ ! -d "resources/plank/milo" ]; then
         error_exit "Plank theme resources/plank/milo not found!"
     fi
+    if [ ! -d "resources/plank/milo-dark" ]; then
+        error_exit "Plank theme resources/plank/milo-dark not found!"
+    fi
     
     mkdir -p /usr/share/plank/themes
+    
     cp -R resources/plank/milo /usr/share/plank/themes/
     chmod 755 /usr/share/plank/themes/milo
     chmod 644 /usr/share/plank/themes/milo/*.theme 2>/dev/null || true
     chown -R root:root /usr/share/plank/themes/milo
-    log_info "Plank theme installed"
+    
+    cp -R resources/plank/milo-dark /usr/share/plank/themes/
+    chmod 755 /usr/share/plank/themes/milo-dark
+    chmod 644 /usr/share/plank/themes/milo-dark/*.theme 2>/dev/null || true
+    chown -R root:root /usr/share/plank/themes/milo-dark
+    
+    log_info "Plank themes (Light & Dark) installed"
 }
 
 install_menus() {
@@ -1490,6 +1498,19 @@ if [ -d "$CURRENT_DIR/miloApps/AudioMaster" ]; then
     fi
 else
     log_warn "✗ AudioMaster directory not found, skipping"
+fi
+
+# Install miloThemeDaemon application
+echo ""
+log_info "Installing miloThemeDaemon application..."
+if [ -d "$CURRENT_DIR/miloApps/miloThemeDaemon" ]; then
+    if bash "$CURRENT_DIR/miloApps/miloThemeDaemon/install.sh"; then
+        log_info "✓ miloThemeDaemon installed successfully"
+    else
+        log_warn "✗ miloThemeDaemon installation failed (non-critical)"
+    fi
+else
+    log_warn "✗ miloThemeDaemon directory not found, skipping"
 fi
 
 echo ""
