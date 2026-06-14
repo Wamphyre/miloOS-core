@@ -1,0 +1,19 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=miloFiles
+Name[es]=miloFiles
+Comment=miloOS Finder-style File Manager
+Comment[es]=Gestor de archivos al estilo Finder para miloOS
+Exec=milofiles %U
+Icon=milofiles
+Terminal=false
+Categories=System;Utility;Core;Files;FileManager;GTK;
+MimeType=inode/directory;
+StartupNotify=true
+Actions=open-home;
+
+[Desktop Action open-home]
+Name=Open Home Directory
+Name[es]=Abrir carpeta personal
+Exec=milofiles

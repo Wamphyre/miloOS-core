@@ -3,6 +3,7 @@ import os
 import re
 import sys
 import subprocess
+import threading
 import gi
 gi.require_version('Xfconf', '0')
 gi.require_version('GLib', '2.0')
@@ -101,12 +102,24 @@ def apply_theme_dependencies(theme_name):
             updated = True
 
     if updated:
-        # Restart panel to force notification-plugin (and any cached panel icons) to reload
-        try:
-            subprocess.run(["xfce4-panel", "-r"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-            print("Flashed/reloaded panel to refresh all icons.", flush=True)
-        except Exception as e:
-            print(f"Error reloading panel: {e}", file=sys.stderr, flush=True)
+        print("Theme dependencies synchronized successfully.", flush=True)
+        # Full desktop restart in background thread to avoid DBus deadlock
+        def restart_desktop():
+            import time
+            time.sleep(0.1)
+            try:
+                subprocess.run(["pkill", "xfce4-notifyd"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                subprocess.run(["pkill", "xfce4-panel"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                subprocess.run(["pkill", "xfdesktop"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                time.sleep(0.1)
+                subprocess.Popen(["xfdesktop"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                subprocess.Popen(["xfce4-panel"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                print("Full desktop restart completed.", flush=True)
+            except Exception as e:
+                print(f"Error restarting desktop: {e}", file=sys.stderr, flush=True)
+        t = threading.Thread(target=restart_desktop)
+        t.daemon = True
+        t.start()
 
 def on_xsettings_changed(channel, property_name, value, user_data):
     if property_name == "/Net/ThemeName":

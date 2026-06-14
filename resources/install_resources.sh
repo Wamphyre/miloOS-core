@@ -1513,6 +1513,19 @@ else
     log_warn "✗ miloThemeDaemon directory not found, skipping"
 fi
 
+# Install miloFiles application
+echo ""
+log_info "Installing miloFiles application..."
+if [ -d "$CURRENT_DIR/miloApps/miloFiles" ]; then
+    if bash "$CURRENT_DIR/miloApps/miloFiles/install.sh"; then
+        log_info "✓ miloFiles installed successfully"
+    else
+        log_warn "✗ miloFiles installation failed (non-critical)"
+    fi
+else
+    log_warn "✗ miloFiles directory not found, skipping"
+fi
+
 echo ""
 log_info "========================================="
 log_warn "IMPORTANT: Please reboot your system for all changes to take effect"

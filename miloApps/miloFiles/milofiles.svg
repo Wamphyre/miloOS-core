@@ -1,0 +1,48 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="100%" height="100%">
+  <defs>
+    <!-- Background squircle gradients -->
+    <linearGradient id="bg-grad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#E2E8F0" />
+      <stop offset="100%" stop-color="#94A3B8" />
+    </linearGradient>
+    <linearGradient id="left-face" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#E0F2FE" />
+      <stop offset="100%" stop-color="#BAE6FD" />
+    </linearGradient>
+    <linearGradient id="right-face" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#007AFF" />
+      <stop offset="100%" stop-color="#0056B3" />
+    </linearGradient>
+    <filter id="shadow" x="-10%" y="-10%" width="120%" height="120%">
+      <feDropShadow dx="0" dy="8" stdDeviation="8" flood-color="#000000" flood-opacity="0.25"/>
+    </filter>
+  </defs>
+  
+  <!-- Outer metallic border -->
+  <rect x="32" y="32" width="448" height="448" rx="100" fill="url(#bg-grad)" filter="url(#shadow)" />
+  <rect x="40" y="40" width="432" height="432" rx="92" fill="#FFFFFF" opacity="0.15" />
+
+  <!-- Face background: Left side (light silver-blue) -->
+  <path d="M 256,48 A 208,208 0 0 0 48,256 A 208,208 0 0 0 256,464 L 256,48 Z" fill="url(#left-face)" />
+  
+  <!-- Face background: Right side (miloOS blue) -->
+  <path d="M 256,48 L 256,464 A 208,208 0 0 0 464,256 A 208,208 0 0 0 256,48 Z" fill="url(#right-face)" />
+
+  <!-- The smiling mouth (across both halves) -->
+  <path d="M 180,330 Q 256,380 332,330" fill="none" stroke="#0F172A" stroke-width="16" stroke-linecap="round" />
+
+  <!-- Eyes -->
+  <!-- Left eye (in silver-blue half) -->
+  <circle cx="170" cy="210" r="22" fill="#0F172A" />
+  <!-- Right eye (in miloOS blue half) -->
+  <circle cx="342" cy="210" r="22" fill="#FFFFFF" />
+
+  <!-- Nose dividing line (representing the classic Finder double face silhouette) -->
+  <!-- Left face profile line: starts top center, curves left for forehead, right for nose, left for chin -->
+  <path d="M 256,48 
+           C 256,48 240,110 240,160 
+           C 240,210 285,225 285,256 
+           C 285,285 256,300 256,464" 
+        fill="none" stroke="#0F172A" stroke-width="14" stroke-linejoin="round" stroke-linecap="round" />
+
+</svg>

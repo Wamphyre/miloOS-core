@@ -108,6 +108,21 @@ miloOS is **not a distribution**—it's a transformation kit. Install vanilla De
 - Detects active theme mode shifts dynamically and handles safe background updates
 - Refreshes panel components instantly to guarantee consistent styling
 
+**miloFiles** - Finder-style file manager
+- macOS Snow Leopard-inspired interface combined with flat miloOS aesthetics
+- Devices and Favorites sidebar navigation with horizontal size group alignment
+- Toggleable Grid/Icon view and Details/List view with custom view switcher icons
+- Real-time search filter with keyboard focus event bypass for text entry widgets
+- Interactive path bar stack swapping breadcrumbs for an autocompleting URL text entry (Ctrl+L)
+- Full file operations: cut, copy, paste, delete, trash, rename, and properties (Get Info)
+- Smart copy-paste filename collision handler (auto-renaming when pasting duplicate files in the same directory)
+- Asynchronous folder size calculator in Get Info properties dialog to avoid UI thread blockages
+- Asynchronous optimized thumbnail loading and Enter key submission in dialog entries
+- Direct SMB/FTP network address connections from the Ctrl+L location bar with auto-navigation
+- Secure extraction containing Path Traversal/Zip Slip/Tar Slip security mitigations
+- Dynamically adapts to dark and light system themes with customized borderless styling overrides
+- Bilingual interface (English/Spanish)
+
 
 ### ⚙️ System Integration
 - **Complete rebranding** - System identifies as miloOS
@@ -141,7 +156,7 @@ The script will:
 2. Configure PipeWire and WirePlumber for real-time audio performance
 3. Install professional audio plugins
 4. Apply visual themes (including miloOS-Dark and custom Plank layouts), icons, and fonts
-5. Install miloApps (AudioConfig, AudioMaster, SysStats, miloUpdater, and miloThemeDaemon)
+5. Install miloApps (AudioConfig, AudioMaster, SysStats, miloUpdater, miloThemeDaemon, and miloFiles)
 6. Configure user environment and JACK library paths
 7. Optimize kernel parameters and system limits for audio production
 
