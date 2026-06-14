@@ -14,6 +14,12 @@ fi
 
 echo "Installing miloFiles File Manager..."
 
+# Ensure gvfs-fuse is installed (required for network mounts to appear as local paths)
+if ! dpkg -s gvfs-fuse &>/dev/null; then
+    echo "Installing gvfs-fuse dependency..."
+    apt-get install -y gvfs-fuse >/dev/null 2>&1 || true
+fi
+
 # Install Python script
 echo "Installing application binary..."
 install -m 755 milofiles.py /usr/local/bin/milofiles

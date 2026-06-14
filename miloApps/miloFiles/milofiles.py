@@ -857,7 +857,12 @@ class miloFilesWindow(Gtk.Window):
             for mount in mounts:
                 if mount.get_volume():
                     continue
-                path = mount.get_default_location().get_path()
+                loc = mount.get_default_location()
+                path = loc.get_path()
+                # GVfs virtual mounts return None for get_path(); resolve via root
+                if not path:
+                    root = mount.get_root()
+                    path = root.get_path()
                 if path and path not in [os.path.expanduser('~'), "/"]:
                     name = mount.get_name()
                     icon = mount.get_icon()
@@ -1613,36 +1618,48 @@ class miloFilesWindow(Gtk.Window):
         dialog.destroy()
 
     def mount_network_share(self, uri):
-        def do_mount():
+        gfile = Gio.File.new_for_uri(uri)
+        mount_op = Gtk.MountOperation.new(self)
+        mount_op.set_anonymous(False)
+
+        def on_mount_done(source, result):
             try:
-                res = subprocess.run(["gio", "mount", uri], capture_output=True, text=True)
-                if res.returncode == 0:
-                    import time
-                    mount_path = None
-                    # Try querying the enclosing mount for the URI
-                    for _ in range(30):
-                        try:
-                            gfile = Gio.File.new_for_uri(uri)
-                            mount = gfile.find_enclosing_mount(None)
-                            if mount:
-                                root = mount.get_root()
-                                mount_path = root.get_path()
-                                if mount_path and os.path.exists(mount_path):
-                                    break
-                        except Exception:
-                            pass
-                        time.sleep(0.1)
-                    
-                    if mount_path and os.path.exists(mount_path):
-                        GLib.idle_add(self.load_directory, mount_path)
-                else:
-                    err_msg = res.stderr or "Unknown error"
-                    GLib.idle_add(self.show_error_dialog, _("connection_error"), err_msg)
-            except Exception as e:
-                GLib.idle_add(self.show_error_dialog, _("connection_error"), str(e))
-        t = threading.Thread(target=do_mount)
-        t.daemon = True
-        t.start()
+                source.mount_enclosing_volume_finish(result)
+            except GLib.Error as e:
+                # G_IO_ERROR_ALREADY_MOUNTED is OK — share is already available
+                if e.code != Gio.IOErrorEnum.ALREADY_MOUNTED:
+                    self.show_error_dialog(_("connection_error"), e.message)
+                    return
+
+            # Refresh sidebar so the new mount appears in DEVICES
+            self.on_mounts_changed(None, None)
+
+            # Resolve the local GVfs path for the mounted share
+            try:
+                mount = gfile.find_enclosing_mount(None)
+                if mount:
+                    root = mount.get_root()
+                    local_path = root.get_path()
+                    if local_path and os.path.exists(local_path):
+                        self.load_directory(local_path)
+                        return
+            except Exception:
+                pass
+            # Fallback: browse the GVfs mount point directly
+            gvfs_base = os.path.join("/run/user", str(os.getuid()), "gvfs")
+            if os.path.isdir(gvfs_base):
+                for entry in sorted(os.listdir(gvfs_base), reverse=True):
+                    candidate = os.path.join(gvfs_base, entry)
+                    if os.path.isdir(candidate):
+                        self.load_directory(candidate)
+                        return
+
+        gfile.mount_enclosing_volume(
+            Gio.MountMountFlags.NONE,
+            mount_op,
+            None,
+            on_mount_done
+        )
 
     def on_menu_compress(self, widget):
         paths = self.get_selected_paths()
