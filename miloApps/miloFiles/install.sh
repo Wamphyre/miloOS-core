@@ -14,15 +14,62 @@ fi
 
 echo "Installing miloFiles File Manager..."
 
-# Ensure gvfs-fuse is installed (required for network mounts to appear as local paths)
-if ! dpkg -s gvfs-fuse &>/dev/null; then
-    echo "Installing gvfs-fuse dependency..."
-    apt-get install -y gvfs-fuse >/dev/null 2>&1 || true
+REQUIRED_PACKAGES=(
+    build-essential
+    pkg-config
+    libgtk-3-dev
+    libglib2.0-dev
+    libgdk-pixbuf-2.0-dev
+    libglib2.0-bin
+    desktop-file-utils
+    gtk-update-icon-cache
+    hicolor-icon-theme
+    xdg-utils
+    gvfs
+    gvfs-backends
+    gvfs-fuse
+    udisks2
+    7zip
+    tar
+    xfce4-terminal
+)
+
+MISSING_PACKAGES=()
+for pkg in "${REQUIRED_PACKAGES[@]}"; do
+    if ! dpkg -s "$pkg" >/dev/null 2>&1; then
+        MISSING_PACKAGES+=("$pkg")
+    fi
+done
+
+if [ "${#MISSING_PACKAGES[@]}" -gt 0 ]; then
+    echo "Installing miloFiles dependencies: ${MISSING_PACKAGES[*]}"
+    apt-get update
+    apt-get install -y "${MISSING_PACKAGES[@]}"
 fi
 
-# Install Python script
+# Build C++ port
+echo "Building C++ application binary..."
+make -C src clean
+make -C src
+
+if pgrep -x milofiles >/dev/null 2>&1; then
+    echo "Stopping running miloFiles instances before replacing the binary..."
+    pkill -TERM -x milofiles || true
+    for _ in {1..20}; do
+        if ! pgrep -x milofiles >/dev/null 2>&1; then
+            break
+        fi
+        sleep 0.1
+    done
+    if pgrep -x milofiles >/dev/null 2>&1; then
+        echo "Force-stopping remaining miloFiles instances..."
+        pkill -KILL -x milofiles || true
+    fi
+fi
+
+# Install C++ binary
 echo "Installing application binary..."
-install -m 755 milofiles.py /usr/local/bin/milofiles
+install -m 755 src/milofiles-bin /usr/local/bin/milofiles
 
 # Install icon
 if [ -f "milofiles.svg" ]; then

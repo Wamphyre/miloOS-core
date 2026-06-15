@@ -109,22 +109,19 @@ miloOS is **not a distribution**—it's a transformation kit. Install vanilla De
 - Detects active theme mode shifts dynamically and handles safe background updates
 - Refreshes panel components instantly to guarantee consistent styling
 
-**miloFiles** - Finder-style file manager
-- macOS Snow Leopard-inspired interface combined with flat miloOS aesthetics
-- Optimized directory listing using `os.scandir` and PyGObject caching to minimize disk lookups
-- Bounded thumbnail caching (capped at 1000 items) and throttled processing thread (10ms sleep) to reduce CPU and RAM footprint
-- Customizable default open actions (VLC for audio/video, Ristretto for images, Mousepad for text, Firefox/Chrome/Chromium for PDFs)
-- Contextual "Open With..." submenu listing MIME-registered apps, and native Gtk.AppChooserDialog integration
-- Devices and Favorites sidebar navigation with horizontal size group alignment
-- Toggleable Grid/Icon view and Details/List view with custom view switcher icons
-- Real-time search filter with keyboard focus event bypass for text entry widgets
-- Interactive path bar stack swapping breadcrumbs for an autocompleting URL text entry (Ctrl+L)
-- Localized server connection placeholder templates (no hardcoded IPs)
-- Full file operations: cut, copy, paste, delete, trash, rename, and properties (Get Info)
-- Smart copy-paste filename collision handler (auto-renaming when pasting duplicate files in the same directory)
-- Asynchronous folder size calculator in Get Info properties dialog to avoid UI thread blockages
-- Integrated multi-format archive compression (.zip, .7z, .tar.gz, .tar.xz, .tar.bz2) and extraction (.zip, .7z, .rar, .tar.gz, etc.) using high-performance native system backends (7z and tar)
-- Dynamically adapts to dark and light system themes with customized borderless styling overrides
+**miloFiles** - Native Finder-style file manager
+- Pure C++17/GTK+ 3/GIO port of the production Python reference app
+- macOS Snow Leopard-inspired layout combined with flat miloOS aesthetics
+- Devices, removable volumes, GVfs network mounts, Favorites, and Trash sidebar
+- Toggleable Grid/Icon and Details/List views with live search filtering
+- Interactive breadcrumb/location bar with `Ctrl+L`, local path support, and remote URI handling
+- Full file operations: cut, copy, paste, delete, trash, rename, drag and drop, and properties (Get Info)
+- Smart duplicate-name handling when pasting files into the same directory
+- Background directory loading, thumbnail generation, folder-size calculation, copy/move jobs, and archive jobs
+- Thread-safe icon, MIME icon, and thumbnail caches for responsive native performance
+- Multi-format archive compression (`.zip`, `.7z`, `.tar.gz`, `.tar.xz`, `.tar.bz2`) and extraction (`.zip`, `.7z`, `.rar`, `.tar`, `.tar.gz`, etc.) through `7z` and `tar`
+- Custom default open actions plus registered "Open With..." application menus and native GtkAppChooserDialog integration
+- Dynamic light/dark GTK theme styling, including `miloOS-Dark`
 - Bilingual interface (English/Spanish)
 
 

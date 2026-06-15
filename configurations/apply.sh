@@ -61,7 +61,13 @@ done
 log_info "Stopping running processes..."
 pkill plank 2>/dev/null || true
 pkill xfce4-panel 2>/dev/null || true
+pkill -TERM -x Thunar 2>/dev/null || true
 sleep 1
+pkill -KILL -x Thunar 2>/dev/null || true
+
+if command -v systemctl &> /dev/null; then
+    systemctl --user mask --now thunar.service 2>/dev/null || true
+fi
 
 # Backup old configurations
 log_info "Backing up old configurations..."
@@ -77,6 +83,15 @@ log_info "Creating configuration directories..."
 mkdir -p "$USER_HOME/.config/gtk-3.0"
 mkdir -p "$USER_HOME/.config/xfce4"
 mkdir -p "$USER_HOME/.config/plank/dock1/launchers"
+mkdir -p "$USER_HOME/.local/share/dbus-1/services"
+
+# Prevent Thunar's D-Bus activation from starting the daemon in miloOS sessions.
+if [ -d "configurations/.local/share/dbus-1/services" ]; then
+    log_info "Installing Thunar D-Bus activation blockers..."
+    cp configurations/.local/share/dbus-1/services/*.service "$USER_HOME/.local/share/dbus-1/services/" 2>/dev/null || true
+    chmod 644 "$USER_HOME/.local/share/dbus-1/services"/*.service 2>/dev/null || true
+    chown -R "$EXEC_USER:$EXEC_USER" "$USER_HOME/.local/share/dbus-1"
+fi
 
 # Apply new settings
 log_info "Applying GTK configurations..."
@@ -286,12 +301,12 @@ xfconf-query -c xfce4-desktop -p /desktop-icons/file-icons/show-removable -n -t 
 xfconf-query -c xfce4-desktop -p /desktop-icons/file-icons/show-trash -n -t bool -s false 2>/dev/null || \
     xfconf-query -c xfce4-desktop -p /desktop-icons/file-icons/show-trash -t bool -s false
 
-# Show volumes on desktop
-xfconf-query -c thunar-volman -p /automount-drives/enabled -n -t bool -s true 2>/dev/null || \
-    xfconf-query -c thunar-volman -p /automount-drives/enabled -t bool -s true
+# Keep Thunar volume manager disabled; miloFiles handles mounted devices.
+xfconf-query -c thunar-volman -p /automount-drives/enabled -n -t bool -s false 2>/dev/null || \
+    xfconf-query -c thunar-volman -p /automount-drives/enabled -t bool -s false
 
-xfconf-query -c thunar-volman -p /automount-media/enabled -n -t bool -s true 2>/dev/null || \
-    xfconf-query -c thunar-volman -p /automount-media/enabled -t bool -s true
+xfconf-query -c thunar-volman -p /automount-media/enabled -n -t bool -s false 2>/dev/null || \
+    xfconf-query -c thunar-volman -p /automount-media/enabled -t bool -s false
 
 # Desktop wallpaper
 xfconf-query -c xfce4-desktop -p /backdrop/screen0/monitor0/workspace0/last-image -n -t string -s /usr/share/backgrounds/blue-mountain.jpg 2>/dev/null || \
@@ -517,4 +532,3 @@ log_info "Systemd user environment configured for JACK"
 
 log_info "Configuration applied successfully!"
 log_warn "IMPORTANT: Log out and log back in for all changes to take effect"
-

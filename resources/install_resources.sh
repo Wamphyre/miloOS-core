@@ -101,7 +101,10 @@ install_debian_packages() {
     for pkg in gtk2-engines-murrine gtk2-engines-pixbuf plank catfish \
                appmenu-gtk3-module dconf-cli vala-panel-appmenu \
                xfce4-appmenu-plugin xfce4-notifyd cifs-utils smbclient slim zenity \
-               gvfs-fuse ristretto xfce4-screensaver xfce4-screenshooter; do
+               build-essential pkg-config libgtk-3-dev libglib2.0-dev libgdk-pixbuf-2.0-dev \
+               libglib2.0-bin desktop-file-utils gtk-update-icon-cache hicolor-icon-theme xdg-utils \
+               gvfs gvfs-backends gvfs-fuse udisks2 7zip tar xfce4-terminal ristretto \
+               xfce4-screensaver xfce4-screenshooter; do
         if apt-get install -y "$pkg" 2>/dev/null; then
             log_info "✓ $pkg installed"
         else
@@ -1072,15 +1075,6 @@ install_multimedia_apps() {
     else
         log_warn "✗ bleachbit failed to install"
         APP_FAILED="$APP_FAILED bleachbit"
-    fi
-    
-    # Thunar archive plugin
-    log_info "Installing Thunar archive plugin..."
-    if apt-get install -y thunar-archive-plugin 2>/dev/null; then
-        log_info "✓ thunar-archive-plugin installed"
-    else
-        log_warn "✗ thunar-archive-plugin failed to install"
-        APP_FAILED="$APP_FAILED thunar-archive-plugin"
     fi
     
     # Upscayl - AI image upscaler

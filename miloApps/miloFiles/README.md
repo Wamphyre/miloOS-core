@@ -1,88 +1,131 @@
 # miloFiles
 
-`miloFiles` is a custom, lightweight, Finder-inspired file manager developed for **miloOS**. It is designed with a hybrid visual aesthetic that sits at the intersection of classic macOS Snow Leopard (brushed glossy silver gradients) and the modern, flat design system of miloOS.
+`miloFiles` is the Finder-inspired file manager for **miloOS**. The original production-ready reference implementation is `milofiles.py`; the current native port lives in `src/` and is intended to preserve the Python app feature-for-feature as a pure C++ application.
 
-Under the hood, `miloFiles` is a Python 3 application built on top of **PyGObject (GTK+ 3)**, ensuring high performance, low resource utilization, and deep integration with Linux desktop standards.
+The C++ version is built with **C++17**, **GTK+ 3**, **GIO**, and **GLib**. It keeps the same visual language as the Python app, with Snow Leopard-inspired structure blended into the flatter miloOS desktop style.
+
+---
+
+## Architecture
+
+The native application is organized as a modular C++17 codebase:
+
+| File | Description |
+|------|-------------|
+| `main.cpp` | Application entry point, locale setup, command-line path/URI handling, and GTK main loop |
+| `app_window.hpp/cpp` | Main window, toolbar, menu bar, breadcrumbs, location entry, navigation, and server connection dialogs |
+| `sidebar.hpp/cpp` | Devices, removable volumes, network mounts, Favorites, and Trash sidebar |
+| `file_view.hpp/cpp` | Icon/list views, async directory loading, search filtering, context menus, DnD, and file actions |
+| `progress_dialog.hpp/cpp` | Modal progress and cancellation UI for background operations |
+| `utils.hpp/cpp` | Filesystem helpers, MIME handling, default open handlers, archive operations, mounts, and bookmarks |
+| `i18n.hpp` | Header-only English/Spanish translation catalog |
+| `Makefile` | Native build using `pkg-config` for `gtk+-3.0`, `gio-2.0`, and related libraries |
 
 ---
 
 ## Key Features
 
-1. **Classic Finder-Inspired Layout**:
-   - **Double-Pane Sidebar**: Features structured lists for `DEVICES` (Home folder, Root file system, dynamically listed removable volumes/USB drives, and mounted network servers) and `FAVORITES` (Desktop, Documents, Downloads, Music, Pictures, Videos, and the Trash folder).
-   - **Perfect Alignment**: Sidebar rows are horizontally aligned using a `Gtk.SizeGroup` on the icons to ensure labels and widgets start at the exact same column.
-   - **Toolbar & View Switcher**: Compact header bar containing navigation buttons (Back, Forward, Parent directory), path breadcrumbs, a segmented control switcher for views, and a live search filter.
+1. **Finder-inspired layout**
+   - Sidebar sections for Devices, Favorites, network mounts, and Trash.
+   - Compact toolbar with Back, Forward, Parent, breadcrumb navigation, view switcher, and live search.
+   - Grid/icon view and details/list view with persistent UI behavior matching the Python reference.
 
-2. **Interactive Location/URL Bar with Autocomplete**:
-   - Easily input paths by double-clicking the breadcrumbs area, using `Ctrl+L`, or choosing "Go to Location..." from the Go menu.
-   - Built-in directory suggestions using `Gtk.EntryCompletion` pre-populated with default user folders.
-   - Hitting `Enter` navigates to the input path; hitting `Esc` or losing focus reverts back to the breadcrumbs view.
+2. **Interactive location bar**
+   - Double-click the breadcrumb area, press `Ctrl+L`, or use the Go menu to type a path.
+   - Supports local paths and remote URIs such as `smb://server/share`, `ftp://host`, and `sftp://host`.
+   - `Enter` navigates or mounts the target; `Esc` restores the breadcrumb view.
 
-3. **System-wide Global Menu Support**:
-   - Fully integrates with XFCE4's Global Menu plugin (`appmenu-gtk3-module`). The traditional menu bar is automatically exported to DBus, hidden from the local window, and projected onto the panel at the top of the screen.
+3. **Devices, removable media, and network mounts**
+   - Uses `GVolumeMonitor` to update mounted devices and removable volumes in real time.
+   - Sidebar device actions include mount, unmount, and eject where supported.
+   - Remote servers are mounted through GVfs and then opened through their local mount path.
 
-4. **Plug-and-Play Storage & Dynamic Mounts**:
-   - Monitored by `Gio.VolumeMonitor`. Plugging in a USB flash drive, inserting a disc, or mounting a virtual filesystem immediately updates the sidebar in real time.
-   - Built-in unmounting: An eject icon appears next to removable devices in the sidebar, allowing one-click safe removal (`gio mount -u`).
+4. **Archive compression and extraction**
+   - Compress selected files or folders to `.zip`, `.7z`, `.tar.gz`, `.tar.xz`, or `.tar.bz2`.
+   - Extract `.zip`, `.7z`, `.rar`, `.tar`, `.tar.gz`, `.tgz`, `.tar.bz2`, `.tbz2`, `.tar.xz`, `.txz`, and related archive formats.
+   - Archive jobs run in background worker threads through `7z` or `tar`, with completion, cancellation, and error reporting kept out of the GTK UI thread.
 
-5. **Network Servers Integration**:
-   - Connect directly to remote shared resources (Samba/SMB, FTP, SFTP) using the **"Connect to Server..."** action in the *Go* menu of the global menu bar, or by entering protocol URIs (e.g. `smb://server/share`, `ftp://foo.bar`) directly in the location bar and hitting Enter.
-   - Successfully mounted connections automatically redirect the view pane to their local GVfs paths.
-   - Uses GVfs backend mounts seamlessly. Authentication dialogs pop up natively when password-protected shares are queried.
-   - The Connect dialog features localized, generic placeholder text examples.
+5. **File operations**
+   - Cut, copy, paste, rename, move to Trash, permanent delete, drag and drop, and properties.
+   - Smart duplicate-name handling when pasting into the same folder.
+   - Directory size calculation in the properties dialog runs asynchronously.
+   - Context menu action to open the current folder in `xfce4-terminal` when available.
 
-6. **Built-in Archive Utilities**:
-   - **Compression**: Select one or more files/folders, right-click, and choose **"Compress..."** to package them into `.zip`, `.7z`, `.tar.gz`, `.tar.xz`, or `.tar.bz2` archives. The compression dialog dynamically updates the file extension in real time as formats are selected.
-   - **Extraction**: Right-click any archive file (`.zip`, `.7z`, `.rar`, `.tar.gz`, `.tgz`, `.tar.bz2`, `.tbz2`, `.tar.xz`, `.txz`, etc.) and select **"Extract Here"** to unpack its contents.
-   - Leverages optimized, native system-level utilities (`7z` and `tar`) inside background worker threads, yielding high-performance execution without blocking the GUI or consuming Python VM memory.
+6. **Favorites and Trash**
+   - Favorites are stored in `~/.config/gtk-3.0/bookmarks`, so they stay compatible with GTK desktop apps.
+   - Directories can be added to Favorites from the main file view.
+   - Favorite rows can be renamed or removed from the sidebar.
+   - Trash can be emptied from the sidebar with confirmation.
 
-7. **File Operations & Properties**:
-   - Basic functions: Cut, Copy, Paste, Rename, Move to Trash, and Permanent Delete.
-   - **Open Terminal**: Quickly open the default Xfce terminal in the current directory directly from the right-click context menu.
-   - **Keyboard Event Focus Bypass**: Standard text editing keys (such as `BackSpace`, `Delete`, and clipboard commands) propagate directly to text entry widgets instead of triggering global folder navigation commands when a text field is focused.
-   - **Smart Clipboard Collision Resolution**: Pasting files/folders in the same directory automatically generates a unique duplicate name (e.g. 'file copy.txt'), preventing collisions and file descriptor errors.
-   - **Asynchronous "Get Info" / Properties Dialog**: Displays deep metadata, owner details, and octal permissions. Directory size calculation is processed dynamically in a background thread with live updates, keeping the UI fully responsive.
-   - **Drag and Drop (D&D)**: Supports dragging files into directory views to trigger standard GIO copy operations.
+7. **Default app handling and Open With**
+   - Uses optimized default handlers for common media and document types when available.
+   - Falls back to registered system handlers through GIO/GTK when custom defaults are unavailable.
+   - Single-file context menus expose registered MIME apps plus a native `GtkAppChooserDialog`.
 
-8. **Bilingual Localization**:
-   - Natively localized in **English** and **Spanish**. The app reads the system locale on startup and translates all interface strings, dialogue boxes, context menus, and launcher labels accordingly.
+8. **Localization and theme integration**
+   - English and Spanish UI strings are selected from the process locale.
+   - Scoped GTK CSS keeps the miloFiles window aligned with the light and `miloOS-Dark` themes.
+   - The app reacts when the active GTK theme changes during the session.
 
-9. **Theme Synchronization & Flat Borderless Styling**:
-   - Automatically monitors active desktop settings. Switching theme to `miloOS-Dark` triggers a CSS provider swap, transitioning the layout from glossy-silver to space-grey.
-   - Applies high-specificity GTK CSS overrides to strip default theme borders and scrollbar frames, preventing ugly white/light lines from showing up inside the card layout or around the window borders.
-
-10. **Low Resource Footprint & Thumbnail Throttling**:
-    - **Fast Loading**: Uses `os.scandir` to query directory names and types in a single native system call, combined with `GdkPixbuf`/icon theme caching to minimize filesystem stats and D-Bus calls.
-    - **CPU-Friendly Thumbnailing**: The background thumbnail loader thread runs with a 10ms micro-sleep to prevent pegging the CPU at 100% when navigating massive media folders.
-    - **Bounded RAM Footprint**: The thumbnail cache is capped at 1000 items (clearing/evicting older items on overflow) to prevent memory bloating.
-
-11. **Custom Default Opening Handlers & "Open With..."**:
-    - **Customizable Defaults**: Automatically opens common files with optimized default apps: VLC for audio/video files, Ristretto for images, Mousepad for text documents, and Firefox/Chrome/Chromium for PDF files (falling back to standard system handlers if missing).
-    - **"Open With..." Context Menu**: Right-clicking a single file offers an "Open With..." submenu containing all registered applications capable of opening that MIME type.
-    - **Other Application...**: Features direct integration with `Gtk.AppChooserDialog` to let users search for, select, and launch any installed application on the system.
+9. **Native performance**
+   - Compiles to a single native binary with no Python interpreter dependency.
+   - Uses thread-safe caches for icons, MIME icons, and thumbnails.
+   - Directory loading, thumbnails, file operations, archive work, and metadata calculations avoid blocking the main GTK thread.
 
 ---
 
-## Installation & Integration
+## Building from Source
 
-To install `miloFiles` locally and register it as the default system directory handler:
+### Prerequisites
 
-1. **Run the Installer**:
-   ```bash
-   sudo ./install.sh
-   ```
-   This script:
-   - Creates a wrapper script in `/usr/local/bin/milofiles` pointing to the entrypoint.
-   - Installs the app menu launcher (`milofiles.desktop`) and updates the system desktop database.
-   - Copies the Finder-style `milofiles.svg` icon to the system-wide icon theme directories.
-   - Configures mime-type defaults so that opening any directory in the system defaults to `miloFiles`.
+- `make`
+- `g++` with C++17 support
+- `pkg-config`
+- Development headers for `gtk+-3.0`, `gio-2.0`, `gdk-pixbuf-2.0`, and `gio-unix-2.0`
+- Runtime archive tools: `7z` and `tar`
+- Runtime desktop helpers: GVfs backends for remote mounts, `udisks2` for removable devices, and optionally `xfce4-terminal`
+
+### Compile
+
+```bash
+cd src/
+make
+```
+
+This produces the `milofiles-bin` binary in the `src/` directory.
+
+---
+
+## Installation and Integration
+
+To install `miloFiles` locally and register it as the default directory handler:
+
+```bash
+sudo ./install.sh
+```
+
+The installer:
+
+- Builds the C++ source from `src/`.
+- Installs the native binary as `/usr/local/bin/milofiles`.
+- Installs `milofiles.desktop` into `/usr/share/applications/`.
+- Installs the `milofiles` icon into the system icon theme.
+- Registers `milofiles.desktop` as the default handler for `inode/directory`.
+
+The Plank dock item used by miloOS should point to:
+
+```ini
+Launcher=file:///usr/share/applications/milofiles.desktop
+```
 
 ---
 
 ## Standalone Execution
 
-You can run the application directly from the source directory:
+Run the app directly from the build directory:
+
 ```bash
-python3 milofiles.py [optional-directory-path]
+./src/milofiles-bin [optional-path-or-file-uri]
 ```
-If a path is provided (as a regular path or as a `file://` URI), the app will start navigated into that specific folder; otherwise, it defaults to the user's home directory.
+
+If no path is provided, `miloFiles` opens the user's home directory. Local filesystem paths and `file://` URIs are accepted; invalid startup paths fall back to the home directory.
