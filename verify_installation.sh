@@ -113,24 +113,24 @@ else
 fi
 echo ""
 
-# Check Plank
-echo -e "${BLUE}[5] Plank Dock${NC}"
-if command -v plank &> /dev/null; then
-    check_pass "Plank installed"
+# Check miloDock
+echo -e "${BLUE}[5] miloDock${NC}"
+if command -v milodock &> /dev/null; then
+    check_pass "miloDock installed"
 else
-    check_fail "Plank not installed"
+    check_fail "miloDock not installed"
 fi
 
-if [ -d "/usr/share/plank/themes/milo" ]; then
-    check_pass "Plank milo theme installed"
+if [ -f "/usr/share/applications/milodock.desktop" ]; then
+    check_pass "miloDock desktop entry installed"
 else
-    check_fail "Plank milo theme not found"
+    check_fail "miloDock desktop entry not found"
 fi
 echo ""
 
 # Check packages
 echo -e "${BLUE}[6] Essential Packages${NC}"
-REQUIRED_PKGS=("dconf-cli" "xfce4-appmenu-plugin" "plank" "catfish" "vala-panel-appmenu")
+REQUIRED_PKGS=("dconf-cli" "xfce4-appmenu-plugin" "catfish" "vala-panel-appmenu" "python3-gi" "gir1.2-gtk-3.0" "gir1.2-wnck-3.0")
 for pkg in "${REQUIRED_PKGS[@]}"; do
     if dpkg -l | grep -q "^ii  $pkg"; then
         check_pass "$pkg installed"
@@ -182,21 +182,21 @@ if [ "$EUID" -ne 0 ] && [ -n "$HOME" ]; then
         check_warn "XFCE4 configuration not found"
     fi
     
-    if [ -d "$HOME/.config/plank/dock1/launchers" ]; then
-        LAUNCHER_COUNT=$(ls -1 "$HOME/.config/plank/dock1/launchers"/*.dockitem 2>/dev/null | wc -l)
+    if [ -d "$HOME/.config/miloDock/launchers" ]; then
+        LAUNCHER_COUNT=$(ls -1 "$HOME/.config/miloDock/launchers"/*.dockitem 2>/dev/null | wc -l)
         if [ "$LAUNCHER_COUNT" -gt 0 ]; then
-            check_pass "Plank launchers configured ($LAUNCHER_COUNT items)"
+            check_pass "miloDock launchers configured ($LAUNCHER_COUNT items)"
         else
-            check_warn "No Plank launchers found"
+            check_warn "No miloDock launchers found"
         fi
     else
-        check_warn "Plank configuration not found"
+        check_warn "miloDock configuration not found"
     fi
     
-    if [ -f "$HOME/.config/autostart/Dock.desktop" ]; then
-        check_pass "Plank autostart configured"
+    if [ -f "$HOME/.config/autostart/Dock.desktop" ] && grep -q "Exec=milodock" "$HOME/.config/autostart/Dock.desktop"; then
+        check_pass "miloDock autostart configured"
     else
-        check_warn "Plank autostart not configured"
+        check_warn "miloDock autostart not configured"
     fi
     
     # Check xfconf settings

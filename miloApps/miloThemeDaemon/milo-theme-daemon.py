@@ -2,6 +2,8 @@
 import os
 import re
 import sys
+import signal
+import configparser
 import subprocess
 import threading
 import gi
@@ -91,17 +93,45 @@ def get_xfconf_property(channel_name, property_name):
         pass
     return None
 
-def set_plank_theme(theme_name):
+def set_milodock_system_theme(theme_name):
+    mode = "dark" if theme_name == "miloOS-Dark" else "light"
+    config_path = os.path.expanduser("~/.config/miloDock/settings.ini")
+    updated = False
     try:
-        res = subprocess.run(["dconf", "read", "/net/launchpad/plank/docks/dock1/theme"], capture_output=True, text=True)
-        current = res.stdout.strip().replace("'", "")
-        if current != theme_name:
-            subprocess.run(["dconf", "write", "/net/launchpad/plank/docks/dock1/theme", f"'{theme_name}'"], check=True)
-            print(f"Successfully updated Plank theme to {theme_name}", flush=True)
-            return True
+        parser = configparser.ConfigParser(interpolation=None)
+        if os.path.exists(config_path):
+            parser.read(config_path, encoding="utf-8")
+        if not parser.has_section("Dock"):
+            parser.add_section("Dock")
+        if not parser.has_option("Dock", "theme"):
+            parser.set("Dock", "theme", "auto")
+        current = parser.get("Dock", "system_theme", fallback="")
+        if current != mode:
+            parser.set("Dock", "system_theme", mode)
+            os.makedirs(os.path.dirname(config_path), exist_ok=True)
+            with open(config_path, "w", encoding="utf-8") as f:
+                parser.write(f)
+            print(f"Successfully updated miloDock system theme to {mode}", flush=True)
+            updated = True
     except Exception as e:
-        print(f"Error setting Plank theme to {theme_name}: {e}", file=sys.stderr, flush=True)
-    return False
+        print(f"Error setting miloDock system theme to {mode}: {e}", file=sys.stderr, flush=True)
+
+    try:
+        res = subprocess.run(
+            ["pgrep", "-u", str(os.getuid()), "-f", "milodock"],
+            capture_output=True,
+            text=True,
+        )
+        for raw_pid in res.stdout.split():
+            try:
+                os.kill(int(raw_pid), signal.SIGUSR1)
+                updated = True
+            except Exception:
+                pass
+    except Exception as e:
+        print(f"Error notifying miloDock about theme change: {e}", file=sys.stderr, flush=True)
+
+    return updated
 
 def set_xfconf_property(channel_name, property_name, value):
     try:
@@ -124,6 +154,7 @@ def apply_theme_dependencies(theme_name):
     print(f"Applying theme dependencies for: {theme_name}", flush=True)
     
     updated = False
+    milodock_updated = False
     
     # 1. Synchronize GTK Theme Name
     if set_xfconf_property("xsettings", "/Net/ThemeName", theme_name):
@@ -142,9 +173,9 @@ def apply_theme_dependencies(theme_name):
         for prop in icon_props:
             if set_xfconf_property("xfce4-panel", prop, "/usr/share/themes/miloOS-Dark/logo.png"):
                 updated = True
-        # 5. Synchronize Plank Theme
-        if set_plank_theme("milo-dark"):
-            updated = True
+        # 5. Synchronize miloDock Theme
+        if set_milodock_system_theme(theme_name):
+            milodock_updated = True
     elif theme_name == "miloOS":
         # 3. Synchronize Icon Theme Name
         if set_xfconf_property("xsettings", "/Net/IconThemeName", "WhiteSur-light"):
@@ -154,9 +185,9 @@ def apply_theme_dependencies(theme_name):
         for prop in icon_props:
             if set_xfconf_property("xfce4-panel", prop, "/usr/share/themes/miloOS/logo.png"):
                 updated = True
-        # 5. Synchronize Plank Theme
-        if set_plank_theme("milo"):
-            updated = True
+        # 5. Synchronize miloDock Theme
+        if set_milodock_system_theme(theme_name):
+            milodock_updated = True
 
     if updated:
         print("Theme dependencies synchronized successfully.", flush=True)
@@ -192,6 +223,8 @@ def apply_theme_dependencies(theme_name):
         t = threading.Thread(target=restart_desktop)
         t.daemon = True
         t.start()
+    elif milodock_updated:
+        print("miloDock theme synchronized successfully.", flush=True)
 
 def on_xsettings_changed(channel, property_name, value, user_data):
     if property_name == "/Net/ThemeName":

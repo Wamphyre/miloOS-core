@@ -3,11 +3,10 @@ Encoding=UTF-8
 Version=0.9.4
 Type=Application
 Name=Dock
-Comment=System dock
-Exec=plank
+Comment=miloOS native dock
+Exec=milodock --replace
 OnlyShowIn=XFCE;
 RunHook=0
 StartupNotify=false
 Terminal=false
 Hidden=false
-

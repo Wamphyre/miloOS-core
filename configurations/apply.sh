@@ -59,7 +59,6 @@ done
 
 # Make sure that the apps that make up the interface are not running
 log_info "Stopping running processes..."
-pkill plank 2>/dev/null || true
 pkill xfce4-panel 2>/dev/null || true
 pkill -TERM -x Thunar 2>/dev/null || true
 sleep 1
@@ -76,13 +75,13 @@ BACKUP_SUFFIX="backup-$(date +%Y%m%d-%H%M%S)"
 [ -f "$USER_HOME/.config/gtk-3.0/gtk.css" ] && mv "$USER_HOME/.config/gtk-3.0/gtk.css" "$USER_HOME/.config/gtk-3.0/gtk.css.$BACKUP_SUFFIX"
 [ -d "$USER_HOME/.config/xfce4/panel" ] && mv "$USER_HOME/.config/xfce4/panel" "$USER_HOME/.config/xfce4/panel.$BACKUP_SUFFIX"
 [ -d "$USER_HOME/.config/xfce4/xfconf" ] && mv "$USER_HOME/.config/xfce4/xfconf" "$USER_HOME/.config/xfce4/xfconf.$BACKUP_SUFFIX"
-[ -d "$USER_HOME/.config/plank/dock1" ] && mv "$USER_HOME/.config/plank/dock1" "$USER_HOME/.config/plank/dock1.$BACKUP_SUFFIX"
+[ -d "$USER_HOME/.config/miloDock" ] && mv "$USER_HOME/.config/miloDock" "$USER_HOME/.config/miloDock.$BACKUP_SUFFIX"
 
 # Create necessary directories
 log_info "Creating configuration directories..."
 mkdir -p "$USER_HOME/.config/gtk-3.0"
 mkdir -p "$USER_HOME/.config/xfce4"
-mkdir -p "$USER_HOME/.config/plank/dock1/launchers"
+mkdir -p "$USER_HOME/.config/miloDock/launchers"
 mkdir -p "$USER_HOME/.local/share/dbus-1/services"
 
 # Prevent Thunar's D-Bus activation from starting the daemon in miloOS sessions.
@@ -153,18 +152,25 @@ else
     log_warn "XFCE4 xfconf configuration not found, skipping"
 fi
 
-# Copy Plank launchers
-if [ -d "configurations/plank/dock1/launchers" ]; then
-    log_info "Copying Plank launchers..."
-    cp configurations/plank/dock1/launchers/*.dockitem "$USER_HOME/.config/plank/dock1/launchers/" 2>/dev/null || log_warn "No dockitems found in configurations"
-    chmod 755 "$USER_HOME/.config/plank/dock1/launchers"
-    chmod 644 "$USER_HOME/.config/plank/dock1/launchers"/*.dockitem 2>/dev/null || true
-    chown -R "$EXEC_USER:$EXEC_USER" "$USER_HOME/.config/plank/dock1/"
+# Copy miloDock launchers
+if [ -d "configurations/miloDock/launchers" ]; then
+    log_info "Copying miloDock launchers..."
+    cp configurations/miloDock/launchers/*.dockitem "$USER_HOME/.config/miloDock/launchers/" 2>/dev/null || log_warn "No dockitems found in miloDock configurations"
+    chmod 755 "$USER_HOME/.config/miloDock/launchers"
+    chmod 644 "$USER_HOME/.config/miloDock/launchers"/*.dockitem 2>/dev/null || true
+    chown -R "$EXEC_USER:$EXEC_USER" "$USER_HOME/.config/miloDock/"
 else
-    log_warn "Plank launchers not found, skipping"
+    log_warn "miloDock launchers not found, skipping"
 fi
 
-# Copy autostart configuration for Plank
+if [ -f "configurations/miloDock/settings.ini" ]; then
+    log_info "Copying miloDock settings..."
+    cp configurations/miloDock/settings.ini "$USER_HOME/.config/miloDock/settings.ini"
+    chmod 644 "$USER_HOME/.config/miloDock/settings.ini"
+    chown "$EXEC_USER:$EXEC_USER" "$USER_HOME/.config/miloDock/settings.ini"
+fi
+
+# Copy autostart configuration for miloDock
 if [ -f "configurations/autostart/Dock.desktop" ]; then
     log_info "Copying autostart configuration..."
     mkdir -p "$USER_HOME/.config/autostart"
@@ -312,19 +318,14 @@ xfconf-query -c thunar-volman -p /automount-media/enabled -n -t bool -s false 2>
 xfconf-query -c xfce4-desktop -p /backdrop/screen0/monitor0/workspace0/last-image -n -t string -s /usr/share/backgrounds/blue-mountain.jpg 2>/dev/null || \
     xfconf-query -c xfce4-desktop -p /backdrop/screen0/monitor0/workspace0/last-image -t string -s /usr/share/backgrounds/blue-mountain.jpg
 
-# Apply Plank settings using dconf directly
-log_info "Applying Plank settings..."
-dconf write /net/launchpad/plank/docks/dock1/theme "'milo'"
-dconf write /net/launchpad/plank/docks/dock1/icon-size 48
-dconf write /net/launchpad/plank/docks/dock1/hide-mode "'intelligent'"
-dconf write /net/launchpad/plank/docks/dock1/position "'bottom'"
-dconf write /net/launchpad/plank/docks/dock1/alignment "'center'"
+# miloDock is configured from ~/.config/miloDock/launchers and does not need dconf.
+log_info "miloDock launchers configured"
 
 # Set proper ownership
 log_info "Setting proper ownership..."
 chown -R "$EXEC_USER:$EXEC_USER" "$USER_HOME/.config/gtk-3.0"
 chown -R "$EXEC_USER:$EXEC_USER" "$USER_HOME/.config/xfce4"
-chown -R "$EXEC_USER:$EXEC_USER" "$USER_HOME/.config/plank"
+chown -R "$EXEC_USER:$EXEC_USER" "$USER_HOME/.config/miloDock"
 
 # Hide default system menu items (logout, restart, shutdown, sleep)
 log_info "Hiding default system menu items..."

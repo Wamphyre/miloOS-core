@@ -60,9 +60,6 @@
 		<Exclude>
 			<Filename>alacarte.desktop</Filename>
 		</Exclude>
-		<Exclude>
-			<Filename>plank.desktop</Filename>
-		</Exclude>
 	</Menu>
 	<Menu>
 		<Name>Multimedia</Name>

@@ -24,7 +24,7 @@ sudo ./install.sh
 Launch from:
 - Applications menu → System → System Statistics
 - Command line: `sysstats`
-- Plank dock (if configured)
+- miloDock (if configured)
 
 ## Requirements
 

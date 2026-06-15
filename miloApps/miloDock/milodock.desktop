@@ -1,0 +1,13 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=miloDock
+Name[es]=miloDock
+Comment=miloOS native dock
+Comment[es]=Dock nativo de miloOS
+Exec=milodock --replace
+Icon=milodock
+Terminal=false
+Categories=System;Utility;GTK;
+StartupNotify=false
+OnlyShowIn=XFCE;

@@ -112,7 +112,7 @@ The installer:
 - Installs the `milofiles` icon into the system icon theme.
 - Registers `milofiles.desktop` as the default handler for `inode/directory`.
 
-The Plank dock item used by miloOS should point to:
+The miloDock launcher used by miloOS should point to:
 
 ```ini
 Launcher=file:///usr/share/applications/milofiles.desktop

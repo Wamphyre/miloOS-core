@@ -98,10 +98,11 @@ install_debian_packages() {
     # Try to install packages, but don't fail if some are missing
     local FAILED_PKGS=""
     
-    for pkg in gtk2-engines-murrine gtk2-engines-pixbuf plank catfish \
+    for pkg in gtk2-engines-murrine gtk2-engines-pixbuf catfish \
                appmenu-gtk3-module dconf-cli vala-panel-appmenu \
                xfce4-appmenu-plugin xfce4-notifyd cifs-utils smbclient slim zenity \
-               build-essential pkg-config libgtk-3-dev libglib2.0-dev libgdk-pixbuf-2.0-dev \
+               python3 python3-gi gir1.2-gtk-3.0 gir1.2-wnck-3.0 libwnck-3-0 \
+               build-essential pkg-config libgtk-3-dev libglib2.0-dev libgdk-pixbuf-2.0-dev libx11-dev \
                libglib2.0-bin desktop-file-utils gtk-update-icon-cache hicolor-icon-theme xdg-utils \
                gvfs gvfs-backends gvfs-fuse udisks2 7zip tar xfce4-terminal ristretto \
                xfce4-screensaver xfce4-screenshooter; do
@@ -365,31 +366,6 @@ install_wallpaper() {
     else
         log_warn "No wallpapers found in resources/backgrounds/"
     fi
-}
-
-install_plank_theme() {
-    log_step 6 $TOTAL_STEPS "Installing Plank themes..."
-    
-    if [ ! -d "resources/plank/milo" ]; then
-        error_exit "Plank theme resources/plank/milo not found!"
-    fi
-    if [ ! -d "resources/plank/milo-dark" ]; then
-        error_exit "Plank theme resources/plank/milo-dark not found!"
-    fi
-    
-    mkdir -p /usr/share/plank/themes
-    
-    cp -R resources/plank/milo /usr/share/plank/themes/
-    chmod 755 /usr/share/plank/themes/milo
-    chmod 644 /usr/share/plank/themes/milo/*.theme 2>/dev/null || true
-    chown -R root:root /usr/share/plank/themes/milo
-    
-    cp -R resources/plank/milo-dark /usr/share/plank/themes/
-    chmod 755 /usr/share/plank/themes/milo-dark
-    chmod 644 /usr/share/plank/themes/milo-dark/*.theme 2>/dev/null || true
-    chown -R root:root /usr/share/plank/themes/milo-dark
-    
-    log_info "Plank themes (Light & Dark) installed"
 }
 
 install_menus() {
@@ -1338,12 +1314,23 @@ install_gtk_themes
 install_icon_themes
 install_fonts
 install_wallpaper
-install_plank_theme
+log_step 6 $TOTAL_STEPS "Using miloDock as the default dock"
 install_menus
 rebrand_system
 optimize_realtime_audio
 install_audio_plugins
 install_multimedia_apps
+
+MILOAPPS_INSTALL_ORDER=(
+    "AudioConfig"
+    "SysStats"
+    "miloUpdater"
+    "AudioMaster"
+    "miloThemeDaemon"
+    "miloFiles"
+    "miloDock"
+)
+log_info "miloApps install order: ${MILOAPPS_INSTALL_ORDER[*]}"
 install_audio_config
 
 # Disable Plymouth boot splash
@@ -1518,6 +1505,19 @@ if [ -d "$CURRENT_DIR/miloApps/miloFiles" ]; then
     fi
 else
     log_warn "✗ miloFiles directory not found, skipping"
+fi
+
+# Install miloDock application
+echo ""
+log_info "Installing miloDock application..."
+if [ -d "$CURRENT_DIR/miloApps/miloDock" ]; then
+    if bash "$CURRENT_DIR/miloApps/miloDock/install.sh"; then
+        log_info "✓ miloDock installed successfully"
+    else
+        log_warn "✗ miloDock installation failed (non-critical)"
+    fi
+else
+    log_warn "✗ miloDock directory not found, skipping"
 fi
 
 echo ""

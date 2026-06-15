@@ -56,11 +56,11 @@ miloOS is **not a distribution**—it's a transformation kit. Install vanilla De
 - **Zero configuration** - Launch your DAW from anywhere, it just works
 
 ### 🎨 Elegant Interface
-- **Clean design** - Top panel, Plank dock, hidden window titles
+- **Clean design** - Top panel, native miloDock, hidden window titles
 - **San Francisco Pro fonts** - Professional typography system-wide
 - **WhiteSur icons** - Consistent, modern visual language
 - **Custom miloOS and miloOS-Dark themes** - Premium light/dark variants with macOS-style aesthetics and flat titlebars
-- **Translucent Plank themes** - Matching light and dark glassmorphic dock themes
+- **Native dock experience** - miloDock provides a miloOS-specific GTK dock
 - **Distraction-free** - Focus on your work, not the system
 
 ### 🛠️ miloApps Suite
@@ -104,7 +104,8 @@ miloOS is **not a distribution**—it's a transformation kit. Install vanilla De
 - Integrated in XFCE Settings and miloOS menu
 
 **miloThemeDaemon** - System theme synchronization daemon
-- Automatically synchronizes GTK, Window Manager (xfwm4), icon themes, application menu logos, and Plank themes
+- Automatically synchronizes GTK, Window Manager (xfwm4), icon themes, application menu logos, and desktop theme state
+- Notifies miloDock so its light/dark CSS follows `miloOS` and `miloOS-Dark`
 - Optimized using native Python Xfconf bindings to eliminate subprocess spawn overhead
 - Detects active theme mode shifts dynamically and handles safe background updates
 - Refreshes panel components instantly to guarantee consistent styling
@@ -123,6 +124,21 @@ miloOS is **not a distribution**—it's a transformation kit. Install vanilla De
 - Custom default open actions plus registered "Open With..." application menus and native GtkAppChooserDialog integration
 - Dynamic light/dark GTK theme styling, including `miloOS-Dark`
 - Bilingual interface (English/Spanish)
+
+**miloDock** - Native miloOS dock
+- C++17/GTK3 dock installed as the default miloOS dock
+- miloOS light/dark styling with a compact Snow Leopard-inspired surface
+- Uses native miloDock `.dockitem` launcher files
+- Reads launchers from `~/.config/miloDock/launchers`
+- Uses X11/EWMH to detect running windows, show indicators, activate existing apps, and close windows from the context menu
+- Shows running applications that are not pinned when their `.desktop` launcher can be matched
+- Supports launcher reordering, dropping `.desktop` files, and add/remove launcher actions
+- Normalizes launcher cwd to the user's home folder so terminal windows do not inherit the repo path
+- Global Menu preferences for icon size, launcher spacing, auto-hide, effects, and theme mode
+- Python prototype remains available as a reference implementation
+- Cooperates with miloThemeDaemon when the system switches between `miloOS` and `miloOS-Dark`
+- Single-instance GTK application behavior for reliable autostart
+- Designed as the Python reference before a later C++ port
 
 
 ### ⚙️ System Integration
@@ -156,8 +172,8 @@ The script will:
 1. Install required packages (PipeWire, WirePlumber, GTK themes, etc.)
 2. Configure PipeWire and WirePlumber for real-time audio performance
 3. Install professional audio plugins
-4. Apply visual themes (including miloOS-Dark and custom Plank layouts), icons, and fonts
-5. Install miloApps (AudioConfig, AudioMaster, SysStats, miloUpdater, miloThemeDaemon, and miloFiles)
+4. Apply visual themes (including miloOS-Dark), icons, fonts, and the native miloDock layout
+5. Install miloApps (AudioConfig, AudioMaster, SysStats, miloUpdater, miloThemeDaemon, miloFiles, and miloDock)
 6. Configure user environment and JACK library paths
 7. Optimize kernel parameters and system limits for audio production
 
