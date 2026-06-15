@@ -105,21 +105,25 @@ miloOS is **not a distribution**—it's a transformation kit. Install vanilla De
 
 **miloThemeDaemon** - System theme synchronization daemon
 - Automatically synchronizes GTK, Window Manager (xfwm4), icon themes, application menu logos, and Plank themes
+- Optimized using native Python Xfconf bindings to eliminate subprocess spawn overhead
 - Detects active theme mode shifts dynamically and handles safe background updates
 - Refreshes panel components instantly to guarantee consistent styling
 
 **miloFiles** - Finder-style file manager
 - macOS Snow Leopard-inspired interface combined with flat miloOS aesthetics
+- Optimized directory listing using `os.scandir` and PyGObject caching to minimize disk lookups
+- Bounded thumbnail caching (capped at 1000 items) and throttled processing thread (10ms sleep) to reduce CPU and RAM footprint
+- Customizable default open actions (VLC for audio/video, Ristretto for images, Mousepad for text, Firefox/Chrome/Chromium for PDFs)
+- Contextual "Open With..." submenu listing MIME-registered apps, and native Gtk.AppChooserDialog integration
 - Devices and Favorites sidebar navigation with horizontal size group alignment
 - Toggleable Grid/Icon view and Details/List view with custom view switcher icons
 - Real-time search filter with keyboard focus event bypass for text entry widgets
 - Interactive path bar stack swapping breadcrumbs for an autocompleting URL text entry (Ctrl+L)
+- Localized server connection placeholder templates (no hardcoded IPs)
 - Full file operations: cut, copy, paste, delete, trash, rename, and properties (Get Info)
 - Smart copy-paste filename collision handler (auto-renaming when pasting duplicate files in the same directory)
 - Asynchronous folder size calculator in Get Info properties dialog to avoid UI thread blockages
-- Asynchronous optimized thumbnail loading and Enter key submission in dialog entries
-- Direct SMB/FTP network address connections from the Ctrl+L location bar with auto-navigation
-- Secure extraction containing Path Traversal/Zip Slip/Tar Slip security mitigations
+- Integrated multi-format archive compression (.zip, .7z, .tar.gz, .tar.xz, .tar.bz2) and extraction (.zip, .7z, .rar, .tar.gz, etc.) using high-performance native system backends (7z and tar)
 - Dynamically adapts to dark and light system themes with customized borderless styling overrides
 - Bilingual interface (English/Spanish)
 

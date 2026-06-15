@@ -148,13 +148,6 @@ class AudioMasterWindow(Gtk.Window):
         content_box.set_halign(Gtk.Align.CENTER)
         content_box.set_valign(Gtk.Align.CENTER)
         
-        # Title Label
-        title_label = Gtk.Label()
-        title_label.set_markup(f"<span font_desc='Inter, System-UI, sans-serif 18' weight='bold' foreground='#2c3e50'>{_('title')}</span>")
-        title_label.set_halign(Gtk.Align.START)
-        title_label.set_margin_bottom(10)
-        content_box.pack_start(title_label, False, False, 0)
-        
         # Reference track
         self.reference_box = self.create_file_selector(
             _('reference_track'),

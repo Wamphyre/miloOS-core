@@ -1,4 +1,4 @@
-#!/usr/bin/env mode
+#!/bin/bash
 # Author: Wamphyre
 # Description: Installer for miloOS theme daemon
 # Version: 1.0

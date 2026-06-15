@@ -536,11 +536,13 @@ class SysStatsWindow(Gtk.Window):
         for r, (label_text, value_text) in enumerate(system_items):
             label = Gtk.Label()
             label.set_markup(f"<b>{label_text}:</b>")
-            label.set_halign(Gtk.Align.END)
+            label.set_halign(Gtk.Align.START)
+            label.set_valign(Gtk.Align.START)
             sys_grid.attach(label, 0, r, 1, 1)
             
             value = Gtk.Label(label=value_text)
             value.set_halign(Gtk.Align.START)
+            value.set_valign(Gtk.Align.START)
             sys_grid.attach(value, 1, r, 1, 1)
             
         # Right card: Hardware Specifications
@@ -579,13 +581,15 @@ class SysStatsWindow(Gtk.Window):
         for r, (label_text, value_text) in enumerate(hardware_items):
             label = Gtk.Label()
             label.set_markup(f"<b>{label_text}:</b>")
-            label.set_halign(Gtk.Align.END)
+            label.set_halign(Gtk.Align.START)
+            label.set_valign(Gtk.Align.START)
             hw_grid.attach(label, 0, r, 1, 1)
             
             value = Gtk.Label(label=value_text)
             value.set_halign(Gtk.Align.START)
+            value.set_valign(Gtk.Align.START)
             value.set_line_wrap(True)
-            value.set_max_width_chars(30)
+            value.set_max_width_chars(50)
             hw_grid.attach(value, 1, r, 1, 1)
             
         self.content_stack.add_named(page, "overview")

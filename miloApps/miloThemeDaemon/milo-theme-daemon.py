@@ -9,20 +9,74 @@ gi.require_version('Xfconf', '0')
 gi.require_version('GLib', '2.0')
 from gi.repository import GLib, Xfconf
 
+
+def load_user_env():
+    if os.environ.get("DISPLAY") and os.environ.get("DBUS_SESSION_BUS_ADDRESS"):
+        return
+    try:
+        import glob
+        user_pids = []
+        uid = os.getuid()
+        for proc_path in glob.glob("/proc/[0-9]*/status"):
+            try:
+                with open(proc_path, "r") as f:
+                    content = f.read()
+                lines = content.split("\n")
+                name = ""
+                proc_uid = -1
+                for line in lines:
+                    if line.startswith("Name:"):
+                        name = line.split()[1]
+                    elif line.startswith("Uid:"):
+                        proc_uid = int(line.split()[1])
+                if proc_uid == uid and name in ["xfce4-session", "xfdesktop", "xfce4-panel", "xfsettingsd"]:
+                    pid = proc_path.split("/")[2]
+                    user_pids.append(pid)
+            except Exception:
+                continue
+        for pid in user_pids:
+            try:
+                with open(f"/proc/{pid}/environ", "rb") as f:
+                    env_data = f.read()
+                env_dict = {}
+                for item in env_data.split(b"\x00"):
+                    if b"=" in item:
+                        parts = item.split(b"=", 1)
+                        key = parts[0].decode("utf-8", errors="ignore")
+                        val = parts[1].decode("utf-8", errors="ignore")
+                        env_dict[key] = val
+                for key in ["DISPLAY", "DBUS_SESSION_BUS_ADDRESS", "XDG_RUNTIME_DIR"]:
+                    if key in env_dict and env_dict[key]:
+                        os.environ[key] = env_dict[key]
+                if os.environ.get("DISPLAY") and os.environ.get("DBUS_SESSION_BUS_ADDRESS"):
+                    print(f"Successfully loaded session environment from PID {pid}", flush=True)
+                    break
+            except Exception:
+                continue
+    except Exception as e:
+        print(f"Error loading user session environment: {e}", file=sys.stderr, flush=True)
+
+_channels = {}
+def get_channel(channel_name):
+    if channel_name not in _channels:
+        _channels[channel_name] = Xfconf.Channel.get(channel_name)
+    return _channels[channel_name]
+
 def get_menu_icon_properties():
     try:
         res = subprocess.run(["xfconf-query", "-c", "xfce4-panel", "-l"], capture_output=True, text=True, check=True)
         props = res.stdout.strip().split("\n")
         
         target_properties = []
+        channel = get_channel("xfce4-panel")
         for prop in props:
             match = re.match(r"^/plugins/plugin-(\d+)$", prop)
             if match:
                 plugin_id = match.group(1)
-                res_val = subprocess.run(["xfconf-query", "-c", "xfce4-panel", "-p", prop], capture_output=True, text=True)
-                plugin_type = res_val.stdout.strip()
-                if plugin_type in ["applicationsmenu", "whiskermenu"]:
-                    target_properties.append(f"/plugins/plugin-{plugin_id}/button-icon")
+                if channel.has_property(prop):
+                    plugin_type = channel.get_string(prop)
+                    if plugin_type in ["applicationsmenu", "whiskermenu"]:
+                        target_properties.append(f"/plugins/plugin-{plugin_id}/button-icon")
         return target_properties
     except Exception as e:
         print(f"Error finding applicationsmenu plugin: {e}", file=sys.stderr)
@@ -30,9 +84,9 @@ def get_menu_icon_properties():
 
 def get_xfconf_property(channel_name, property_name):
     try:
-        res = subprocess.run(["xfconf-query", "-c", channel_name, "-p", property_name], capture_output=True, text=True)
-        if res.returncode == 0:
-            return res.stdout.strip()
+        channel = get_channel(channel_name)
+        if channel.has_property(property_name):
+            return channel.get_string(property_name)
     except Exception:
         pass
     return None
@@ -51,11 +105,14 @@ def set_plank_theme(theme_name):
 
 def set_xfconf_property(channel_name, property_name, value):
     try:
-        current = get_xfconf_property(channel_name, property_name)
-        if current != value:
-            subprocess.run(["xfconf-query", "-c", channel_name, "-p", property_name, "-s", value], check=True)
-            print(f"Successfully updated {channel_name}:{property_name} to {value}", flush=True)
-            return True
+        channel = get_channel(channel_name)
+        if channel.has_property(property_name):
+            current = channel.get_string(property_name)
+            if current == value:
+                return False
+        channel.set_string(property_name, value)
+        print(f"Successfully updated {channel_name}:{property_name} to {value}", flush=True)
+        return True
     except Exception as e:
         print(f"Error setting {channel_name}:{property_name} to {value}: {e}", file=sys.stderr, flush=True)
     return False
@@ -107,16 +164,31 @@ def apply_theme_dependencies(theme_name):
         def restart_desktop():
             import time
             time.sleep(0.1)
+            load_user_env()
             try:
-                subprocess.run(["pkill", "xfce4-notifyd"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-                subprocess.run(["pkill", "xfce4-panel"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-                subprocess.run(["pkill", "xfdesktop"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-                time.sleep(0.1)
-                subprocess.Popen(["xfdesktop"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                # 1. Restart panel cleanly
+                subprocess.run(["pkill", "-u", str(os.getuid()), "-x", "xfce4-panel"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                time.sleep(0.5)
                 subprocess.Popen(["xfce4-panel"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-                print("Full desktop restart completed.", flush=True)
+                
+                # 2. Reload or start xfdesktop
+                xfdesktop_running = False
+                try:
+                    res = subprocess.run(["pgrep", "-u", str(os.getuid()), "-x", "xfdesktop"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                    xfdesktop_running = (res.returncode == 0)
+                except Exception:
+                    pass
+                
+                if xfdesktop_running:
+                    subprocess.run(["xfdesktop", "--reload"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                else:
+                    subprocess.Popen(["xfdesktop"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                
+                # 3. Kill xfce4-notifyd (will auto-spawn on demand)
+                subprocess.run(["pkill", "-u", str(os.getuid()), "-x", "xfce4-notifyd"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                print("Graceful desktop restart/reload completed.", flush=True)
             except Exception as e:
-                print(f"Error restarting desktop: {e}", file=sys.stderr, flush=True)
+                print(f"Error restarting/reloading desktop: {e}", file=sys.stderr, flush=True)
         t = threading.Thread(target=restart_desktop)
         t.daemon = True
         t.start()
@@ -134,6 +206,7 @@ def on_xfwm4_changed(channel, property_name, value, user_data):
         apply_theme_dependencies(theme_name)
 
 if __name__ == "__main__":
+    load_user_env()
     Xfconf.init()
     
     xsettings_channel = Xfconf.Channel.get("xsettings")

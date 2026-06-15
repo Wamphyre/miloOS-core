@@ -21,6 +21,7 @@ import mimetypes
 import pwd
 import grp
 import threading
+import time
 
 # Translations
 TRANSLATIONS = {
@@ -91,6 +92,21 @@ TRANSLATIONS = {
         'format': 'Format:',
         'calculating': 'Calculating...',
         'dangerous_archive_path': 'Dangerous path traversal detected in archive!',
+        'open_with': 'Open with',
+        'other_application': 'Other Application...',
+        'connect_placeholder': 'smb://server/share or ftp://server/folder',
+        'open_terminal': 'Open Terminal',
+        'cancel': 'Cancel',
+        'compressing': 'Compressing files...',
+        'extracting': 'Extracting archive...',
+        'pasting': 'Copying/Moving files...',
+        'empty_trash': 'Empty Trash',
+        'rename_favorite': 'Rename Favorite...',
+        'remove_favorite': 'Remove from Favorites',
+        'confirm_empty_trash': 'Are you sure you want to empty the Trash?',
+        'add_to_favorites': 'Add to Favorites',
+        'mount_volume': 'Mount Volume',
+        'unmount_volume': 'Unmount Volume',
     },
     'es': {
         'title': 'miloFiles',
@@ -159,6 +175,21 @@ TRANSLATIONS = {
         'format': 'Formato:',
         'calculating': 'Calculando...',
         'dangerous_archive_path': '¡Ruta de extracción peligrosa detectada en el archivo!',
+        'open_with': 'Abrir con',
+        'other_application': 'Otra aplicación...',
+        'connect_placeholder': 'smb://servidor/carpeta o ftp://servidor/carpeta',
+        'open_terminal': 'Abrir terminal',
+        'cancel': 'Cancelar',
+        'compressing': 'Comprimiendo archivos...',
+        'extracting': 'Extrayendo archivo...',
+        'pasting': 'Copiando/Moviendo archivos...',
+        'empty_trash': 'Vaciar papelera',
+        'rename_favorite': 'Renombrar favorito...',
+        'remove_favorite': 'Quitar de favoritos',
+        'confirm_empty_trash': '¿Está seguro de que desea vaciar la papelera?',
+        'add_to_favorites': 'Añadir a favoritos',
+        'mount_volume': 'Montar volumen',
+        'unmount_volume': 'Desmontar volumen',
     }
 }
 
@@ -182,8 +213,8 @@ def format_bytes(bytes_val):
         bytes_val /= 1024.0
     return f"{bytes_val:.1f} PB"
 
-def get_file_type_desc(path):
-    if os.path.isdir(path):
+def get_file_type_desc(path, is_dir=False):
+    if is_dir:
         return _("folder")
     mime, _unused = mimetypes.guess_type(path)
     if mime:
@@ -193,53 +224,181 @@ def get_file_type_desc(path):
         return ext[1:].upper() + " " + _("file")
     return _("file")
 
+_icon_pixbuf_cache = {}
 def get_icon_pixbuf(icon_name, size=48):
+    key = (icon_name, size)
+    if key in _icon_pixbuf_cache:
+        return _icon_pixbuf_cache[key]
     theme = Gtk.IconTheme.get_default()
+    pb = None
     try:
-        return theme.load_icon(icon_name, size, Gtk.IconLookupFlags.FORCE_SIZE)
+        pb = theme.load_icon(icon_name, size, Gtk.IconLookupFlags.FORCE_SIZE)
     except Exception:
         try:
-            return theme.load_icon("folder" if icon_name == "folder" else "text-x-generic", size, Gtk.IconLookupFlags.FORCE_SIZE)
+            pb = theme.load_icon("folder" if icon_name == "folder" else "text-x-generic", size, Gtk.IconLookupFlags.FORCE_SIZE)
         except Exception:
-            return None
+            pb = None
+    _icon_pixbuf_cache[key] = pb
+    return pb
 
-def get_file_icon(path, size=48):
-    theme = Gtk.IconTheme.get_default()
-    if os.path.isdir(path):
+_icon_cache = {}
+def get_file_icon(path, size=48, is_dir=None):
+    if is_dir is None:
+        is_dir = os.path.isdir(path)
+        
+    if is_dir:
         name = os.path.basename(path.rstrip('/')).lower()
         if path == os.path.expanduser('~'):
-            return get_icon_pixbuf("user-home", size)
-        elif name == "downloads":
-            return get_icon_pixbuf("folder-download", size)
-        elif name == "documents":
-            return get_icon_pixbuf("folder-documents", size)
-        elif name == "desktop":
-            return get_icon_pixbuf("folder-desktop", size)
-        elif name == "music":
-            return get_icon_pixbuf("folder-music", size)
-        elif name == "pictures":
-            return get_icon_pixbuf("folder-pictures", size)
-        elif name == "videos":
-            return get_icon_pixbuf("folder-videos", size)
-        return get_icon_pixbuf("folder", size)
+            cache_key = ("dir", "home", size)
+        elif name in ["downloads", "documents", "desktop", "music", "pictures", "videos"]:
+            cache_key = ("dir", name, size)
+        else:
+            cache_key = ("dir", "generic", size)
     else:
-        try:
-            gfile = Gio.File.new_for_path(path)
-            info = gfile.query_info("standard::icon", Gio.FileQueryInfoFlags.NONE, None)
-            icon = info.get_icon()
-            if icon:
-                icon_info = theme.lookup_by_gicon(icon, size, Gtk.IconLookupFlags.FORCE_SIZE)
-                if icon_info:
-                    return icon_info.load_icon()
-        except:
-            pass
+        ext = os.path.splitext(path)[1].lower()
+        mime, _ = mimetypes.guess_type(path)
+        cache_key = ("file", mime, ext, size)
+
+    if cache_key in _icon_cache:
+        return _icon_cache[cache_key]
+
+    pb = None
+    theme = Gtk.IconTheme.get_default()
+    if is_dir:
+        name = os.path.basename(path.rstrip('/')).lower()
+        if path == os.path.expanduser('~'):
+            pb = get_icon_pixbuf("user-home", size)
+        elif name == "downloads":
+            pb = get_icon_pixbuf("folder-download", size)
+        elif name == "documents":
+            pb = get_icon_pixbuf("folder-documents", size)
+        elif name == "desktop":
+            pb = get_icon_pixbuf("folder-desktop", size)
+        elif name == "music":
+            pb = get_icon_pixbuf("folder-music", size)
+        elif name == "pictures":
+            pb = get_icon_pixbuf("folder-pictures", size)
+        elif name == "videos":
+            pb = get_icon_pixbuf("folder-videos", size)
+        else:
+            pb = get_icon_pixbuf("folder", size)
+    else:
         mime, _unused = mimetypes.guess_type(path)
         if mime:
             icon_name = mime.replace('/', '-')
             pb = get_icon_pixbuf(icon_name, size)
-            if pb:
-                return pb
-        return get_icon_pixbuf("text-x-generic", size)
+            if not pb:
+                type_prefix = mime.split('/')[0]
+                pb = get_icon_pixbuf(f"{type_prefix}-x-generic", size)
+        if not pb:
+            try:
+                gfile = Gio.File.new_for_path(path)
+                info = gfile.query_info("standard::icon", Gio.FileQueryInfoFlags.NONE, None)
+                icon = info.get_icon()
+                if icon:
+                    icon_info = theme.lookup_by_gicon(icon, size, Gtk.IconLookupFlags.FORCE_SIZE)
+                    if icon_info:
+                        pb = icon_info.load_icon()
+            except:
+                pass
+        if not pb:
+            pb = get_icon_pixbuf("text-x-generic", size)
+
+    _icon_cache[cache_key] = pb
+    return pb
+
+def get_custom_default_command(path):
+    ext = os.path.splitext(path)[1].lower()
+    mime, _ = mimetypes.guess_type(path)
+    if not mime:
+        mime = ""
+    
+    # 1. PDF files: open with firefox or chrome
+    if ext == '.pdf' or mime == 'application/pdf':
+        for browser in ['firefox', 'google-chrome', 'chrome', 'chromium']:
+            if shutil.which(browser):
+                return [browser]
+        return None
+        
+    # 2. Audio files compatible with VLC
+    audio_extensions = {'.mp3', '.wav', '.ogg', '.flac', '.m4a', '.aac', '.wma', '.opus', '.mid', '.midi', '.mka'}
+    if ext in audio_extensions or mime.startswith('audio/'):
+        if shutil.which('vlc'):
+            return ['vlc']
+            
+    # 3. Video files: VLC
+    video_extensions = {'.mp4', '.mkv', '.avi', '.mov', '.wmv', '.flv', '.webm', '.mpeg', '.mpg', '.m4v'}
+    if ext in video_extensions or mime.startswith('video/'):
+        if shutil.which('vlc'):
+            return ['vlc']
+            
+    # 4. Image files: ristretto
+    image_extensions = {'.png', '.jpg', '.jpeg', '.gif', '.webp', '.bmp', '.svg', '.tiff', '.ico'}
+    if ext in image_extensions or mime.startswith('image/'):
+        if shutil.which('ristretto'):
+            return ['ristretto']
+            
+    # 5. Text files: mousepad (xfce text editor)
+    text_extensions = {'.txt', '.md', '.py', '.sh', '.json', '.xml', '.cfg', '.conf', '.ini', '.yaml', '.yml', '.log', '.js', '.css', '.html', '.c', '.cpp', '.h', '.hpp', '.java', '.go', '.rs'}
+    if ext in text_extensions or mime.startswith('text/') or mime in ['application/x-shellscript', 'application/javascript', 'application/json']:
+        if shutil.which('mousepad'):
+            return ['mousepad']
+            
+    return None
+
+
+class OperationProgressDialog(Gtk.Window):
+    def __init__(self, parent, title, message, cancel_callback=None):
+        super().__init__(title=title)
+        self.set_transient_for(parent)
+        self.set_modal(True)
+        self.set_destroy_with_parent(True)
+        self.set_default_size(350, 110)
+        self.set_resizable(False)
+        self.set_position(Gtk.WindowPosition.CENTER_ON_PARENT)
+        
+        vbox = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
+        vbox.set_border_width(14)
+        self.add(vbox)
+        
+        self.lbl_msg = Gtk.Label(label=message)
+        self.lbl_msg.set_alignment(0.0, 0.5)
+        self.lbl_msg.set_line_wrap(True)
+        self.lbl_msg.set_max_width_chars(45)
+        vbox.pack_start(self.lbl_msg, False, False, 0)
+        
+        self.pbar = Gtk.ProgressBar()
+        vbox.pack_start(self.pbar, False, False, 0)
+        
+        self.pulse_timeout_id = GLib.timeout_add(100, self.pulse_progressbar)
+        
+        self.cancel_callback = cancel_callback
+        if cancel_callback:
+            hbox = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL)
+            btn_cancel = Gtk.Button(label=_("cancel"))
+            btn_cancel.connect("clicked", self.on_cancel)
+            hbox.pack_end(btn_cancel, False, False, 0)
+            vbox.pack_start(hbox, False, False, 0)
+            
+        self.show_all()
+        
+    def pulse_progressbar(self):
+        self.pbar.pulse()
+        return True
+        
+    def update_message(self, message):
+        self.lbl_msg.set_text(message)
+        
+    def on_cancel(self, button):
+        if self.cancel_callback:
+            self.cancel_callback()
+        self.close_dialog()
+        
+    def close_dialog(self):
+        if self.pulse_timeout_id:
+            GLib.source_remove(self.pulse_timeout_id)
+            self.pulse_timeout_id = None
+        self.destroy()
 
 
 class miloFilesWindow(Gtk.Window):
@@ -459,12 +618,6 @@ class miloFilesWindow(Gtk.Window):
         
         file_menu.append(Gtk.SeparatorMenuItem())
         
-        connect_mitem = Gtk.MenuItem(label=_("connect_to_server"))
-        connect_mitem.connect("activate", self.on_menu_connect_server)
-        file_menu.append(connect_mitem)
-        
-        file_menu.append(Gtk.SeparatorMenuItem())
-        
         close_mitem = Gtk.MenuItem(label=_("close"))
         close_mitem.connect("activate", lambda w: self.close())
         file_menu.append(close_mitem)
@@ -558,6 +711,12 @@ class miloFilesWindow(Gtk.Window):
         go_location_mitem = Gtk.MenuItem(label=_("go_location"))
         go_location_mitem.connect("activate", lambda w: self.show_path_entry())
         go_menu.append(go_location_mitem)
+        
+        go_menu.append(Gtk.SeparatorMenuItem())
+        
+        connect_mitem = Gtk.MenuItem(label=_("connect_to_server"))
+        connect_mitem.connect("activate", self.on_menu_connect_server)
+        go_menu.append(connect_mitem)
         
         self.menu_bar.append(go_mitem)
 
@@ -816,6 +975,86 @@ class miloFilesWindow(Gtk.Window):
             Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION
         )
 
+    def load_favorites(self):
+        bookmarks_file = os.path.expanduser("~/.config/gtk-3.0/bookmarks")
+        favorites = []
+        if not os.path.exists(bookmarks_file) or os.path.getsize(bookmarks_file) == 0:
+            def get_special(special_dir_enum):
+                return GLib.get_user_special_dir(special_dir_enum)
+                
+            defaults = [
+                (GLib.UserDirectory.DIRECTORY_DESKTOP, "user-desktop"),
+                (GLib.UserDirectory.DIRECTORY_DOCUMENTS, "folder-documents"),
+                (GLib.UserDirectory.DIRECTORY_DOWNLOAD, "folder-download"),
+                (GLib.UserDirectory.DIRECTORY_MUSIC, "folder-music"),
+                (GLib.UserDirectory.DIRECTORY_PICTURES, "folder-pictures"),
+                (GLib.UserDirectory.DIRECTORY_VIDEOS, "folder-videos")
+            ]
+            for special_enum, icon_name in defaults:
+                path = get_special(special_enum)
+                if path and os.path.isdir(path):
+                    favorites.append((os.path.basename(path), path, icon_name, None))
+            self.save_favorites_to_disk(favorites)
+        else:
+            try:
+                with open(bookmarks_file, "r") as f:
+                    lines = f.readlines()
+                for line in lines:
+                    line = line.strip()
+                    if not line:
+                        continue
+                    parts = line.split(" ", 1)
+                    uri = parts[0]
+                    label = parts[1] if len(parts) > 1 else None
+                    
+                    gfile = Gio.File.new_for_uri(uri)
+                    path = gfile.get_path()
+                    if path and os.path.isdir(path):
+                        icon_name = "folder"
+                        basename = os.path.basename(path).lower()
+                        if basename == "desktop":
+                            icon_name = "user-desktop"
+                        elif basename == "documents":
+                            icon_name = "folder-documents"
+                        elif basename == "downloads":
+                            icon_name = "folder-download"
+                        elif basename == "music":
+                            icon_name = "folder-music"
+                        elif basename == "pictures":
+                            icon_name = "folder-pictures"
+                        elif basename == "videos":
+                            icon_name = "folder-videos"
+                            
+                        name = label if label else os.path.basename(path)
+                        favorites.append((name, path, icon_name, None))
+            except Exception:
+                pass
+        return favorites
+
+    def save_favorites_to_disk(self, favorites):
+        bookmarks_file = os.path.expanduser("~/.config/gtk-3.0/bookmarks")
+        try:
+            os.makedirs(os.path.dirname(bookmarks_file), exist_ok=True)
+            with open(bookmarks_file, "w") as f:
+                for name, path, unused_icon, unused_vol in favorites:
+                    if name == _("trash") or path == os.path.expanduser('~/.local/share/Trash/files'):
+                        continue
+                    gfile = Gio.File.new_for_path(path)
+                    uri = gfile.get_uri()
+                    if name != os.path.basename(path):
+                        f.write(f"{uri} {name}\n")
+                    else:
+                        f.write(f"{uri}\n")
+        except Exception:
+            pass
+
+    def reload_sidebar(self):
+        for child in self.sidebar_box.get_children():
+            self.sidebar_box.remove(child)
+        self.sidebar_lists = []
+        self.setup_sidebar()
+        self.sidebar_box.show_all()
+
     def setup_sidebar(self):
         # Create a size group for icons to align item labels perfectly
         self.sidebar_icon_group = Gtk.SizeGroup(mode=Gtk.SizeGroupMode.HORIZONTAL)
@@ -878,20 +1117,9 @@ class miloFilesWindow(Gtk.Window):
         self.add_sidebar_section(_("devices"), devices)
         
         # FAVORITES section
-        favorites = []
-        def add_fav(special_dir_enum, icon_name):
-            path = GLib.get_user_special_dir(special_dir_enum)
-            if path and os.path.isdir(path):
-                favorites.append((os.path.basename(path), path, icon_name, None))
-                
-        add_fav(GLib.UserDirectory.DIRECTORY_DESKTOP, "user-desktop")
-        add_fav(GLib.UserDirectory.DIRECTORY_DOCUMENTS, "folder-documents")
-        add_fav(GLib.UserDirectory.DIRECTORY_DOWNLOAD, "folder-download")
-        add_fav(GLib.UserDirectory.DIRECTORY_MUSIC, "folder-music")
-        add_fav(GLib.UserDirectory.DIRECTORY_PICTURES, "folder-pictures")
-        add_fav(GLib.UserDirectory.DIRECTORY_VIDEOS, "folder-videos")
+        favorites = self.load_favorites()
         
-        # Add Trash to Favorites
+        # Add Trash dynamically to Favorites
         favorites.append((_("trash"), os.path.expanduser('~/.local/share/Trash/files'), "user-trash", None))
         
         self.add_sidebar_section(_("favorites"), favorites)
@@ -952,6 +1180,7 @@ class miloFilesWindow(Gtk.Window):
             listbox.add(row)
             
         listbox.connect("row-activated", self.on_sidebar_row_activated)
+        listbox.connect("button-press-event", self.on_sidebar_button_press, title)
         self.sidebar_box.pack_start(listbox, False, False, 0)
         self.sidebar_lists.append(listbox)
 
@@ -961,6 +1190,124 @@ class miloFilesWindow(Gtk.Window):
                 self.load_directory(row.path)
             elif hasattr(row, 'volume') and row.volume:
                 self.mount_and_navigate_volume(row.volume)
+
+    def on_sidebar_button_press(self, listbox, event, section_title):
+        if event.button == 3: # Right click
+            row = listbox.get_row_at_y(event.y)
+            if row:
+                listbox.select_row(row)
+                self.show_sidebar_context_menu(row, event, section_title)
+                return True
+        return False
+
+    def show_sidebar_context_menu(self, row, event, section_title):
+        menu = Gtk.Menu()
+        
+        name = ""
+        box = row.get_child()
+        if box:
+            for child in box.get_children():
+                if isinstance(child, Gtk.Label):
+                    name = child.get_text()
+                    break
+        
+        path = row.path
+        is_trash = (name == _("trash") or path == os.path.expanduser('~/.local/share/Trash/files'))
+        
+        if is_trash:
+            item_empty = Gtk.MenuItem(label=_("empty_trash"))
+            item_empty.connect("activate", lambda w: self.on_empty_trash())
+            menu.append(item_empty)
+        elif section_title == _("favorites"):
+            item_rename = Gtk.MenuItem(label=_("rename_favorite"))
+            item_rename.connect("activate", lambda w: self.on_rename_favorite(row, name, path))
+            menu.append(item_rename)
+            
+            item_remove = Gtk.MenuItem(label=_("remove_favorite"))
+            item_remove.connect("activate", lambda w: self.on_remove_favorite(path))
+            menu.append(item_remove)
+        elif section_title == _("devices"):
+            if hasattr(row, 'volume') and row.volume is not None and (not hasattr(row, 'path') or row.path is None):
+                item_mount = Gtk.MenuItem(label=_("mount_volume"))
+                item_mount.connect("activate", lambda w: self.mount_and_navigate_volume(row.volume))
+                menu.append(item_mount)
+            elif hasattr(row, 'path') and row.path is not None and row.path not in [os.path.expanduser('~'), "/"]:
+                item_unmount = Gtk.MenuItem(label=_("unmount_volume"))
+                item_unmount.connect("activate", lambda w: self.on_eject_clicked(None, row.path))
+                menu.append(item_unmount)
+            else:
+                return
+            
+        menu.show_all()
+        menu.popup(None, None, None, None, event.button, event.time)
+
+    def on_empty_trash(self):
+        dialog = Gtk.MessageDialog(
+            transient_for=self,
+            flags=0,
+            message_type=Gtk.MessageType.QUESTION,
+            buttons=Gtk.ButtonsType.YES_NO,
+            text=_("confirm_empty_trash")
+        )
+        response = dialog.run()
+        dialog.destroy()
+        if response == Gtk.ResponseType.YES:
+            try:
+                trash_dir = os.path.expanduser('~/.local/share/Trash')
+                files_dir = os.path.join(trash_dir, 'files')
+                info_dir = os.path.join(trash_dir, 'info')
+                for d in [files_dir, info_dir]:
+                    if os.path.exists(d):
+                        for item in os.listdir(d):
+                            path = os.path.join(d, item)
+                            try:
+                                if os.path.isdir(path) and not os.path.islink(path):
+                                    shutil.rmtree(path)
+                                else:
+                                    os.remove(path)
+                            except Exception:
+                                pass
+                if self.current_dir == files_dir:
+                    self.load_directory(self.current_dir)
+            except Exception as e:
+                self.show_error_dialog(_("trash"), str(e))
+
+    def on_rename_favorite(self, row, name, path):
+        dialog = Gtk.Dialog(title=_("rename_favorite"), transient_for=self, flags=0)
+        dialog.add_buttons(Gtk.STOCK_CANCEL, Gtk.ResponseType.CANCEL, _("apply"), Gtk.ResponseType.OK)
+        dialog.set_default_response(Gtk.ResponseType.OK)
+        
+        box = dialog.get_content_area()
+        box.set_spacing(10)
+        box.set_border_width(12)
+        
+        lbl = Gtk.Label(label=_("enter_new_name"))
+        box.pack_start(lbl, False, False, 0)
+        
+        entry = Gtk.Entry()
+        entry.set_text(name)
+        entry.set_activates_default(True)
+        box.pack_start(entry, False, False, 0)
+        
+        dialog.show_all()
+        response = dialog.run()
+        if response == Gtk.ResponseType.OK:
+            new_name = entry.get_text().strip()
+            if new_name and new_name != name:
+                favorites = self.load_favorites()
+                for i, fav in enumerate(favorites):
+                    if fav[1] == path:
+                        favorites[i] = (new_name, path, fav[2], fav[3])
+                        break
+                self.save_favorites_to_disk(favorites)
+                self.reload_sidebar()
+        dialog.destroy()
+
+    def on_remove_favorite(self, path):
+        favorites = self.load_favorites()
+        favorites = [f for f in favorites if f[1] != path]
+        self.save_favorites_to_disk(favorites)
+        self.reload_sidebar()
 
     def mount_and_navigate_volume(self, volume):
         dev_path = volume.get_identifier('unix-device')
@@ -995,11 +1342,7 @@ class miloFilesWindow(Gtk.Window):
             listbox.handler_unblock_by_func(self.on_sidebar_row_activated)
 
     def on_mounts_changed(self, monitor, mount_or_volume):
-        for child in self.sidebar_box.get_children():
-            self.sidebar_box.remove(child)
-        self.sidebar_lists = []
-        self.setup_sidebar()
-        self.sidebar_box.show_all()
+        self.reload_sidebar()
 
     def on_eject_clicked(self, button, path):
         def do_unmount():
@@ -1188,26 +1531,29 @@ class miloFilesWindow(Gtk.Window):
         self.up_btn.set_sensitive(path != '/')
         
         try:
-            entries = os.listdir(path)
+            entries = list(os.scandir(path))
         except Exception as e:
             self.show_error_dialog(_("cannot_read_dir"), str(e))
             return
             
         # Filter hidden files
         if not self.show_hidden:
-            entries = [e for e in entries if not e.startswith('.')]
+            entries = [e for e in entries if not e.name.startswith('.')]
             
         # Sort directories first, then files alphabetically
         dir_list = []
         file_list = []
         for entry in entries:
-            full = os.path.join(path, entry)
-            if os.path.isdir(full):
+            try:
+                is_dir = entry.is_dir()
+            except Exception:
+                is_dir = False
+            if is_dir:
                 dir_list.append(entry)
             else:
                 file_list.append(entry)
-        dir_list.sort(key=lambda s: s.lower())
-        file_list.sort(key=lambda s: s.lower())
+        dir_list.sort(key=lambda e: e.name.lower())
+        file_list.sort(key=lambda e: e.name.lower())
         sorted_entries = dir_list + file_list
         
         # Clear stores
@@ -1215,12 +1561,12 @@ class miloFilesWindow(Gtk.Window):
         self.list_store.clear()
         
         for entry in sorted_entries:
-            full = os.path.join(path, entry)
-            is_dir = os.path.isdir(full)
+            full = entry.path
+            is_dir = entry.is_dir()
             
             # Load metadata
             try:
-                stat = os.stat(full)
+                stat = entry.stat()
                 size = stat.st_size
                 mtime = datetime.datetime.fromtimestamp(stat.st_mtime).strftime("%Y-%m-%d %H:%M")
             except Exception:
@@ -1228,14 +1574,14 @@ class miloFilesWindow(Gtk.Window):
                 mtime = "N/A"
                 
             size_str = format_bytes(size) if not is_dir else ""
-            type_str = get_file_type_desc(full)
+            type_str = get_file_type_desc(full, is_dir=is_dir)
             
             # Load icons
-            icon_pb = get_file_icon(full, size=48)
-            list_icon_pb = get_file_icon(full, size=20)
+            icon_pb = get_file_icon(full, size=48, is_dir=is_dir)
+            list_icon_pb = get_file_icon(full, size=20, is_dir=is_dir)
             
-            self.icon_store.append([icon_pb, entry, full, is_dir])
-            self.list_store.append([list_icon_pb, entry, size_str, type_str, mtime, full, is_dir])
+            self.icon_store.append([icon_pb, entry.name, full, is_dir])
+            self.list_store.append([list_icon_pb, entry.name, size_str, type_str, mtime, full, is_dir])
             
         self.update_breadcrumbs()
         self.select_sidebar_path(path)
@@ -1256,6 +1602,8 @@ class miloFilesWindow(Gtk.Window):
                 if self.current_thumbnail_load_id != load_id:
                     return
                     
+                time.sleep(0.01)
+                
                 ext = os.path.splitext(file_path)[1].lower()
                 if ext not in ['.png', '.jpg', '.jpeg', '.gif', '.webp', '.bmp', '.svg']:
                     mime, _ = mimetypes.guess_type(file_path)
@@ -1288,6 +1636,8 @@ class miloFilesWindow(Gtk.Window):
                             pass
                             
                     if icon_pb and list_icon_pb:
+                        if len(self.thumbnail_cache) >= 1000:
+                            self.thumbnail_cache.clear()
                         self.thumbnail_cache[file_path] = (icon_pb, list_icon_pb)
                     else:
                         continue
@@ -1396,6 +1746,10 @@ class miloFilesWindow(Gtk.Window):
 
     def open_file(self, path):
         try:
+            cmd = get_custom_default_command(path)
+            if cmd:
+                subprocess.Popen(cmd + [path], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                return
             gfile = Gio.File.new_for_path(path)
             info = gfile.query_default_handler(None)
             if info:
@@ -1464,6 +1818,42 @@ class miloFilesWindow(Gtk.Window):
             item_open.connect("activate", self.on_menu_open)
             menu.append(item_open)
             
+            selected_paths = self.get_selected_paths()
+            if len(selected_paths) == 1:
+                path = selected_paths[0]
+                if not os.path.isdir(path):
+                    item_open_with = Gtk.MenuItem(label=_("open_with"))
+                    open_with_menu = Gtk.Menu()
+                    item_open_with.set_submenu(open_with_menu)
+                    
+                    gfile = Gio.File.new_for_path(path)
+                    try:
+                        info = gfile.query_info("standard::content-type", Gio.FileQueryInfoFlags.NONE, None)
+                        content_type = info.get_content_type()
+                        if content_type:
+                            apps = Gio.AppInfo.get_all_for_type(content_type)
+                            seen_names = set()
+                            for app in apps:
+                                name = app.get_name()
+                                if name in seen_names:
+                                    continue
+                                seen_names.add(name)
+                                
+                                app_item = Gtk.MenuItem(label=name)
+                                app_item.connect("activate", lambda w, a=app, f=gfile: a.launch([f], None))
+                                open_with_menu.append(app_item)
+                    except Exception:
+                        pass
+                        
+                    if open_with_menu.get_children():
+                        open_with_menu.append(Gtk.SeparatorMenuItem())
+                        
+                    other_app_item = Gtk.MenuItem(label=_("other_application"))
+                    other_app_item.connect("activate", self.on_other_application, path)
+                    open_with_menu.append(other_app_item)
+                    
+                    menu.append(item_open_with)
+            
             menu.append(Gtk.SeparatorMenuItem())
             
             item_cut = Gtk.MenuItem(label=_("cut"))
@@ -1501,10 +1891,15 @@ class miloFilesWindow(Gtk.Window):
             menu.append(item_compress)
             
             selected_paths = self.get_selected_paths()
-            if len(selected_paths) == 1 and selected_paths[0].lower().endswith(('.zip', '.tar', '.gz', '.tgz', '.bz2', '.tbz2', '.xz', '.txz')):
+            if len(selected_paths) == 1 and selected_paths[0].lower().endswith(('.zip', '.tar', '.gz', '.tgz', '.bz2', '.tbz2', '.xz', '.txz', '.7z', '.rar')):
                 item_extract = Gtk.MenuItem(label=_("extract_here"))
                 item_extract.connect("activate", self.on_menu_extract)
                 menu.append(item_extract)
+                
+            if len(selected_paths) == 1 and os.path.isdir(selected_paths[0]):
+                item_fav = Gtk.MenuItem(label=_("add_to_favorites"))
+                item_fav.connect("activate", self.on_menu_add_to_favorites, selected_paths[0])
+                menu.append(item_fav)
             
             menu.append(Gtk.SeparatorMenuItem())
             
@@ -1524,9 +1919,9 @@ class miloFilesWindow(Gtk.Window):
             
             menu.append(Gtk.SeparatorMenuItem())
             
-            item_connect = Gtk.MenuItem(label=_("connect_to_server"))
-            item_connect.connect("activate", self.on_menu_connect_server)
-            menu.append(item_connect)
+            item_terminal = Gtk.MenuItem(label=_("open_terminal"))
+            item_terminal.connect("activate", self.on_menu_open_terminal)
+            menu.append(item_terminal)
             
         menu.show_all()
         menu.popup_at_pointer(event)
@@ -1536,6 +1931,15 @@ class miloFilesWindow(Gtk.Window):
         for path in paths:
             self.open_file(path)
 
+    def on_menu_open_terminal(self, widget):
+        try:
+            subprocess.Popen(["xfce4-terminal", f"--working-directory={self.current_dir}"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        except Exception:
+            try:
+                subprocess.Popen(["x-terminal-emulator"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            except Exception as e:
+                self.show_error_dialog(_("open_error"), str(e))
+
     def on_menu_cut(self, widget):
         self.clipboard_files = self.get_selected_paths()
         self.clipboard_action = 'cut'
@@ -1544,33 +1948,56 @@ class miloFilesWindow(Gtk.Window):
         self.clipboard_files = self.get_selected_paths()
         self.clipboard_action = 'copy'
 
-    def perform_paste(self, src_paths, dest_dir, action):
-        for src in src_paths:
-            if not os.path.exists(src):
-                continue
-            name = os.path.basename(src)
-            
-            # Avoid pasting directory into itself
-            if dest_dir.startswith(src):
-                continue
-                
-            # Avoid cut-and-paste in the same directory (no-op)
-            if action == 'cut' and os.path.dirname(src) == dest_dir:
-                continue
-
-            # Handle duplicate name collision / same folder copy-paste
-            dest = os.path.join(dest_dir, name)
-            if os.path.exists(dest):
-                base, ext = os.path.splitext(name)
-                copy_name = f"{base} copy{ext}"
-                dest = os.path.join(dest_dir, copy_name)
-                counter = 2
-                while os.path.exists(dest):
-                    copy_name = f"{base} copy {counter}{ext}"
-                    dest = os.path.join(dest_dir, copy_name)
-                    counter += 1
-
+    def cancel_operation(self):
+        self.cancelled = True
+        if hasattr(self, "current_proc") and self.current_proc:
             try:
+                self.current_proc.terminate()
+            except Exception:
+                pass
+
+    def start_paste_operation(self, src_paths, dest_dir, action):
+        if not src_paths:
+            return
+        self.cancelled = False
+        self.progress_dialog = OperationProgressDialog(
+            self,
+            _("paste"),
+            _("pasting"),
+            cancel_callback=self.cancel_operation
+        )
+        t = threading.Thread(target=self.perform_paste, args=(src_paths, dest_dir, action))
+        t.daemon = True
+        t.start()
+
+    def perform_paste(self, src_paths, dest_dir, action):
+        try:
+            for src in src_paths:
+                if self.cancelled:
+                    break
+                if not os.path.exists(src):
+                    continue
+                name = os.path.basename(src)
+                
+                # Update progress message dynamically on UI thread
+                GLib.idle_add(self.progress_dialog.update_message, f"{_('pasting')}\n{name}")
+                
+                if dest_dir.startswith(src):
+                    continue
+                if action == 'cut' and os.path.dirname(src) == dest_dir:
+                    continue
+                    
+                dest = os.path.join(dest_dir, name)
+                if os.path.exists(dest):
+                    base, ext = os.path.splitext(name)
+                    copy_name = f"{base} copy{ext}"
+                    dest = os.path.join(dest_dir, copy_name)
+                    counter = 2
+                    while os.path.exists(dest):
+                        copy_name = f"{base} copy {counter}{ext}"
+                        dest = os.path.join(dest_dir, copy_name)
+                        counter += 1
+                        
                 if action == 'copy':
                     if os.path.isdir(src):
                         shutil.copytree(src, dest)
@@ -1578,19 +2005,31 @@ class miloFilesWindow(Gtk.Window):
                         shutil.copy2(src, dest)
                 elif action == 'cut':
                     shutil.move(src, dest)
-            except Exception as e:
+                    
+            GLib.idle_add(self.load_directory, self.current_dir)
+            if action == 'cut' and not self.cancelled:
+                self.clipboard_files = []
+        except Exception as e:
+            if not self.cancelled:
                 GLib.idle_add(self.show_error_dialog, _("paste_error"), str(e))
-                
-        GLib.idle_add(self.load_directory, self.current_dir)
-        if action == 'cut':
-            self.clipboard_files = []
+        finally:
+            GLib.idle_add(self.progress_dialog.close_dialog)
 
     def on_menu_paste(self, widget):
-        if not self.clipboard_files:
-            return
-        t = threading.Thread(target=self.perform_paste, args=(self.clipboard_files, self.current_dir, self.clipboard_action))
-        t.daemon = True
-        t.start()
+        self.start_paste_operation(self.clipboard_files, self.current_dir, self.clipboard_action)
+
+    def on_other_application(self, widget, path):
+        try:
+            gfile = Gio.File.new_for_path(path)
+            dialog = Gtk.AppChooserDialog(parent=self, flags=Gtk.DialogFlags.MODAL, file=gfile)
+            response = dialog.run()
+            if response == Gtk.ResponseType.OK:
+                app_info = dialog.get_app_info()
+                if app_info:
+                    app_info.launch([gfile], None)
+            dialog.destroy()
+        except Exception as e:
+            self.show_error_dialog(_("open_error"), str(e))
 
     def on_menu_connect_server(self, widget):
         dialog = Gtk.Dialog(title=_("connect_to_server"), transient_for=self, flags=0)
@@ -1605,7 +2044,7 @@ class miloFilesWindow(Gtk.Window):
         box.pack_start(lbl, False, False, 0)
         
         entry = Gtk.Entry()
-        entry.set_placeholder_text("smb://192.168.1.50/share")
+        entry.set_placeholder_text(_("connect_placeholder"))
         entry.set_activates_default(True)
         box.pack_start(entry, False, False, 0)
         
@@ -1688,9 +2127,24 @@ class miloFilesWindow(Gtk.Window):
         
         combo_fmt = Gtk.ComboBoxText()
         combo_fmt.append("zip", "ZIP (.zip)")
-        combo_fmt.append("tar.gz", "Tarball (.tar.gz)")
+        combo_fmt.append("7z", "7-Zip (.7z)")
+        combo_fmt.append("tar.gz", "Tarball GZIP (.tar.gz)")
+        combo_fmt.append("tar.xz", "Tarball XZ (.tar.xz)")
+        combo_fmt.append("tar.bz2", "Tarball BZIP2 (.tar.bz2)")
         combo_fmt.set_active(0)
         box.pack_start(combo_fmt, False, False, 0)
+        
+        def on_fmt_changed(combo):
+            fmt_id = combo.get_active_id()
+            current_text = entry_name.get_text().strip()
+            if current_text:
+                for ext in [".tar.gz", ".tar.xz", ".tar.bz2", ".zip", ".7z"]:
+                    if current_text.lower().endswith(ext):
+                        current_text = current_text[:-len(ext)]
+                        break
+                entry_name.set_text(current_text + f".{fmt_id}")
+
+        combo_fmt.connect("changed", on_fmt_changed)
         
         dialog.show_all()
         response = dialog.run()
@@ -1698,6 +2152,14 @@ class miloFilesWindow(Gtk.Window):
             archive_name = entry_name.get_text().strip()
             fmt = combo_fmt.get_active_id()
             if archive_name:
+                self.cancelled = False
+                self.current_proc = None
+                self.progress_dialog = OperationProgressDialog(
+                    self,
+                    _("compress"),
+                    _("compressing"),
+                    cancel_callback=self.cancel_operation
+                )
                 t = threading.Thread(target=self.do_compress, args=(paths, archive_name, fmt))
                 t.daemon = True
                 t.start()
@@ -1707,32 +2169,42 @@ class miloFilesWindow(Gtk.Window):
         dest_path = os.path.join(self.current_dir, archive_name)
         try:
             if format == "zip":
-                import zipfile
-                with zipfile.ZipFile(dest_path, 'w', zipfile.ZIP_DEFLATED) as zip_ref:
-                    for src in src_paths:
-                        if os.path.isdir(src):
-                            for root, dirs, files in os.walk(src):
-                                for file in files:
-                                    full_file = os.path.join(root, file)
-                                    rel_file = os.path.relpath(full_file, os.path.dirname(src))
-                                    zip_ref.write(full_file, rel_file)
-                        else:
-                            zip_ref.write(src, os.path.basename(src))
-            else:
-                import tarfile
-                mode = "w:gz" if format == "tar.gz" else "w"
-                with tarfile.open(dest_path, mode) as tar_ref:
-                    for src in src_paths:
-                        tar_ref.add(src, arcname=os.path.basename(src))
+                cmd = ["7z", "a", "-tzip", dest_path] + src_paths
+            elif format == "7z":
+                cmd = ["7z", "a", "-t7z", dest_path] + src_paths
+            elif format in ["tar.gz", "tar.xz", "tar.bz2"]:
+                rel_paths = [os.path.relpath(p, self.current_dir) for p in src_paths]
+                cmd = ["tar", "-caf", dest_path] + rel_paths
+                
+            proc = subprocess.Popen(cmd, cwd=self.current_dir, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            self.current_proc = proc
+            proc.wait()
+            
+            if proc.returncode != 0 and not self.cancelled:
+                raise subprocess.CalledProcessError(proc.returncode, cmd)
+                
             GLib.idle_add(self.load_directory, self.current_dir)
         except Exception as e:
-            GLib.idle_add(self.show_error_dialog, _("compress_error"), str(e))
+            if not self.cancelled:
+                GLib.idle_add(self.show_error_dialog, _("compress_error"), str(e))
+        finally:
+            self.current_proc = None
+            GLib.idle_add(self.progress_dialog.close_dialog)
 
     def on_menu_extract(self, widget):
         paths = self.get_selected_paths()
         if len(paths) != 1:
             return
         archive_path = paths[0]
+        
+        self.cancelled = False
+        self.current_proc = None
+        self.progress_dialog = OperationProgressDialog(
+            self,
+            _("extract_here"),
+            _("extracting"),
+            cancel_callback=self.cancel_operation
+        )
         t = threading.Thread(target=self.do_extract, args=(archive_path, self.current_dir))
         t.daemon = True
         t.start()
@@ -1740,30 +2212,26 @@ class miloFilesWindow(Gtk.Window):
     def do_extract(self, archive_path, dest_dir):
         try:
             abs_dest_dir = os.path.abspath(dest_dir)
-            if archive_path.endswith('.zip'):
-                import zipfile
-                with zipfile.ZipFile(archive_path, 'r') as zip_ref:
-                    # Sanitize member paths
-                    for member in zip_ref.infolist():
-                        target_path = os.path.abspath(os.path.join(abs_dest_dir, member.filename))
-                        if not target_path.startswith(abs_dest_dir + os.sep) and target_path != abs_dest_dir:
-                            raise Exception(_("dangerous_archive_path"))
-                    zip_ref.extractall(abs_dest_dir)
-            elif archive_path.endswith(('.tar', '.tar.gz', '.tgz', '.tar.bz2', '.tbz2', '.xz', '.txz')):
-                import tarfile
-                with tarfile.open(archive_path, 'r:*') as tar_ref:
-                    for member in tar_ref.getmembers():
-                        target_path = os.path.abspath(os.path.join(abs_dest_dir, member.name))
-                        if not target_path.startswith(abs_dest_dir + os.sep) and target_path != abs_dest_dir:
-                            raise Exception(_("dangerous_archive_path"))
-                        if member.islnk() or member.issym():
-                            link_target = os.path.abspath(os.path.join(abs_dest_dir, member.linkname))
-                            if not link_target.startswith(abs_dest_dir + os.sep) and link_target != abs_dest_dir:
-                                raise Exception(_("dangerous_archive_path"))
-                    tar_ref.extractall(abs_dest_dir)
+            archive_lower = archive_path.lower()
+            if archive_lower.endswith(('.tar', '.tar.gz', '.tgz', '.tar.bz2', '.tbz2', '.tar.xz', '.txz')):
+                cmd = ["tar", "-xf", archive_path, "-C", abs_dest_dir]
+            else:
+                cmd = ["7z", "x", "-y", archive_path, f"-o{abs_dest_dir}"]
+                
+            proc = subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            self.current_proc = proc
+            proc.wait()
+            
+            if proc.returncode != 0 and not self.cancelled:
+                raise subprocess.CalledProcessError(proc.returncode, cmd)
+                
             GLib.idle_add(self.load_directory, self.current_dir)
         except Exception as e:
-            GLib.idle_add(self.show_error_dialog, _("extract_error"), str(e))
+            if not self.cancelled:
+                GLib.idle_add(self.show_error_dialog, _("extract_error"), str(e))
+        finally:
+            self.current_proc = None
+            GLib.idle_add(self.progress_dialog.close_dialog)
 
     def on_menu_rename(self, widget):
         paths = self.get_selected_paths()
@@ -1867,6 +2335,31 @@ class miloFilesWindow(Gtk.Window):
             self.load_directory(self.current_dir)
         except Exception as e:
             self.show_error_dialog(_("new_file"), str(e))
+
+    def on_menu_add_to_favorites(self, widget, path):
+        favorites = self.load_favorites()
+        norm_path = os.path.normpath(os.path.abspath(path))
+        if any(os.path.normpath(os.path.abspath(f[1])) == norm_path for f in favorites):
+            return
+            
+        icon_name = "folder"
+        basename = os.path.basename(path).lower()
+        if basename == "desktop":
+            icon_name = "user-desktop"
+        elif basename == "documents":
+            icon_name = "folder-documents"
+        elif basename == "downloads":
+            icon_name = "folder-download"
+        elif basename == "music":
+            icon_name = "folder-music"
+        elif basename == "pictures":
+            icon_name = "folder-pictures"
+        elif basename == "videos":
+            icon_name = "folder-videos"
+            
+        favorites.append((os.path.basename(path), path, icon_name, None))
+        self.save_favorites_to_disk(favorites)
+        self.reload_sidebar()
 
     def on_menu_properties(self, widget):
         paths = self.get_selected_paths()
@@ -2019,9 +2512,7 @@ class miloFilesWindow(Gtk.Window):
                     
             if src_paths:
                 # Default drop behavior is Copy
-                t = threading.Thread(target=self.perform_paste, args=(src_paths, self.current_dir, 'copy'))
-                t.daemon = True
-                t.start()
+                self.start_paste_operation(src_paths, self.current_dir, 'copy')
             context.finish(True, False, time)
 
     def on_key_press(self, widget, event):

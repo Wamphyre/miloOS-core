@@ -79,13 +79,13 @@ class UpdaterWindow(Gtk.Window):
         header_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
         header_box.set_halign(Gtk.Align.START)
         
-        title_label = Gtk.Label()
-        title_label.set_markup(f"<span font_desc='Inter, System-UI, sans-serif 18' weight='bold' foreground='#2c3e50'>{self.t['title']}</span>")
+        title_label = Gtk.Label(label=self.t['title'])
+        title_label.get_style_context().add_class("header-title")
         title_label.set_halign(Gtk.Align.START)
         header_box.pack_start(title_label, False, False, 0)
         
-        self.status_label = Gtk.Label()
-        self.status_label.set_markup(f'<span font_desc="11" foreground="#7f8c8d">{self.t["ready"]}</span>')
+        self.status_label = Gtk.Label(label=self.t['ready'])
+        self.status_label.get_style_context().add_class("header-status")
         self.status_label.set_halign(Gtk.Align.START)
         header_box.pack_start(self.status_label, False, False, 0)
         
@@ -100,6 +100,8 @@ class UpdaterWindow(Gtk.Window):
         self.terminal = Vte.Terminal()
         self.terminal.set_scroll_on_output(True)
         self.terminal.set_scrollback_lines(10000)
+        self.terminal.set_input_enabled(False)
+        self.terminal.feed(b"\033[?25l")
         
         # Apply dark mode theme to terminal
         bg_color = Gdk.RGBA()
@@ -133,7 +135,6 @@ class UpdaterWindow(Gtk.Window):
         button_box.pack_start(self.close_button, False, False, 0)
         
         main_box.pack_start(button_box, False, False, 0)
-        
         self.updates_count = 0
         
     def apply_css(self):
@@ -148,16 +149,28 @@ class UpdaterWindow(Gtk.Window):
         border_button = "#3d3d3d" if is_dark else "#dcdde1"
         bg_button_hover = "#353535" if is_dark else "#f8f9fa"
         border_button_hover = "#4a4a4a" if is_dark else "#b1b2b9"
-        bg_button_disabled = "#1e1e1e" if is_dark else "#e3e4e9"
-        text_button_disabled = "#555555" if is_dark else "#8e8e93"
-        border_button_disabled = "#2d2d2d" if is_dark else "#dcdde1"
+        bg_button_disabled = "#282828" if is_dark else "#e3e4e9"
+        text_button_disabled = "#888888" if is_dark else "#8e8e93"
+        border_button_disabled = "#353535" if is_dark else "#dcdde1"
         bg_terminal_card = "#2b2b2b" if is_dark else "#ffffff"
         border_terminal_card = "#3d3d3d" if is_dark else "#e3e4e9"
+        text_title = "#ffffff" if is_dark else "#2c3e50"
+        text_status = "#a0a0a0" if is_dark else "#7f8c8d"
 
         css_provider = Gtk.CssProvider()
         css = f"""
         window {{
             background-color: {bg_window};
+        }}
+        .header-title {{
+            color: {text_title};
+            font-family: Inter, System-UI, sans-serif;
+            font-size: 20px;
+            font-weight: bold;
+        }}
+        .header-status {{
+            color: {text_status};
+            font-size: 13px;
         }}
         button {{
             border-radius: 8px;
@@ -175,7 +188,7 @@ class UpdaterWindow(Gtk.Window):
             border-color: {border_button_hover};
         }}
         button:disabled {{
-            opacity: 0.5;
+            opacity: 0.8;
             background-color: {bg_button_disabled};
             color: {text_button_disabled};
             border-color: {border_button_disabled};
@@ -199,9 +212,9 @@ class UpdaterWindow(Gtk.Window):
         .update-btn:disabled {{
             background-color: {bg_button_disabled};
             color: {text_button_disabled};
-            border: none;
+            border: 1px solid {border_button_disabled};
             box-shadow: none;
-            opacity: 0.6;
+            opacity: 0.8;
         }}
         .terminal-card {{
             background-color: {bg_terminal_card};
@@ -220,11 +233,18 @@ class UpdaterWindow(Gtk.Window):
     
     def run_command_in_terminal(self, command, callback=None):
         """Run command in VTE terminal"""
+        handler_id = None
+        
         def on_child_exited(terminal, status):
+            nonlocal handler_id
+            if handler_id is not None:
+                self.terminal.disconnect(handler_id)
+                handler_id = None
+            self.terminal.feed(b"\033[?25l")
             if callback:
                 GLib.idle_add(callback, status)
         
-        self.terminal.connect('child-exited', on_child_exited)
+        handler_id = self.terminal.connect('child-exited', on_child_exited)
         self.terminal.spawn_sync(
             Vte.PtyFlags.DEFAULT,
             os.environ['HOME'],
