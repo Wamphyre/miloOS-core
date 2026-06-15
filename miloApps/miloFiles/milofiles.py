@@ -2021,7 +2021,7 @@ class miloFilesWindow(Gtk.Window):
     def on_other_application(self, widget, path):
         try:
             gfile = Gio.File.new_for_path(path)
-            dialog = Gtk.AppChooserDialog(parent=self, flags=Gtk.DialogFlags.MODAL, file=gfile)
+            dialog = Gtk.AppChooserDialog.new(self, Gtk.DialogFlags.MODAL, gfile)
             response = dialog.run()
             if response == Gtk.ResponseType.OK:
                 app_info = dialog.get_app_info()
