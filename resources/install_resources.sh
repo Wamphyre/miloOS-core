@@ -1314,7 +1314,7 @@ install_gtk_themes
 install_icon_themes
 install_fonts
 install_wallpaper
-log_step 6 $TOTAL_STEPS "Using miloDock as the default dock"
+log_step 6 $TOTAL_STEPS "Using miloDock and miloPanel as the default shell"
 install_menus
 rebrand_system
 optimize_realtime_audio
@@ -1329,6 +1329,7 @@ MILOAPPS_INSTALL_ORDER=(
     "miloThemeDaemon"
     "miloFiles"
     "miloDock"
+    "miloPanel"
 )
 log_info "miloApps install order: ${MILOAPPS_INSTALL_ORDER[*]}"
 install_audio_config
@@ -1518,6 +1519,19 @@ if [ -d "$CURRENT_DIR/miloApps/miloDock" ]; then
     fi
 else
     log_warn "✗ miloDock directory not found, skipping"
+fi
+
+# Install miloPanel application
+echo ""
+log_info "Installing miloPanel application..."
+if [ -d "$CURRENT_DIR/miloApps/miloPanel" ]; then
+    if bash "$CURRENT_DIR/miloApps/miloPanel/install.sh"; then
+        log_info "✓ miloPanel installed successfully"
+    else
+        log_warn "✗ miloPanel installation failed (non-critical)"
+    fi
+else
+    log_warn "✗ miloPanel directory not found, skipping"
 fi
 
 echo ""

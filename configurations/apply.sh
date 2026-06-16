@@ -76,12 +76,14 @@ BACKUP_SUFFIX="backup-$(date +%Y%m%d-%H%M%S)"
 [ -d "$USER_HOME/.config/xfce4/panel" ] && mv "$USER_HOME/.config/xfce4/panel" "$USER_HOME/.config/xfce4/panel.$BACKUP_SUFFIX"
 [ -d "$USER_HOME/.config/xfce4/xfconf" ] && mv "$USER_HOME/.config/xfce4/xfconf" "$USER_HOME/.config/xfce4/xfconf.$BACKUP_SUFFIX"
 [ -d "$USER_HOME/.config/miloDock" ] && mv "$USER_HOME/.config/miloDock" "$USER_HOME/.config/miloDock.$BACKUP_SUFFIX"
+[ -d "$USER_HOME/.config/miloPanel" ] && mv "$USER_HOME/.config/miloPanel" "$USER_HOME/.config/miloPanel.$BACKUP_SUFFIX"
 
 # Create necessary directories
 log_info "Creating configuration directories..."
 mkdir -p "$USER_HOME/.config/gtk-3.0"
 mkdir -p "$USER_HOME/.config/xfce4"
 mkdir -p "$USER_HOME/.config/miloDock/launchers"
+mkdir -p "$USER_HOME/.config/miloPanel"
 mkdir -p "$USER_HOME/.local/share/dbus-1/services"
 
 # Prevent Thunar's D-Bus activation from starting the daemon in miloOS sessions.
@@ -95,6 +97,13 @@ fi
 # Apply new settings
 log_info "Applying GTK configurations..."
 echo "#xfce4-power-manager-plugin * { -gtk-icon-transform: scale(1.2); }" > "$USER_HOME/.config/gtk-3.0/gtk.css"
+cat > "$USER_HOME/.config/gtk-3.0/settings.ini" << 'EOF'
+[Settings]
+gtk-shell-shows-app-menu=true
+gtk-shell-shows-menubar=true
+EOF
+chmod 644 "$USER_HOME/.config/gtk-3.0/settings.ini"
+chown "$EXEC_USER:$EXEC_USER" "$USER_HOME/.config/gtk-3.0/settings.ini"
 
 # Copy font configuration for optimal rendering
 if [ -f "configurations/fonts.conf" ]; then
@@ -170,13 +179,20 @@ if [ -f "configurations/miloDock/settings.ini" ]; then
     chown "$EXEC_USER:$EXEC_USER" "$USER_HOME/.config/miloDock/settings.ini"
 fi
 
-# Copy autostart configuration for miloDock
-if [ -f "configurations/autostart/Dock.desktop" ]; then
+if [ -f "configurations/miloPanel/settings.ini" ]; then
+    log_info "Copying miloPanel settings..."
+    cp configurations/miloPanel/settings.ini "$USER_HOME/.config/miloPanel/settings.ini"
+    chmod 644 "$USER_HOME/.config/miloPanel/settings.ini"
+    chown "$EXEC_USER:$EXEC_USER" "$USER_HOME/.config/miloPanel/settings.ini"
+fi
+
+# Copy autostart configuration for miloOS native shell components
+if [ -d "configurations/autostart" ]; then
     log_info "Copying autostart configuration..."
     mkdir -p "$USER_HOME/.config/autostart"
-    cp configurations/autostart/Dock.desktop "$USER_HOME/.config/autostart/"
-    chmod 644 "$USER_HOME/.config/autostart/Dock.desktop"
-    chown "$EXEC_USER:$EXEC_USER" "$USER_HOME/.config/autostart/Dock.desktop"
+    cp configurations/autostart/*.desktop "$USER_HOME/.config/autostart/" 2>/dev/null || true
+    chmod 644 "$USER_HOME/.config/autostart"/*.desktop 2>/dev/null || true
+    chown "$EXEC_USER:$EXEC_USER" "$USER_HOME/.config/autostart"/*.desktop 2>/dev/null || true
 else
     log_warn "Autostart configuration not found, skipping"
 fi
@@ -258,6 +274,83 @@ xfconf-query -c xsettings -p /Gtk/ShellShowsAppmenu -n -t bool -s true 2>/dev/nu
 xfconf-query -c xsettings -p /Gtk/Modules -n -t string -s "appmenu-gtk-module" 2>/dev/null || \
     xfconf-query -c xsettings -p /Gtk/Modules -t string -s "appmenu-gtk-module"
 
+if command -v gsettings &> /dev/null; then
+    gsettings set org.appmenu.gtk-module always-show-inner-menu false 2>/dev/null || true
+    gsettings set org.appmenu.gtk-module blacklist "['anjuta','freeciv','freeciv-gtk2','freeciv-gtk3','glade','gwyddion','milopanel']" 2>/dev/null || true
+    gsettings set org.xfce.mousepad.preferences.window menubar-visible false 2>/dev/null || true
+fi
+
+export GTK_MODULES="appmenu-gtk-module"
+export UBUNTU_MENUPROXY=1
+if command -v dbus-update-activation-environment &> /dev/null; then
+    dbus-update-activation-environment --systemd GTK_MODULES UBUNTU_MENUPROXY >/dev/null 2>&1 || true
+fi
+if command -v xfsettingsd &> /dev/null; then
+    pkill -TERM -x xfsettingsd 2>/dev/null || true
+    setsid xfsettingsd --replace >/dev/null 2>&1 &
+    sleep 1
+fi
+
+# XFCE still provides the session and desktop manager; miloPanel replaces xfce4-panel.
+log_info "Configuring XFCE session to start miloPanel instead of xfce4-panel..."
+for prop in \
+    /sessions/Failsafe/Client0_Command \
+    /sessions/Failsafe/Client1_Command \
+    /sessions/Failsafe/Client2_Command \
+    /sessions/Failsafe/Client3_Command \
+    /sessions/Failsafe/Client4_Command \
+    /sessions/FailsafeWayland/Client0_Command \
+    /sessions/FailsafeWayland/Client1_Command \
+    /sessions/FailsafeWayland/Client2_Command \
+    /sessions/FailsafeWayland/Client3_Command; do
+    xfconf-query -c xfce4-session -p "$prop" -r 2>/dev/null || true
+done
+
+xfconf-query -c xfce4-session -p /sessions/Failsafe/IsFailsafe -n -t bool -s true 2>/dev/null || \
+    xfconf-query -c xfce4-session -p /sessions/Failsafe/IsFailsafe -t bool -s true
+xfconf-query -c xfce4-session -p /sessions/Failsafe/Count -n -t int -s 4 2>/dev/null || \
+    xfconf-query -c xfce4-session -p /sessions/Failsafe/Count -t int -s 4
+xfconf-query -c xfce4-session -p /sessions/Failsafe/Client0_Command -n -a -t string -s xfwm4
+xfconf-query -c xfce4-session -p /sessions/Failsafe/Client0_Priority -n -t int -s 15 2>/dev/null || \
+    xfconf-query -c xfce4-session -p /sessions/Failsafe/Client0_Priority -t int -s 15
+xfconf-query -c xfce4-session -p /sessions/Failsafe/Client0_PerScreen -n -t bool -s false 2>/dev/null || \
+    xfconf-query -c xfce4-session -p /sessions/Failsafe/Client0_PerScreen -t bool -s false
+xfconf-query -c xfce4-session -p /sessions/Failsafe/Client1_Command -n -a -t string -s xfsettingsd
+xfconf-query -c xfce4-session -p /sessions/Failsafe/Client1_Priority -n -t int -s 20 2>/dev/null || \
+    xfconf-query -c xfce4-session -p /sessions/Failsafe/Client1_Priority -t int -s 20
+xfconf-query -c xfce4-session -p /sessions/Failsafe/Client1_PerScreen -n -t bool -s false 2>/dev/null || \
+    xfconf-query -c xfce4-session -p /sessions/Failsafe/Client1_PerScreen -t bool -s false
+xfconf-query -c xfce4-session -p /sessions/Failsafe/Client2_Command -n -a -t string -s milopanel -t string -s --replace
+xfconf-query -c xfce4-session -p /sessions/Failsafe/Client2_Priority -n -t int -s 25 2>/dev/null || \
+    xfconf-query -c xfce4-session -p /sessions/Failsafe/Client2_Priority -t int -s 25
+xfconf-query -c xfce4-session -p /sessions/Failsafe/Client2_PerScreen -n -t bool -s false 2>/dev/null || \
+    xfconf-query -c xfce4-session -p /sessions/Failsafe/Client2_PerScreen -t bool -s false
+xfconf-query -c xfce4-session -p /sessions/Failsafe/Client3_Command -n -a -t string -s xfdesktop
+xfconf-query -c xfce4-session -p /sessions/Failsafe/Client3_Priority -n -t int -s 35 2>/dev/null || \
+    xfconf-query -c xfce4-session -p /sessions/Failsafe/Client3_Priority -t int -s 35
+xfconf-query -c xfce4-session -p /sessions/Failsafe/Client3_PerScreen -n -t bool -s false 2>/dev/null || \
+    xfconf-query -c xfce4-session -p /sessions/Failsafe/Client3_PerScreen -t bool -s false
+
+xfconf-query -c xfce4-session -p /sessions/FailsafeWayland/IsFailsafe -n -t bool -s true 2>/dev/null || \
+    xfconf-query -c xfce4-session -p /sessions/FailsafeWayland/IsFailsafe -t bool -s true
+xfconf-query -c xfce4-session -p /sessions/FailsafeWayland/Count -n -t int -s 3 2>/dev/null || \
+    xfconf-query -c xfce4-session -p /sessions/FailsafeWayland/Count -t int -s 3
+xfconf-query -c xfce4-session -p /sessions/FailsafeWayland/Client0_Command -n -a -t string -s xfsettingsd
+xfconf-query -c xfce4-session -p /sessions/FailsafeWayland/Client0_Priority -n -t int -s 15 2>/dev/null || \
+    xfconf-query -c xfce4-session -p /sessions/FailsafeWayland/Client0_Priority -t int -s 15
+xfconf-query -c xfce4-session -p /sessions/FailsafeWayland/Client0_PerScreen -n -t bool -s false 2>/dev/null || \
+    xfconf-query -c xfce4-session -p /sessions/FailsafeWayland/Client0_PerScreen -t bool -s false
+xfconf-query -c xfce4-session -p /sessions/FailsafeWayland/Client1_Command -n -a -t string -s milopanel -t string -s --replace
+xfconf-query -c xfce4-session -p /sessions/FailsafeWayland/Client1_Priority -n -t int -s 15 2>/dev/null || \
+    xfconf-query -c xfce4-session -p /sessions/FailsafeWayland/Client1_Priority -t int -s 15
+xfconf-query -c xfce4-session -p /sessions/FailsafeWayland/Client1_PerScreen -n -t bool -s false 2>/dev/null || \
+    xfconf-query -c xfce4-session -p /sessions/FailsafeWayland/Client1_PerScreen -t bool -s false
+xfconf-query -c xfce4-session -p /sessions/FailsafeWayland/Client2_Command -n -a -t string -s xfdesktop
+xfconf-query -c xfce4-session -p /sessions/FailsafeWayland/Client2_Priority -n -t int -s 15 2>/dev/null || \
+    xfconf-query -c xfce4-session -p /sessions/FailsafeWayland/Client2_Priority -t int -s 15
+xfconf-query -c xfce4-session -p /sessions/FailsafeWayland/Client2_PerScreen -n -t bool -s false 2>/dev/null || \
+    xfconf-query -c xfce4-session -p /sessions/FailsafeWayland/Client2_PerScreen -t bool -s false
+
 # Window manager theme
 xfconf-query -c xfwm4 -p /general/theme -n -t string -s miloOS 2>/dev/null || \
     xfconf-query -c xfwm4 -p /general/theme -t string -s miloOS
@@ -326,6 +419,7 @@ log_info "Setting proper ownership..."
 chown -R "$EXEC_USER:$EXEC_USER" "$USER_HOME/.config/gtk-3.0"
 chown -R "$EXEC_USER:$EXEC_USER" "$USER_HOME/.config/xfce4"
 chown -R "$EXEC_USER:$EXEC_USER" "$USER_HOME/.config/miloDock"
+chown -R "$EXEC_USER:$EXEC_USER" "$USER_HOME/.config/miloPanel"
 
 # Hide default system menu items (logout, restart, shutdown, sleep)
 log_info "Hiding default system menu items..."

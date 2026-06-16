@@ -30,6 +30,7 @@ public:
 
     bool available() const { return display_ != nullptr && root_ != 0; }
     int current_desktop() const;
+    Window active_window() const;
     std::vector<TrackedWindow> windows() const;
     void activate(Window xid) const;
     void close(Window xid) const;

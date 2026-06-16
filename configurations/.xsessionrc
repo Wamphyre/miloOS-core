@@ -2,3 +2,26 @@
 # PipeWire JACK library path for audio applications (miloOS)
 MULTIARCH=$(dpkg-architecture -qDEB_HOST_MULTIARCH 2>/dev/null || echo "x86_64-linux-gnu")
 export LD_LIBRARY_PATH="/usr/lib/${MULTIARCH}/pipewire-0.3/jack${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+
+# Global menu environment for miloPanel.
+milo_normalize_gtk_modules() {
+    _milo_modules="appmenu-gtk-module"
+    _old_ifs="$IFS"
+    IFS=:
+    for _module in $GTK_MODULES; do
+        [ -z "$_module" ] && continue
+        case ":$_milo_modules:" in
+            *":$_module:"*) ;;
+            *) _milo_modules="$_milo_modules:$_module" ;;
+        esac
+    done
+    IFS="$_old_ifs"
+    export GTK_MODULES="$_milo_modules"
+    export UBUNTU_MENUPROXY=1
+    if command -v dbus-update-activation-environment >/dev/null 2>&1; then
+        dbus-update-activation-environment --systemd GTK_MODULES UBUNTU_MENUPROXY >/dev/null 2>&1 || true
+    fi
+    unset _milo_modules _old_ifs _module
+}
+milo_normalize_gtk_modules
+unset -f milo_normalize_gtk_modules

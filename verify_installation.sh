@@ -128,9 +128,24 @@ else
 fi
 echo ""
 
+# Check miloPanel
+echo -e "${BLUE}[5b] miloPanel${NC}"
+if command -v milopanel &> /dev/null; then
+    check_pass "miloPanel installed"
+else
+    check_warn "miloPanel not installed"
+fi
+
+if [ -f "/usr/share/applications/milopanel.desktop" ]; then
+    check_pass "miloPanel desktop entry installed"
+else
+    check_warn "miloPanel desktop entry not found"
+fi
+echo ""
+
 # Check packages
 echo -e "${BLUE}[6] Essential Packages${NC}"
-REQUIRED_PKGS=("dconf-cli" "xfce4-appmenu-plugin" "catfish" "vala-panel-appmenu" "python3-gi" "gir1.2-gtk-3.0" "gir1.2-wnck-3.0")
+REQUIRED_PKGS=("dconf-cli" "appmenu-gtk3-module" "xfce4-appmenu-plugin" "catfish" "vala-panel-appmenu" "python3-gi" "gir1.2-gtk-3.0" "gir1.2-wnck-3.0")
 for pkg in "${REQUIRED_PKGS[@]}"; do
     if dpkg -l | grep -q "^ii  $pkg"; then
         check_pass "$pkg installed"
@@ -197,6 +212,18 @@ if [ "$EUID" -ne 0 ] && [ -n "$HOME" ]; then
         check_pass "miloDock autostart configured"
     else
         check_warn "miloDock autostart not configured"
+    fi
+
+    if [ -f "$HOME/.config/miloPanel/settings.ini" ]; then
+        check_pass "miloPanel settings configured"
+    else
+        check_warn "miloPanel settings not found"
+    fi
+
+    if [ -f "$HOME/.config/autostart/Panel.desktop" ] && grep -q "Exec=milopanel --replace" "$HOME/.config/autostart/Panel.desktop"; then
+        check_pass "miloPanel autostart configured"
+    else
+        check_warn "miloPanel autostart not configured"
     fi
     
     # Check xfconf settings

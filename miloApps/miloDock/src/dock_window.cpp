@@ -99,8 +99,37 @@ struct MenuAction {
     bool force_new = false;
 };
 
+struct WindowMenuAction {
+    DockWindow* dock = nullptr;
+    Window xid = 0;
+};
+
 void menu_action_destroy(gpointer data, GClosure*) {
     delete static_cast<MenuAction*>(data);
+}
+
+void window_menu_action_destroy(gpointer data, GClosure*) {
+    delete static_cast<WindowMenuAction*>(data);
+}
+
+std::string short_window_label(const TrackedWindow& window, int index) {
+    std::string label = window.name.empty() ? "" : window.name;
+    if (label.empty()) {
+        label = window.wm_class.empty() ? "Ventana" : window.wm_class;
+    }
+    if (label.empty()) {
+        label = "Ventana";
+    }
+    if (label.size() > 72) {
+        label = label.substr(0, 69) + "...";
+    }
+
+    std::ostringstream stream;
+    stream << index << ". " << label;
+    if (window.minimized) {
+        stream << " (minimizada)";
+    }
+    return stream.str();
 }
 
 } // namespace
@@ -250,7 +279,7 @@ void DockWindow::render_launchers(const std::vector<Launcher>& launchers) {
         gtk_box_pack_start(GTK_BOX(box), image, FALSE, FALSE, 0);
 
         GtkWidget* dot = gtk_drawing_area_new();
-        gtk_widget_set_size_request(dot, 7, 5);
+        gtk_widget_set_size_request(dot, 22, 6);
         gtk_box_pack_start(GTK_BOX(box), dot, FALSE, FALSE, 0);
 
         auto* data = new ItemData();
@@ -552,17 +581,27 @@ void DockWindow::update_item_running_indicators() {
         if (!data) {
             continue;
         }
-        bool running = !running_windows_for(data->launcher).empty();
-        if (running == data->running) {
+        int running_count = static_cast<int>(running_windows_for(data->launcher).size());
+        if (running_count == data->running_count) {
             continue;
         }
-        data->running = running;
+        bool was_running = data->running_count > 0;
+        bool running = running_count > 0;
+        data->running_count = running_count;
         GtkStyleContext* context = gtk_widget_get_style_context(data->item);
-        if (running) {
+        if (running && !was_running) {
             gtk_style_context_add_class(context, "milodock-item-running");
-        } else {
+        } else if (!running && was_running) {
             gtk_style_context_remove_class(context, "milodock-item-running");
         }
+        std::ostringstream tooltip;
+        tooltip << data->launcher.name;
+        if (running_count == 1) {
+            tooltip << " (1 ventana)";
+        } else if (running_count > 1) {
+            tooltip << " (" << running_count << " ventanas)";
+        }
+        gtk_widget_set_tooltip_text(data->item, tooltip.str().c_str());
         gtk_widget_queue_draw(data->dot);
     }
     g_list_free(children);
@@ -613,10 +652,28 @@ void DockWindow::remove_launcher_from_user_config(const Launcher& launcher) {
 void DockWindow::activate_or_launch(const Launcher& launcher, bool force_new) {
     auto windows = running_windows_for(launcher);
     if (!force_new && !windows.empty()) {
-        tracker_.activate(windows.front().xid);
+        Window target = windows.front().xid;
+        if (windows.size() > 1) {
+            Window active = tracker_.active_window();
+            auto current = std::find_if(windows.begin(), windows.end(), [active](const TrackedWindow& window) {
+                return window.xid == active;
+            });
+            if (current != windows.end()) {
+                ++current;
+                if (current == windows.end()) {
+                    current = windows.begin();
+                }
+                target = current->xid;
+            }
+        }
+        tracker_.activate(target);
         return;
     }
     launch_app(launcher);
+}
+
+void DockWindow::activate_window(Window xid) {
+    tracker_.activate(xid);
 }
 
 void DockWindow::close_windows_for(const Launcher& launcher) {
@@ -625,11 +682,16 @@ void DockWindow::close_windows_for(const Launcher& launcher) {
     }
 }
 
+void DockWindow::close_window(Window xid) {
+    tracker_.close(xid);
+}
+
 void DockWindow::show_context_menu(ItemData* item, GdkEventButton* event) {
     if (!item) {
         return;
     }
 
+    auto windows = running_windows_for(item->launcher);
     GtkWidget* menu = gtk_menu_new();
     GtkWidget* title = gtk_menu_item_new_with_label(item->launcher.name.c_str());
     gtk_widget_set_sensitive(title, FALSE);
@@ -649,8 +711,44 @@ void DockWindow::show_context_menu(ItemData* item, GdkEventButton* event) {
     }), new MenuAction{this, item->launcher, true}, menu_action_destroy, G_CONNECT_DEFAULT);
     gtk_menu_shell_append(GTK_MENU_SHELL(menu), new_window);
 
-    if (!running_windows_for(item->launcher).empty()) {
-        GtkWidget* close = gtk_menu_item_new_with_label("Cerrar ventanas");
+    if (!windows.empty()) {
+        gtk_menu_shell_append(GTK_MENU_SHELL(menu), gtk_separator_menu_item_new());
+
+        std::ostringstream window_title_text;
+        window_title_text << "Ventanas abiertas (" << windows.size() << ")";
+        GtkWidget* windows_title = gtk_menu_item_new_with_label(window_title_text.str().c_str());
+        gtk_widget_set_sensitive(windows_title, FALSE);
+        gtk_menu_shell_append(GTK_MENU_SHELL(menu), windows_title);
+
+        int index = 1;
+        for (const auto& window : windows) {
+            GtkWidget* window_item = gtk_menu_item_new_with_label(short_window_label(window, index).c_str());
+            g_signal_connect_data(window_item, "activate", G_CALLBACK(+[](GtkMenuItem*, gpointer raw) {
+                auto* action = static_cast<WindowMenuAction*>(raw);
+                action->dock->activate_window(action->xid);
+            }), new WindowMenuAction{this, window.xid}, window_menu_action_destroy, G_CONNECT_DEFAULT);
+            gtk_menu_shell_append(GTK_MENU_SHELL(menu), window_item);
+            ++index;
+        }
+
+        if (windows.size() > 1) {
+            GtkWidget* close_submenu_item = gtk_menu_item_new_with_label("Cerrar ventana");
+            GtkWidget* close_submenu = gtk_menu_new();
+            index = 1;
+            for (const auto& window : windows) {
+                GtkWidget* close_item = gtk_menu_item_new_with_label(short_window_label(window, index).c_str());
+                g_signal_connect_data(close_item, "activate", G_CALLBACK(+[](GtkMenuItem*, gpointer raw) {
+                    auto* action = static_cast<WindowMenuAction*>(raw);
+                    action->dock->close_window(action->xid);
+                }), new WindowMenuAction{this, window.xid}, window_menu_action_destroy, G_CONNECT_DEFAULT);
+                gtk_menu_shell_append(GTK_MENU_SHELL(close_submenu), close_item);
+                ++index;
+            }
+            gtk_menu_item_set_submenu(GTK_MENU_ITEM(close_submenu_item), close_submenu);
+            gtk_menu_shell_append(GTK_MENU_SHELL(menu), close_submenu_item);
+        }
+
+        GtkWidget* close = gtk_menu_item_new_with_label(windows.size() == 1 ? "Cerrar ventana" : "Cerrar todas las ventanas");
         g_signal_connect_data(close, "activate", G_CALLBACK(+[](GtkMenuItem*, gpointer raw) {
             auto* action = static_cast<MenuAction*>(raw);
             action->dock->close_windows_for(action->launcher);
@@ -1088,7 +1186,7 @@ gboolean DockWindow::on_item_leave(GtkWidget*, GdkEventCrossing*, gpointer user_
 
 gboolean DockWindow::on_dot_draw(GtkWidget* widget, cairo_t* cr, gpointer user_data) {
     auto* item = static_cast<ItemData*>(user_data);
-    if (!item || !item->running) {
+    if (!item || item->running_count <= 0) {
         return FALSE;
     }
     GtkAllocation allocation;
@@ -1098,8 +1196,16 @@ gboolean DockWindow::on_dot_draw(GtkWidget* widget, cairo_t* cr, gpointer user_d
     } else {
         cairo_set_source_rgba(cr, 0.12, 0.16, 0.20, 0.78);
     }
-    cairo_arc(cr, allocation.width / 2.0, allocation.height / 2.0, 2.1, 0.0, 6.283185307179586);
-    cairo_fill(cr);
+    const int visible_dots = std::min(item->running_count, 3);
+    const double radius = 2.0;
+    const double spacing = 6.0;
+    const double total_width = (visible_dots - 1) * spacing;
+    const double start_x = allocation.width / 2.0 - total_width / 2.0;
+    const double y = allocation.height / 2.0;
+    for (int i = 0; i < visible_dots; ++i) {
+        cairo_arc(cr, start_x + i * spacing, y, radius, 0.0, 6.283185307179586);
+        cairo_fill(cr);
+    }
     return FALSE;
 }
 

@@ -16,6 +16,8 @@
 #include <cctype>
 #include <stdexcept>
 
+static std::atomic<int> open_window_count{0};
+
 static bool run_process_with_cancellation(const std::vector<std::string>& args, 
                                           const std::string& working_dir, 
                                           std::atomic<GPid>& active_gpid, 
@@ -86,9 +88,11 @@ static bool run_process_with_cancellation(const std::vector<std::string>& args,
     return !cancelled.load() && WIFEXITED(status) && WEXITSTATUS(status) == 0;
 }
 
-AppWindow::AppWindow(const std::string& initial_dir) 
+AppWindow::AppWindow(const std::string& initial_dir, bool delete_on_destroy)
     : history_index(-1), show_hidden(false), operation_cancelled(false),
+      delete_on_destroy(delete_on_destroy),
       path_stack(nullptr), path_entry(nullptr), path_completion_model(nullptr), hidden_mitem(nullptr) {
+    open_window_count.fetch_add(1);
     
     window = gtk_window_new(GTK_WINDOW_TOPLEVEL);
     gtk_widget_set_name(window, "milofiles-window");
@@ -180,6 +184,16 @@ void AppWindow::setup_menu_bar() {
     GtkWidget* file_menu = gtk_menu_new();
     GtkWidget* file_mitem = gtk_menu_item_new_with_label(i18n::_("file_menu").c_str());
     gtk_menu_item_set_submenu(GTK_MENU_ITEM(file_mitem), file_menu);
+
+    GtkWidget* new_window_mitem = gtk_menu_item_new_with_label(i18n::_("new_window").c_str());
+    g_signal_connect_swapped(new_window_mitem, "activate", G_CALLBACK(+[](AppWindow* self) {
+        std::string start_dir = self->file_view ? self->file_view->get_current_dir() : std::string();
+        auto* new_window = new AppWindow(start_dir, true);
+        new_window->show();
+    }), this);
+    gtk_menu_shell_append(GTK_MENU_SHELL(file_menu), new_window_mitem);
+
+    gtk_menu_shell_append(GTK_MENU_SHELL(file_menu), gtk_separator_menu_item_new());
     
     GtkWidget* new_folder_mitem = gtk_menu_item_new_with_label(i18n::_("new_folder").c_str());
     g_signal_connect_swapped(new_folder_mitem, "activate", G_CALLBACK(+[](AppWindow* self) {
@@ -954,7 +968,13 @@ void AppWindow::on_window_destroy(GtkWidget* widget, gpointer data) {
     if (self) {
         self->operation_cancelled.store(true);
     }
-    gtk_main_quit();
+    int remaining = open_window_count.fetch_sub(1) - 1;
+    if (remaining <= 0) {
+        gtk_main_quit();
+    }
+    if (self && self->delete_on_destroy) {
+        delete self;
+    }
 }
 
 gboolean AppWindow::on_key_press(GtkWidget* widget, GdkEventKey* event, gpointer data) {

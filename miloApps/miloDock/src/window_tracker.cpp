@@ -171,6 +171,11 @@ int WindowTracker::current_desktop() const {
     return static_cast<int>(cardinal(root_, atom("_NET_CURRENT_DESKTOP"), 0));
 }
 
+Window WindowTracker::active_window() const {
+    auto active = window_list(root_, atom("_NET_ACTIVE_WINDOW"));
+    return active.empty() ? 0 : active.front();
+}
+
 std::vector<TrackedWindow> WindowTracker::windows() const {
     std::vector<TrackedWindow> result;
     if (!available()) {

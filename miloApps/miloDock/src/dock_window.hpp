@@ -31,7 +31,7 @@ private:
         DockWindow* dock = nullptr;
         Launcher launcher;
         bool pinned = false;
-        bool running = false;
+        int running_count = 0;
         bool hovered = false;
         bool press_valid = false;
         bool drag_started = false;
@@ -81,7 +81,9 @@ private:
     void remove_launcher_from_user_config(const Launcher& launcher);
     bool launcher_is_persisted(const Launcher& launcher) const;
     void activate_or_launch(const Launcher& launcher, bool force_new);
+    void activate_window(Window xid);
     void close_windows_for(const Launcher& launcher);
+    void close_window(Window xid);
     void show_context_menu(ItemData* item, GdkEventButton* event);
     bool handle_drop(GtkSelectionData* data, guint info, int insert_index);
     int reorder_insert_index_for_x(int root_x) const;

@@ -36,5 +36,8 @@
     <property name="CursorThemeName" type="empty"/>
     <property name="CursorThemeSize" type="empty"/>
     <property name="DecorationLayout" type="string" value="minimize,maximize,close:"/>
+    <property name="ShellShowsMenubar" type="bool" value="true"/>
+    <property name="ShellShowsAppmenu" type="bool" value="true"/>
+    <property name="Modules" type="string" value="appmenu-gtk-module"/>
   </property>
 </channel>

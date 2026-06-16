@@ -1,0 +1,14 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=miloPanel
+Name[es]=miloPanel
+Comment=miloOS native top panel
+Comment[es]=Panel superior nativo de miloOS
+Exec=/usr/local/bin/milopanel --replace
+Icon=preferences-desktop-panel
+Terminal=false
+OnlyShowIn=XFCE;
+StartupNotify=false
+X-GNOME-Autostart-enabled=true
+X-XFCE-Autostart-enabled=true

@@ -1,0 +1,3 @@
+miloApps/*/src/*.o
+miloApps/*/src/*.d
+miloApps/*/src/*-bin

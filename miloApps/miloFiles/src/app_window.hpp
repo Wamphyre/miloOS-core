@@ -12,7 +12,7 @@
 
 class AppWindow {
 public:
-    AppWindow(const std::string& initial_dir = "");
+    AppWindow(const std::string& initial_dir = "", bool delete_on_destroy = false);
     ~AppWindow();
 
     void show();
@@ -77,6 +77,7 @@ private:
 
     // Operation tracking
     std::atomic<bool> operation_cancelled;
+    bool delete_on_destroy;
     std::shared_ptr<ProgressDialog> current_progress_dialog;
 
     void setup_menu_bar();

@@ -209,6 +209,35 @@ std::string command_basename(const char* commandline) {
     return result;
 }
 
+std::string normalized_gtk_modules(const char* modules) {
+    std::vector<std::string> ordered_modules;
+    std::set<std::string> seen;
+
+    auto add_module = [&ordered_modules, &seen](const std::string& module) {
+        if (module.empty() || seen.count(module)) {
+            return;
+        }
+        seen.insert(module);
+        ordered_modules.push_back(module);
+    };
+
+    add_module("appmenu-gtk-module");
+    std::stringstream stream(modules ? modules : "");
+    std::string module;
+    while (std::getline(stream, module, ':')) {
+        add_module(module);
+    }
+
+    std::string result;
+    for (const std::string& module : ordered_modules) {
+        if (!result.empty()) {
+            result += ":";
+        }
+        result += module;
+    }
+    return result;
+}
+
 Launcher launcher_from_desktop_path(const std::string& desktop_path) {
     Launcher launcher;
     GDesktopAppInfo* app_info = g_desktop_app_info_new_from_filename(desktop_path.c_str());
@@ -490,6 +519,9 @@ void launch_app(const Launcher& launcher) {
 
     GError* error = nullptr;
     GAppLaunchContext* context = g_app_launch_context_new();
+    std::string gtk_modules = normalized_gtk_modules(g_getenv("GTK_MODULES"));
+    g_app_launch_context_setenv(context, "GTK_MODULES", gtk_modules.c_str());
+    g_app_launch_context_setenv(context, "UBUNTU_MENUPROXY", "1");
     g_app_info_launch(G_APP_INFO(launcher.app_info), nullptr, context, &error);
     if (error) {
         g_error_free(error);

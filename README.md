@@ -105,7 +105,7 @@ miloOS is **not a distribution**—it's a transformation kit. Install vanilla De
 
 **miloThemeDaemon** - System theme synchronization daemon
 - Automatically synchronizes GTK, Window Manager (xfwm4), icon themes, application menu logos, and desktop theme state
-- Notifies miloDock so its light/dark CSS follows `miloOS` and `miloOS-Dark`
+- Notifies miloDock and miloPanel so their light/dark CSS follows `miloOS` and `miloOS-Dark`
 - Optimized using native Python Xfconf bindings to eliminate subprocess spawn overhead
 - Detects active theme mode shifts dynamically and handles safe background updates
 - Refreshes panel components instantly to guarantee consistent styling
@@ -138,7 +138,17 @@ miloOS is **not a distribution**—it's a transformation kit. Install vanilla De
 - Python prototype remains available as a reference implementation
 - Cooperates with miloThemeDaemon when the system switches between `miloOS` and `miloOS-Dark`
 - Single-instance GTK application behavior for reliable autostart
-- Designed as the Python reference before a later C++ port
+
+**miloPanel** - Native miloOS top panel
+- C++17/GTK3 top panel installed as the default miloOS panel, replacing `xfce4-panel`
+- Uses the native milo menu, global menu, XEmbed system tray, PulseAudio output/input controls, clock, and notification launcher
+- Hosts AppMenu/DBusMenu/GMenu data from GTK and Chromium-style apps while configuring GTK to hide local menubars and avoid duplicate menus
+- Shows the real application display name from `.desktop` metadata when available
+- Shows a default desktop menu instead of exposing `xfdesktop` as the active app
+- Uses the same `milo.menu` desktop entries as the custom miloOS applications menu
+- Matches the active clock format `%a %d, %R` and tooltip `%A %d %B %Y`
+- Reserves top screen space through X11 struts when running as the active panel
+- Cooperates with miloThemeDaemon for light/dark logo and CSS updates
 
 
 ### ⚙️ System Integration
@@ -172,10 +182,11 @@ The script will:
 1. Install required packages (PipeWire, WirePlumber, GTK themes, etc.)
 2. Configure PipeWire and WirePlumber for real-time audio performance
 3. Install professional audio plugins
-4. Apply visual themes (including miloOS-Dark), icons, fonts, and the native miloDock layout
-5. Install miloApps (AudioConfig, AudioMaster, SysStats, miloUpdater, miloThemeDaemon, miloFiles, and miloDock)
-6. Configure user environment and JACK library paths
-7. Optimize kernel parameters and system limits for audio production
+4. Apply visual themes (including miloOS-Dark), icons, fonts, and native miloOS interface apps
+5. Install miloApps (AudioConfig, AudioMaster, SysStats, miloUpdater, miloThemeDaemon, miloFiles, miloDock, and miloPanel)
+6. Configure miloDock and miloPanel autostart, replacing Plank and `xfce4-panel`
+7. Configure user environment, AppMenu integration, and JACK library paths
+8. Optimize kernel parameters and system limits for audio production
 
 **Reboot after installation to apply all changes.**
 
