@@ -40,6 +40,8 @@ std::string css_for_settings(const PanelSettings& settings) {
     const char* border = dark ? "rgba(0, 0, 0, 0.55)" : "rgba(0, 0, 0, 0.22)";
     const char* fg = dark ? "#f2f2f2" : "#1d1d1f";
     const char* hover = dark ? "rgba(255,255,255,0.10)" : "rgba(0,0,0,0.08)";
+    const char* menu_hover = dark ? "rgba(0, 122, 255, 0.72)" : "rgba(0, 122, 255, 0.85)";
+    const char* menu_hover_fg = "#ffffff";
 
     std::ostringstream css;
     css
@@ -93,7 +95,9 @@ std::string css_for_settings(const PanelSettings& settings) {
         << "  font-size: 10pt;\n"
         << "}\n"
         << ".milopanel-menubar > menuitem:hover, .milopanel-menubar menuitem:hover {\n"
-        << "  background: " << hover << ";\n"
+        << "  background: " << menu_hover << ";\n"
+        << "  color: " << menu_hover_fg << ";\n"
+        << "  border-radius: 4px;\n"
         << "}\n"
         << ".milopanel-menu-button {\n"
         << "  background: transparent;\n"
@@ -109,6 +113,35 @@ std::string css_for_settings(const PanelSettings& settings) {
         << "  font-size: 10pt;\n"
         << "}\n"
         << ".milopanel-menu-button:hover { background: " << hover << "; }\n"
+        << "menu {\n"
+        << "  background-color: " << bg << ";\n"
+        << "  border: 1px solid " << border << ";\n"
+        << "  border-radius: 6px;\n"
+        << "  padding: 4px 0;\n"
+        << "  color: " << fg << ";\n"
+        << "}\n"
+        << "menu menuitem {\n"
+        << "  color: " << fg << ";\n"
+        << "  padding: 4px 10px;\n"
+        << "  min-height: 20px;\n"
+        << "  font-family: 'SF Pro Text', sans-serif;\n"
+        << "  font-weight: 400;\n"
+        << "  font-size: 10pt;\n"
+        << "}\n"
+        << "menu menuitem:hover {\n"
+        << "  background: " << menu_hover << ";\n"
+        << "  color: " << menu_hover_fg << ";\n"
+        << "  border-radius: 4px;\n"
+        << "}\n"
+        << "menu menuitem:checked {\n"
+        << "  background: " << menu_hover << ";\n"
+        << "  color: " << menu_hover_fg << ";\n"
+        << "}\n"
+        << "menu separator {\n"
+        << "  background-color: " << border << ";\n"
+        << "  min-height: 1px;\n"
+        << "  margin: 4px 10px;\n"
+        << "}\n"
         << ".milopanel-tray {\n"
         << "  background: transparent;\n"
         << "  background-color: transparent;\n"
