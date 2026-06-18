@@ -11,7 +11,7 @@
 - GTK global-menu environment configured to hide local application menubars and avoid duplicate menus.
 - Real application display names resolved from `.desktop` metadata when available.
 - Desktop fallback menu when `xfdesktop` or the root desktop is active.
-- XEmbed system tray host.
+- Filtered system-services tray host for XEmbed and StatusNotifier/AppIndicator icons.
 - PulseAudio/PipeWire output and input volume controls through `pactl`.
 - Clock using `%a %d, %R`, tooltip `%A %d %B %Y`, font `SF Pro Text Medium 10`.
 - Notification launcher for `xfce4-notifyd-config`.

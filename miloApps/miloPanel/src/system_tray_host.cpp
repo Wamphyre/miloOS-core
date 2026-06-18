@@ -6,6 +6,7 @@
 #include <X11/Xutil.h>
 
 #include <algorithm>
+#include <cctype>
 #include <cstring>
 #include <functional>
 #include <string>
@@ -14,6 +15,12 @@
 namespace {
 
 constexpr long SYSTEM_TRAY_REQUEST_DOCK = 0;
+
+struct WindowIdentity {
+    std::string res_name;
+    std::string res_class;
+    std::string title;
+};
 
 Atom atom(Display* display, const char* name) {
     return XInternAtom(display, name, False);
@@ -33,6 +40,41 @@ void with_x11_error_trap(const std::function<void()>& action) {
         return;
     }
     action();
+}
+
+std::string lowercase_ascii(std::string value) {
+    std::transform(value.begin(), value.end(), value.begin(), [](unsigned char c) {
+        return static_cast<char>(std::tolower(c));
+    });
+    return value;
+}
+
+std::string window_text_property(Display* display, Window window, const char* property_name) {
+    if (!display || window == 0) {
+        return {};
+    }
+
+    Atom property = atom(display, property_name);
+    Atom utf8 = atom(display, "UTF8_STRING");
+    Atom actual_type = None;
+    int actual_format = 0;
+    unsigned long nitems = 0;
+    unsigned long bytes_after = 0;
+    unsigned char* data = nullptr;
+    std::string value;
+
+    with_x11_error_trap([&]() {
+        if (XGetWindowProperty(display, window, property, 0, 512, False, utf8,
+                               &actual_type, &actual_format, &nitems, &bytes_after,
+                               &data) == Success && data && actual_format == 8) {
+            value.assign(reinterpret_cast<char*>(data), nitems);
+        }
+        if (data) {
+            XFree(data);
+            data = nullptr;
+        }
+    });
+    return value;
 }
 
 unsigned short xcolor_channel(double value) {
@@ -129,20 +171,18 @@ void set_xembed_window_tree_background(Display* display, Window window, unsigned
     }
 }
 
-std::string window_class(Display* display, Window window) {
+WindowIdentity window_identity(Display* display, Window window) {
+    WindowIdentity identity;
     XClassHint hint;
     hint.res_name = nullptr;
     hint.res_class = nullptr;
-    if (!XGetClassHint(display, window, &hint)) {
-        return "unknown";
-    }
-    std::string value;
-    if (hint.res_class) {
-        value = hint.res_class;
-    } else if (hint.res_name) {
-        value = hint.res_name;
-    } else {
-        value = "unknown";
+    if (XGetClassHint(display, window, &hint)) {
+        if (hint.res_name) {
+            identity.res_name = hint.res_name;
+        }
+        if (hint.res_class) {
+            identity.res_class = hint.res_class;
+        }
     }
     if (hint.res_name) {
         XFree(hint.res_name);
@@ -150,7 +190,50 @@ std::string window_class(Display* display, Window window) {
     if (hint.res_class) {
         XFree(hint.res_class);
     }
-    return value;
+    identity.title = window_text_property(display, window, "_NET_WM_NAME");
+    if (identity.title.empty()) {
+        identity.title = window_text_property(display, window, "WM_NAME");
+    }
+    return identity;
+}
+
+std::string identity_debug_name(const WindowIdentity& identity) {
+    if (!identity.res_class.empty()) {
+        return identity.res_class;
+    }
+    if (!identity.res_name.empty()) {
+        return identity.res_name;
+    }
+    if (!identity.title.empty()) {
+        return identity.title;
+    }
+    return "unknown";
+}
+
+bool legacy_tray_icon_allowed(const WindowIdentity& identity) {
+    const std::string combined = lowercase_ascii(
+        identity.res_name + " " + identity.res_class + " " + identity.title);
+
+    const char* allowed_tokens[] = {
+        "nm-applet",
+        "networkmanager",
+        "network-manager",
+        "blueman",
+        "bluetooth",
+        "xfce4-power-manager",
+        "power-manager",
+        "upower",
+        "udiskie",
+        "removable",
+        nullptr
+    };
+
+    for (const char** token = allowed_tokens; *token; ++token) {
+        if (combined.find(*token) != std::string::npos) {
+            return true;
+        }
+    }
+    return false;
 }
 
 } // namespace
@@ -246,13 +329,24 @@ void SystemTrayHost::dock_icon(Window icon_window) {
         return;
     }
 
+    WindowIdentity identity = window_identity(display_, icon_window);
+    if (!legacy_tray_icon_allowed(identity)) {
+        if (tray_debug_enabled()) {
+            g_printerr(
+                "miloPanel tray ignored app status icon window=0x%lx class=%s\n",
+                icon_window,
+                identity_debug_name(identity).c_str());
+        }
+        return;
+    }
+
     if (tray_debug_enabled()) {
         XWindowAttributes attributes;
         const bool has_attributes = XGetWindowAttributes(display_, icon_window, &attributes) != 0;
         g_printerr(
             "miloPanel tray dock request window=0x%lx class=%s map_state=%d size=%dx%d\n",
             icon_window,
-            window_class(display_, icon_window).c_str(),
+            identity_debug_name(identity).c_str(),
             has_attributes ? attributes.map_state : -1,
             has_attributes ? attributes.width : -1,
             has_attributes ? attributes.height : -1);

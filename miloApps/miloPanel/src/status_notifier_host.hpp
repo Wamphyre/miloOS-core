@@ -28,6 +28,9 @@ private:
         GtkWidget* widget = nullptr;
         GtkWidget* image = nullptr;
 
+        std::string category;
+        std::string id;
+        std::string title;
         std::string icon_name;
         std::string tooltip_title;
         std::string tooltip_body;

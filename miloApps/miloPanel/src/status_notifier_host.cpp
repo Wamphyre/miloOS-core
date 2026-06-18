@@ -1,6 +1,7 @@
 #include "status_notifier_host.hpp"
 
 #include <algorithm>
+#include <cctype>
 #include <cstring>
 #include <string>
 
@@ -46,6 +47,67 @@ void set_image_from_pixbuf(GtkWidget* image, GdkPixbuf* pixbuf, int icon_size) {
     } else {
         gtk_image_set_from_pixbuf(GTK_IMAGE(image), pixbuf);
     }
+}
+
+std::string lowercase_ascii(std::string value) {
+    std::transform(value.begin(), value.end(), value.begin(), [](unsigned char c) {
+        return static_cast<char>(std::tolower(c));
+    });
+    return value;
+}
+
+std::string cached_string_property(GDBusProxy* proxy, const char* property_name) {
+    GVariant* value = g_dbus_proxy_get_cached_property(proxy, property_name);
+    if (!value) {
+        return {};
+    }
+
+    std::string result;
+    if (g_variant_is_of_type(value, G_VARIANT_TYPE_STRING)) {
+        result = g_variant_get_string(value, nullptr);
+    }
+    g_variant_unref(value);
+    return result;
+}
+
+bool status_notifier_item_allowed(
+    const std::string& service,
+    const std::string& category,
+    const std::string& id,
+    const std::string& title,
+    const std::string& icon_name,
+    const std::string& tooltip_title) {
+    const std::string lowered_category = lowercase_ascii(category);
+    if (lowered_category == "systemservices" || lowered_category == "hardware") {
+        return true;
+    }
+    if (lowered_category == "applicationstatus" || lowered_category == "communications") {
+        return false;
+    }
+
+    const std::string combined = lowercase_ascii(
+        service + " " + id + " " + title + " " + icon_name + " " + tooltip_title);
+    const char* allowed_tokens[] = {
+        "nm-applet",
+        "networkmanager",
+        "network-manager",
+        "blueman",
+        "bluetooth",
+        "xfce4-power-manager",
+        "power-manager",
+        "upower",
+        "battery",
+        "udiskie",
+        "removable",
+        nullptr
+    };
+
+    for (const char** token = allowed_tokens; *token; ++token) {
+        if (combined.find(*token) != std::string::npos) {
+            return true;
+        }
+    }
+    return false;
 }
 
 } // namespace
@@ -372,27 +434,29 @@ void StatusNotifierHost::on_item_proxy_ready(GObject*, GAsyncResult* result,
 
 void StatusNotifierHost::setup_item(Item* item) {
     // Read initial properties
-    GVariant* v = g_dbus_proxy_get_cached_property(item->proxy, "IconName");
+    item->category = cached_string_property(item->proxy, "Category");
+    item->id = cached_string_property(item->proxy, "Id");
+    item->title = cached_string_property(item->proxy, "Title");
+    item->icon_name = cached_string_property(item->proxy, "IconName");
+
+    GVariant* v = g_dbus_proxy_get_cached_property(item->proxy, "IconThemePath");
     if (v) {
-        item->icon_name = g_variant_get_string(v, nullptr);
         g_variant_unref(v);
     }
 
-    v = g_dbus_proxy_get_cached_property(item->proxy, "IconThemePath");
-    if (v) {
-        g_variant_unref(v);
-    }
+    item->tooltip_title = cached_string_property(item->proxy, "TooltipTitle");
+    item->tooltip_body = cached_string_property(item->proxy, "TooltipBody");
 
-    v = g_dbus_proxy_get_cached_property(item->proxy, "TooltipTitle");
-    if (v) {
-        item->tooltip_title = g_variant_get_string(v, nullptr);
-        g_variant_unref(v);
-    }
-
-    v = g_dbus_proxy_get_cached_property(item->proxy, "TooltipBody");
-    if (v) {
-        item->tooltip_body = g_variant_get_string(v, nullptr);
-        g_variant_unref(v);
+    if (!status_notifier_item_allowed(
+            item->service,
+            item->category,
+            item->id,
+            item->title,
+            item->icon_name,
+            item->tooltip_title)) {
+        const std::string service = item->service;
+        items_.erase(service);
+        return;
     }
 
     // Read IconPixmap
@@ -453,12 +517,8 @@ void StatusNotifierHost::on_item_signal(GDBusProxy* proxy, gchar*,
     if (g_strcmp0(signal_name, "NewIcon") == 0 ||
         g_strcmp0(signal_name, "NewOverlayIcon") == 0) {
         // Re-read properties
-        GVariant* v = g_dbus_proxy_get_cached_property(proxy, "IconName");
-        if (v) {
-            item->icon_name = g_variant_get_string(v, nullptr);
-            g_variant_unref(v);
-        }
-        v = g_dbus_proxy_get_cached_property(proxy, "IconPixmap");
+        item->icon_name = cached_string_property(proxy, "IconName");
+        GVariant* v = g_dbus_proxy_get_cached_property(proxy, "IconPixmap");
         if (v) {
             item->icon_pixmap.data.clear();
             GVariantIter iter;
@@ -485,12 +545,34 @@ void StatusNotifierHost::on_item_signal(GDBusProxy* proxy, gchar*,
             }
             g_variant_unref(v);
         }
+        if (!status_notifier_item_allowed(
+                item->service,
+                item->category,
+                item->id,
+                item->title,
+                item->icon_name,
+                item->tooltip_title)) {
+            const std::string service = item->service;
+            host->untrack_item(service);
+            return;
+        }
         host->update_item_icon(item);
     } else if (g_strcmp0(signal_name, "NewTooltip") == 0) {
-        GVariant* v = g_dbus_proxy_get_cached_property(proxy, "TooltipTitle");
-        if (v) { item->tooltip_title = g_variant_get_string(v, nullptr); g_variant_unref(v); }
-        v = g_dbus_proxy_get_cached_property(proxy, "TooltipBody");
-        if (v) { item->tooltip_body = g_variant_get_string(v, nullptr); g_variant_unref(v); }
+        item->tooltip_title = cached_string_property(proxy, "TooltipTitle");
+        item->tooltip_body = cached_string_property(proxy, "TooltipBody");
+    } else if (g_strcmp0(signal_name, "NewTitle") == 0) {
+        item->title = cached_string_property(proxy, "Title");
+        if (!status_notifier_item_allowed(
+                item->service,
+                item->category,
+                item->id,
+                item->title,
+                item->icon_name,
+                item->tooltip_title)) {
+            const std::string service = item->service;
+            host->untrack_item(service);
+            return;
+        }
     }
 }
 
@@ -510,6 +592,12 @@ void StatusNotifierHost::on_item_properties_changed(GDBusProxy* proxy,
     while (g_variant_iter_next(&iter, "{&sv}", &key, &value)) {
         if (g_strcmp0(key, "IconName") == 0 && g_variant_is_of_type(value, G_VARIANT_TYPE_STRING)) {
             item->icon_name = g_variant_get_string(value, nullptr);
+        } else if (g_strcmp0(key, "Category") == 0 && g_variant_is_of_type(value, G_VARIANT_TYPE_STRING)) {
+            item->category = g_variant_get_string(value, nullptr);
+        } else if (g_strcmp0(key, "Id") == 0 && g_variant_is_of_type(value, G_VARIANT_TYPE_STRING)) {
+            item->id = g_variant_get_string(value, nullptr);
+        } else if (g_strcmp0(key, "Title") == 0 && g_variant_is_of_type(value, G_VARIANT_TYPE_STRING)) {
+            item->title = g_variant_get_string(value, nullptr);
         } else if (g_strcmp0(key, "IconPixmap") == 0) {
             item->icon_pixmap.data.clear();
             GVariantIter pi;
@@ -540,6 +628,17 @@ void StatusNotifierHost::on_item_properties_changed(GDBusProxy* proxy,
             item->tooltip_body = g_variant_get_string(value, nullptr);
         }
         g_variant_unref(value);
+    }
+    if (!status_notifier_item_allowed(
+            item->service,
+            item->category,
+            item->id,
+            item->title,
+            item->icon_name,
+            item->tooltip_title)) {
+        const std::string service = item->service;
+        host->untrack_item(service);
+        return;
     }
     host->update_item_icon(item);
 }
