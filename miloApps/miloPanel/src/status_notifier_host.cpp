@@ -121,7 +121,7 @@ StatusNotifierHost::~StatusNotifierHost() {
     if (own_name_id_ > 0) {
         g_bus_unown_name(own_name_id_);
     }
-    items_.clear();
+    clear_items();
     if (watcher_) g_object_unref(watcher_);
     if (connection_) g_object_unref(connection_);
 }
@@ -153,7 +153,7 @@ void StatusNotifierHost::on_name_vanished(GDBusConnection*, const gchar*,
         host->watcher_ = nullptr;
     }
     host->watcher_signal_id_ = 0;
-    host->items_.clear();
+    host->clear_items();
     host->provide_watcher();
 }
 
@@ -406,8 +406,23 @@ void StatusNotifierHost::untrack_item(const std::string& service) {
 
     if (it->second->widget && tray_box_) {
         gtk_container_remove(GTK_CONTAINER(tray_box_), it->second->widget);
+        it->second->widget = nullptr;
+        it->second->image = nullptr;
     }
     items_.erase(it);
+}
+
+void StatusNotifierHost::clear_items() {
+    if (tray_box_) {
+        for (auto& [_, item] : items_) {
+            if (item->widget) {
+                gtk_container_remove(GTK_CONTAINER(tray_box_), item->widget);
+                item->widget = nullptr;
+                item->image = nullptr;
+            }
+        }
+    }
+    items_.clear();
 }
 
 void StatusNotifierHost::on_item_proxy_ready(GObject*, GAsyncResult* result,
@@ -459,31 +474,9 @@ void StatusNotifierHost::setup_item(Item* item) {
         return;
     }
 
-    // Read IconPixmap
     v = g_dbus_proxy_get_cached_property(item->proxy, "IconPixmap");
     if (v) {
-        GVariantIter iter;
-        g_variant_iter_init(&iter, v);
-        GVariant* child;
-        int best_area = 0;
-        while ((child = g_variant_iter_next_value(&iter))) {
-            gint32 w = 0, h = 0;
-            GVariant* data_v = nullptr;
-            g_variant_get(child, "(ii@ay)", &w, &h, &data_v);
-            if (data_v) {
-                gsize px_len = g_variant_get_size(data_v);
-                const guchar* px_data = static_cast<const guchar*>(g_variant_get_data(data_v));
-                int area = w * h;
-                if (area > best_area && w > 0 && h > 0 && px_len >= static_cast<gsize>(w * h * 4)) {
-                    best_area = area;
-                    item->icon_pixmap.width = w;
-                    item->icon_pixmap.height = h;
-                    item->icon_pixmap.data.assign(px_data, px_data + px_len);
-                }
-                g_variant_unref(data_v);
-            }
-            g_variant_unref(child);
-        }
+        read_icon_pixmap(item, v);
         g_variant_unref(v);
     }
 
@@ -520,29 +513,7 @@ void StatusNotifierHost::on_item_signal(GDBusProxy* proxy, gchar*,
         item->icon_name = cached_string_property(proxy, "IconName");
         GVariant* v = g_dbus_proxy_get_cached_property(proxy, "IconPixmap");
         if (v) {
-            item->icon_pixmap.data.clear();
-            GVariantIter iter;
-            g_variant_iter_init(&iter, v);
-            GVariant* child;
-            int best_area = 0;
-            while ((child = g_variant_iter_next_value(&iter))) {
-                gint32 w = 0, h = 0;
-                GVariant* data_v = nullptr;
-                g_variant_get(child, "(ii@ay)", &w, &h, &data_v);
-                if (data_v) {
-                    gsize px_len = g_variant_get_size(data_v);
-                    const guchar* px_data = static_cast<const guchar*>(g_variant_get_data(data_v));
-                    int area = w * h;
-                    if (area > best_area && w > 0 && h > 0 && px_len >= static_cast<gsize>(w * h * 4)) {
-                        best_area = area;
-                        item->icon_pixmap.width = w;
-                        item->icon_pixmap.height = h;
-                        item->icon_pixmap.data.assign(px_data, px_data + px_len);
-                    }
-                    g_variant_unref(data_v);
-                }
-                g_variant_unref(child);
-            }
+            host->read_icon_pixmap(item, v);
             g_variant_unref(v);
         }
         if (!status_notifier_item_allowed(
@@ -599,29 +570,7 @@ void StatusNotifierHost::on_item_properties_changed(GDBusProxy* proxy,
         } else if (g_strcmp0(key, "Title") == 0 && g_variant_is_of_type(value, G_VARIANT_TYPE_STRING)) {
             item->title = g_variant_get_string(value, nullptr);
         } else if (g_strcmp0(key, "IconPixmap") == 0) {
-            item->icon_pixmap.data.clear();
-            GVariantIter pi;
-            g_variant_iter_init(&pi, value);
-            GVariant* child;
-            int best_area = 0;
-            while ((child = g_variant_iter_next_value(&pi))) {
-                gint32 w = 0, h = 0;
-                GVariant* data_v = nullptr;
-                g_variant_get(child, "(ii@ay)", &w, &h, &data_v);
-                if (data_v) {
-                    gsize px_len = g_variant_get_size(data_v);
-                    const guchar* px_data = static_cast<const guchar*>(g_variant_get_data(data_v));
-                    int area = w * h;
-                    if (area > best_area && w > 0 && h > 0 && px_len >= static_cast<gsize>(w * h * 4)) {
-                        best_area = area;
-                        item->icon_pixmap.width = w;
-                        item->icon_pixmap.height = h;
-                        item->icon_pixmap.data.assign(px_data, px_data + px_len);
-                    }
-                    g_variant_unref(data_v);
-                }
-                g_variant_unref(child);
-            }
+            host->read_icon_pixmap(item, value);
         } else if (g_strcmp0(key, "TooltipTitle") == 0 && g_variant_is_of_type(value, G_VARIANT_TYPE_STRING)) {
             item->tooltip_title = g_variant_get_string(value, nullptr);
         } else if (g_strcmp0(key, "TooltipBody") == 0 && g_variant_is_of_type(value, G_VARIANT_TYPE_STRING)) {
@@ -641,6 +590,42 @@ void StatusNotifierHost::on_item_properties_changed(GDBusProxy* proxy,
         return;
     }
     host->update_item_icon(item);
+}
+
+void StatusNotifierHost::read_icon_pixmap(Item* item, GVariant* value) {
+    if (!item || !value) {
+        return;
+    }
+
+    item->icon_pixmap.data.clear();
+    item->icon_pixmap.width = 0;
+    item->icon_pixmap.height = 0;
+
+    GVariantIter iter;
+    g_variant_iter_init(&iter, value);
+    GVariant* child = nullptr;
+    int best_area = 0;
+    while ((child = g_variant_iter_next_value(&iter))) {
+        gint32 width = 0;
+        gint32 height = 0;
+        GVariant* data_v = nullptr;
+        g_variant_get(child, "(ii@ay)", &width, &height, &data_v);
+        if (data_v) {
+            const gsize byte_count = g_variant_get_size(data_v);
+            const guchar* bytes = static_cast<const guchar*>(g_variant_get_data(data_v));
+            const int area = width * height;
+            const gsize expected = static_cast<gsize>(std::max(0, width)) *
+                static_cast<gsize>(std::max(0, height)) * 4;
+            if (area > best_area && width > 0 && height > 0 && byte_count >= expected) {
+                best_area = area;
+                item->icon_pixmap.width = width;
+                item->icon_pixmap.height = height;
+                item->icon_pixmap.data.assign(bytes, bytes + byte_count);
+            }
+            g_variant_unref(data_v);
+        }
+        g_variant_unref(child);
+    }
 }
 
 GtkWidget* StatusNotifierHost::create_item_widget(Item* item) {

@@ -104,11 +104,11 @@ miloOS is **not a distribution**—it's a transformation kit. Install vanilla De
 - Integrated in XFCE Settings and miloOS menu
 
 **miloThemeDaemon** - System theme synchronization daemon
-- Automatically synchronizes GTK, Window Manager (xfwm4), icon themes, application menu logos, and desktop theme state
+- Automatically synchronizes GTK, Window Manager (xfwm4), icon themes, and native miloApp theme state
 - Notifies miloDock and miloPanel so their light/dark CSS follows `miloOS` and `miloOS-Dark`
-- Optimized using native Python Xfconf bindings to eliminate subprocess spawn overhead
-- Detects active theme mode shifts dynamically and handles safe background updates
-- Refreshes panel components instantly to guarantee consistent styling
+- Uses native Python Xfconf bindings and a single-process lock
+- Avoids `xfce4-panel` integration and does not restart miloPanel during theme changes
+- Debounces `xfdesktop --reload` so wallpaper/desktop styling updates without heavy session churn
 
 **miloFiles** - Native Finder-style file manager
 - Pure C++17/GTK+ 3/GIO port of the production Python reference app
@@ -134,7 +134,7 @@ miloOS is **not a distribution**—it's a transformation kit. Install vanilla De
 - Shows running applications that are not pinned when their `.desktop` launcher can be matched
 - Supports launcher reordering, dropping `.desktop` files, and add/remove launcher actions
 - Normalizes launcher cwd to the user's home folder so terminal windows do not inherit the repo path
-- Global Menu preferences for icon size, launcher spacing, auto-hide, effects, and theme mode
+- Global Menu preferences for icon size, launcher spacing, auto-hide, effect mode (`magnify` or `none`), and theme mode
 - Python prototype remains available as a reference implementation
 - Cooperates with miloThemeDaemon when the system switches between `miloOS` and `miloOS-Dark`
 - Single-instance GTK application behavior for reliable autostart
@@ -145,6 +145,8 @@ miloOS is **not a distribution**—it's a transformation kit. Install vanilla De
 - Hosts AppMenu/DBusMenu/GMenu data from GTK and Chromium-style apps while configuring GTK to hide local menubars and avoid duplicate menus
 - Shows the real application display name from `.desktop` metadata when available
 - Shows a default desktop menu instead of exposing `xfdesktop` as the active app
+- Filters the tray to system-service/hardware indicators only, avoiding app status icons in the panel
+- Repaints legacy XEmbed tray socket backgrounds when the system switches between dark and light themes
 - Uses the same `milo.menu` desktop entries as the custom miloOS applications menu
 - Matches the active clock format `%a %d, %R` and tooltip `%A %d %B %Y`
 - Reserves top screen space through X11 struts when running as the active panel
@@ -184,7 +186,7 @@ The script will:
 3. Install professional audio plugins
 4. Apply visual themes (including miloOS-Dark), icons, fonts, and native miloOS interface apps
 5. Install miloApps (AudioConfig, AudioMaster, SysStats, miloUpdater, miloThemeDaemon, miloFiles, miloDock, and miloPanel)
-6. Configure miloDock and miloPanel autostart, replacing Plank and `xfce4-panel`
+6. Configure XFCE session clients for `xfdesktop`, `milo-theme-daemon`, `milopanel --replace`, and `milodock --replace`, with legacy panel/dock autostarts disabled
 7. Configure user environment, AppMenu integration, and JACK library paths
 8. Optimize kernel parameters and system limits for audio production
 
@@ -293,6 +295,7 @@ Sysctl:      vm.swappiness=10 fs.inotify.max_user_watches=524288
 - ✅ Audio optimization implemented
 - ✅ Visual theming finished
 - ✅ AudioConfig, AudioMaster, SysStats, miloUpdater, and miloThemeDaemon ready
+- ✅ Native miloDock and miloPanel installed as the default miloOS shell components
 - ✅ Fully refactored for Debian 13 (Trixie) compatibility
 - ✅ Unified audio configuration (AudioConfig → PipeWire + WirePlumber + JACK)
 - ⏳ Documentation in progress

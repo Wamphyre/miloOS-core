@@ -484,8 +484,11 @@ std::vector<TrackedWindow> DockWindow::tracked_windows() const {
 }
 
 bool DockWindow::window_on_active_workspace(const TrackedWindow& window) const {
-    const int current = tracker_.current_desktop();
-    return window.desktop < 0 || window.desktop == current;
+    return window_on_active_workspace(window, tracker_.current_desktop());
+}
+
+bool DockWindow::window_on_active_workspace(const TrackedWindow& window, int current_desktop) const {
+    return window.desktop < 0 || window.desktop == current_desktop;
 }
 
 bool DockWindow::window_matches_launcher(const TrackedWindow& window, const Launcher& launcher) const {
@@ -493,9 +496,18 @@ bool DockWindow::window_matches_launcher(const TrackedWindow& window, const Laun
 }
 
 std::vector<TrackedWindow> DockWindow::running_windows_for(const Launcher& launcher) const {
+    const auto windows = tracked_windows();
+    const int current_desktop = tracker_.current_desktop();
+    return running_windows_for(launcher, windows, current_desktop);
+}
+
+std::vector<TrackedWindow> DockWindow::running_windows_for(
+    const Launcher& launcher,
+    const std::vector<TrackedWindow>& windows,
+    int current_desktop) const {
     std::vector<TrackedWindow> matches;
-    for (const auto& window : tracked_windows()) {
-        if (window.skip_tasklist || !window_on_active_workspace(window)) {
+    for (const auto& window : windows) {
+        if (window.skip_tasklist || !window_on_active_workspace(window, current_desktop)) {
             continue;
         }
         if (window_matches_launcher(window, launcher)) {
@@ -519,14 +531,22 @@ Launcher DockWindow::launcher_for_window(const TrackedWindow& window) {
 }
 
 std::vector<Launcher> DockWindow::launchers_with_running_apps() {
+    const auto windows = tracked_windows();
+    const int current_desktop = tracker_.current_desktop();
+    return launchers_with_running_apps(windows, current_desktop);
+}
+
+std::vector<Launcher> DockWindow::launchers_with_running_apps(
+    const std::vector<TrackedWindow>& windows,
+    int current_desktop) {
     std::vector<Launcher> launchers = pinned_launchers_;
     std::set<std::string> seen;
     for (const auto& launcher : launchers) {
         seen.insert(launcher.desktop_id);
     }
 
-    for (const auto& window : tracked_windows()) {
-        if (window.skip_tasklist || !window_on_active_workspace(window)) {
+    for (const auto& window : windows) {
+        if (window.skip_tasklist || !window_on_active_workspace(window, current_desktop)) {
             continue;
         }
         bool already_present = false;
@@ -551,7 +571,9 @@ std::vector<Launcher> DockWindow::launchers_with_running_apps() {
 }
 
 bool DockWindow::update_running_state() {
-    std::vector<Launcher> desired = launchers_with_running_apps();
+    const auto windows = tracked_windows();
+    const int current_desktop = tracker_.current_desktop();
+    std::vector<Launcher> desired = launchers_with_running_apps(windows, current_desktop);
     std::vector<std::string> desired_ids;
     std::vector<std::string> current_ids;
     for (const auto& launcher : desired) {
@@ -564,18 +586,24 @@ bool DockWindow::update_running_state() {
         render_launchers(desired);
         return true;
     }
-    update_item_running_indicators();
+    update_item_running_indicators(windows, current_desktop);
     return true;
 }
 
 void DockWindow::update_item_running_indicators() {
+    const auto windows = tracked_windows();
+    const int current_desktop = tracker_.current_desktop();
+    update_item_running_indicators(windows, current_desktop);
+}
+
+void DockWindow::update_item_running_indicators(const std::vector<TrackedWindow>& windows, int current_desktop) {
     GList* children = gtk_container_get_children(GTK_CONTAINER(shell_));
     for (GList* node = children; node; node = node->next) {
         auto* data = static_cast<ItemData*>(g_object_get_data(G_OBJECT(node->data), "item-data"));
         if (!data) {
             continue;
         }
-        int running_count = static_cast<int>(running_windows_for(data->launcher).size());
+        int running_count = static_cast<int>(running_windows_for(data->launcher, windows, current_desktop).size());
         if (running_count == data->running_count) {
             continue;
         }
@@ -1010,14 +1038,20 @@ bool DockWindow::should_autohide_now() const {
         return false;
     }
 
+    const auto windows = tracker_.windows();
+    const int current_desktop = tracker_.current_desktop();
+    return should_autohide_now(windows, current_desktop);
+}
+
+bool DockWindow::should_autohide_now(const std::vector<TrackedWindow>& windows, int current_desktop) const {
     GdkRectangle dock;
     GdkRectangle monitor = monitor_geometry();
     if (!dock_rect(&dock) || monitor.width <= 0) {
         return false;
     }
 
-    for (const auto& window : tracker_.windows()) {
-        if (window.skip_tasklist || window.minimized || !window_on_active_workspace(window)) {
+    for (const auto& window : windows) {
+        if (window.skip_tasklist || window.minimized || !window_on_active_workspace(window, current_desktop)) {
             continue;
         }
         GdkRectangle window_rect{window.x, window.y, window.width, window.height};
@@ -1032,10 +1066,12 @@ bool DockWindow::should_autohide_now() const {
 }
 
 void DockWindow::schedule_autohide() {
-    if (!settings_.auto_hide || hide_source_id_ || !should_autohide_now()) {
-        if (!should_autohide_now()) {
-            show_from_autohide();
-        }
+    const bool should_hide = should_autohide_now();
+    if (!should_hide) {
+        show_from_autohide();
+        return;
+    }
+    if (hide_source_id_) {
         return;
     }
     hide_source_id_ = g_timeout_add(AUTOHIDE_DELAY_MS, on_hide_timeout, this);

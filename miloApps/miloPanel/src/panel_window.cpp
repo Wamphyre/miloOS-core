@@ -613,6 +613,9 @@ PanelWindow::~PanelWindow() {
     if (active_refresh_source_id_) {
         g_source_remove(active_refresh_source_id_);
     }
+    if (tray_background_refresh_source_id_) {
+        g_source_remove(tray_background_refresh_source_id_);
+    }
     if (root_filter_installed_) {
         gdk_window_remove_filter(root_filter_window_, on_root_event, this);
     }
@@ -981,6 +984,12 @@ void PanelWindow::schedule_active_window_refresh() {
     }
 }
 
+void PanelWindow::schedule_tray_background_refresh() {
+    if (!tray_background_refresh_source_id_) {
+        tray_background_refresh_source_id_ = g_idle_add(on_tray_background_refresh_timeout, this);
+    }
+}
+
 void PanelWindow::show() {
     reposition();
     gtk_widget_show_all(window_);
@@ -990,6 +999,8 @@ void PanelWindow::show() {
 void PanelWindow::reload_settings() {
     settings_ = PanelSettings::load();
     load_css();
+    tray_host_.refresh_background();
+    schedule_tray_background_refresh();
     gtk_widget_set_size_request(bar_, -1, settings_.height);
     update_menu_logo();
     update_clock();
@@ -2693,6 +2704,13 @@ gboolean PanelWindow::on_active_refresh_timeout(gpointer user_data) {
     auto* panel = static_cast<PanelWindow*>(user_data);
     panel->active_refresh_source_id_ = 0;
     panel->update_active_window();
+    return G_SOURCE_REMOVE;
+}
+
+gboolean PanelWindow::on_tray_background_refresh_timeout(gpointer user_data) {
+    auto* panel = static_cast<PanelWindow*>(user_data);
+    panel->tray_background_refresh_source_id_ = 0;
+    panel->tray_host_.refresh_background();
     return G_SOURCE_REMOVE;
 }
 

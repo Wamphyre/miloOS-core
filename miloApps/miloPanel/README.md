@@ -10,13 +10,30 @@
 - Global menu host for AppMenu/DBusMenu/GMenu exported menus.
 - GTK global-menu environment configured to hide local application menubars and avoid duplicate menus.
 - Real application display names resolved from `.desktop` metadata when available.
-- Desktop fallback menu when `xfdesktop` or the root desktop is active.
+- Desktop fallback menu labeled as `Escritorio` when `xfdesktop` or the root desktop is active.
 - Filtered system-services tray host for XEmbed and StatusNotifier/AppIndicator icons.
+- App status icons such as media players are ignored; the tray is reserved for system-service/hardware indicators.
+- Legacy XEmbed tray sockets repaint their native X11 background when the panel theme changes.
 - PulseAudio/PipeWire output and input volume controls through `pactl`.
 - Clock using `%a %d, %R`, tooltip `%A %d %B %Y`, font `SF Pro Text Medium 10`.
 - Notification launcher for `xfce4-notifyd-config`.
 - Light/dark styling synchronized by `miloThemeDaemon`.
 - Single-instance behavior through `--replace`.
+
+## Tray Policy
+
+The tray intentionally does not behave like a generic notification area. `miloPanel`
+only accepts system-service and hardware indicators, including NetworkManager,
+Bluetooth, power, battery, removable-device, and similar status providers.
+
+Both legacy XEmbed icons and StatusNotifier/AppIndicator items are filtered. SNI
+items in `ApplicationStatus` and `Communications` categories are rejected unless
+they match an explicit system-service allowlist. This keeps ordinary running app
+status icons out of the top panel.
+
+When the theme changes, the panel reapplies the computed CSS background to each
+legacy XEmbed socket and plug window so indicators such as NetworkManager do not
+keep the old dark/light slot color.
 
 ## Session Integration
 
@@ -47,6 +64,13 @@ org.appmenu.gtk-module always-show-inner-menu = false
 
 `miloPanel` also normalizes `GTK_MODULES` for child applications so they inherit a single `appmenu-gtk-module` entry instead of duplicated module lists.
 
+## Theme Integration
+
+`miloThemeDaemon` writes the current system theme hint to
+`~/.config/miloPanel/settings.ini` and sends `SIGUSR1` to the running `milopanel`
+process. On reload, miloPanel updates CSS, menu logo, clock/volume widgets, and
+legacy tray backgrounds without a full panel restart.
+
 ## Build
 
 ```bash
@@ -75,6 +99,23 @@ The installer adds:
 - `/usr/local/bin/milopanel`
 - `/usr/share/applications/milopanel.desktop`
 - `/etc/xdg/miloPanel/settings.ini`
+
+The default settings are:
+
+```ini
+[Panel]
+height=24
+icon_size=16
+reserve_space=true
+theme=auto
+system_theme=light
+logo_light=/usr/share/themes/miloOS/logo.png
+logo_dark=/usr/share/themes/miloOS-Dark/logo.png
+menu_file=/etc/xdg/menus/milo.menu
+clock_format=%a %d, %R
+clock_tooltip_format=%A %d %B %Y
+clock_font=SF Pro Text Medium 10
+```
 
 ## Dependencies
 

@@ -19,9 +19,11 @@
 - Left-click activates an existing window or launches the app; middle-click opens a new app instance.
 - Drag launchers inside the dock to reorder them.
 - Drop `.desktop` launchers onto the dock to add them.
-- Global Menu actions for icon size, launcher spacing, auto-hide, effects, theme mode, preferences, and reload.
+- Global Menu actions for icon size, launcher spacing, auto-hide, effect mode, theme mode, preferences, and reload.
+- Supported effect modes are `magnify` and `none`.
 - Auto-hide fully hides the dock and only acts when a maximized/fullscreen window or another window overlaps the dock area.
 - Magnify reserves its maximum launcher size so the dock does not jump while hovering icons.
+- Window tracking is sampled once per refresh cycle and reused for running-app list updates, indicators, and auto-hide decisions.
 - Normalizes its process working directory to the user's home folder so terminal launchers do not inherit the repository path during development.
 - Right-click menu supports open, open new window, close windows, add/remove launcher, preferences, and reload dock.
 - Preferences are stored in `~/.config/miloDock/settings.ini`.
@@ -78,6 +80,18 @@ sudo apt install build-essential pkg-config libgtk-3-dev libx11-dev
 ## Theme Integration
 
 `miloDock` follows the active GTK theme by default. `miloThemeDaemon` writes the current system theme hint to `~/.config/miloDock/settings.ini` so the dock can reload light/dark CSS without a full restart.
+
+Relevant settings:
+
+```ini
+[Dock]
+icon_size = 38
+launcher_spacing = 3
+auto_hide = false
+effect = magnify
+theme = auto
+system_theme = light
+```
 
 Default visual values:
 

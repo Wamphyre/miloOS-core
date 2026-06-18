@@ -57,6 +57,7 @@ private:
     guint volume_source_id_ = 0;
     guint active_source_id_ = 0;
     guint active_refresh_source_id_ = 0;
+    guint tray_background_refresh_source_id_ = 0;
     bool root_filter_installed_ = false;
     GdkWindow* root_filter_window_ = nullptr;
     Display* xdisplay_ = nullptr;
@@ -115,6 +116,7 @@ private:
 
     void build_ui();
     void load_css();
+    void schedule_tray_background_refresh();
     void setup_active_window_tracking();
     void setup_registrar_signals();
     void schedule_active_window_refresh();
@@ -178,6 +180,7 @@ private:
         GVariant* parameters,
         gpointer user_data);
     static gboolean on_active_refresh_timeout(gpointer user_data);
+    static gboolean on_tray_background_refresh_timeout(gpointer user_data);
     static GdkFilterReturn on_root_event(GdkXEvent* xevent, GdkEvent* event, gpointer user_data);
     static void on_dbus_menu_item_activate(GtkMenuItem* item, gpointer user_data);
     static void on_dbus_submenu_select(GtkMenuItem* item, gpointer user_data);

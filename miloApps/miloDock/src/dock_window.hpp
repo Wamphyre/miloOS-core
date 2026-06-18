@@ -67,13 +67,17 @@ private:
     void apply_settings_to_items();
     void update_item_visual(ItemData* item);
     void update_item_running_indicators();
+    void update_item_running_indicators(const std::vector<TrackedWindow>& windows, int current_desktop);
     bool update_running_state();
     std::vector<TrackedWindow> tracked_windows() const;
     std::vector<TrackedWindow> running_windows_for(const Launcher& launcher) const;
+    std::vector<TrackedWindow> running_windows_for(const Launcher& launcher, const std::vector<TrackedWindow>& windows, int current_desktop) const;
     bool window_matches_launcher(const TrackedWindow& window, const Launcher& launcher) const;
     bool window_on_active_workspace(const TrackedWindow& window) const;
+    bool window_on_active_workspace(const TrackedWindow& window, int current_desktop) const;
     Launcher launcher_for_window(const TrackedWindow& window);
     std::vector<Launcher> launchers_with_running_apps();
+    std::vector<Launcher> launchers_with_running_apps(const std::vector<TrackedWindow>& windows, int current_desktop);
     std::vector<Launcher> current_launchers() const;
     std::set<std::string> pinned_ids() const;
     void persist_and_reload(const std::vector<Launcher>& launchers);
@@ -97,6 +101,7 @@ private:
     bool pointer_over_dock() const;
     bool pointer_near_reveal_edge() const;
     bool should_autohide_now() const;
+    bool should_autohide_now(const std::vector<TrackedWindow>& windows, int current_desktop) const;
     void schedule_autohide();
     void hide_for_autohide();
     void show_from_autohide();

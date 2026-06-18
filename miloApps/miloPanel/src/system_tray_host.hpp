@@ -12,6 +12,7 @@ public:
 
     bool start(GtkWidget* panel_window, GtkWidget* tray_box, int icon_size);
     bool claimed() const { return claimed_; }
+    void refresh_background();
 
 private:
     struct TrayIcon {
@@ -31,6 +32,7 @@ private:
     bool claimed_ = false;
     std::vector<TrayIcon> icons_;
 
+    void apply_background(GtkWidget* socket, Window icon_window);
     void dock_icon(Window icon_window);
     void forget_socket(GtkWidget* socket);
     static GdkFilterReturn event_filter(GdkXEvent* xevent, GdkEvent* event, gpointer data);

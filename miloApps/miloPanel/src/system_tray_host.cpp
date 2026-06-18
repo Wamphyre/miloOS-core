@@ -171,6 +171,34 @@ void set_xembed_window_tree_background(Display* display, Window window, unsigned
     }
 }
 
+void send_xembed_expose(GtkWidget* socket, Window window) {
+    if (!socket || window == 0) {
+        return;
+    }
+
+    GdkDisplay* display = gtk_widget_get_display(socket);
+    if (!display || !GDK_IS_X11_DISPLAY(display)) {
+        return;
+    }
+
+    GtkAllocation alloc = {};
+    gtk_widget_get_allocation(socket, &alloc);
+    XEvent xev = {};
+    xev.xexpose.type = Expose;
+    xev.xexpose.window = window;
+    xev.xexpose.x = 0;
+    xev.xexpose.y = 0;
+    xev.xexpose.width = alloc.width;
+    xev.xexpose.height = alloc.height;
+    xev.xexpose.count = 0;
+
+    Display* xdisplay = GDK_DISPLAY_XDISPLAY(display);
+    gdk_x11_display_error_trap_push(display);
+    XSendEvent(xdisplay, window, False, ExposureMask, &xev);
+    XSync(xdisplay, False);
+    gdk_x11_display_error_trap_pop_ignored(display);
+}
+
 WindowIdentity window_identity(Display* display, Window window) {
     WindowIdentity identity;
     XClassHint hint;
@@ -318,6 +346,43 @@ bool SystemTrayHost::start(GtkWidget* panel_window, GtkWidget* tray_box, int ico
     return true;
 }
 
+void SystemTrayHost::refresh_background() {
+    if (!display_ || !tray_box_) {
+        return;
+    }
+
+    for (const auto& icon : icons_) {
+        apply_background(icon.socket, icon.window);
+    }
+}
+
+void SystemTrayHost::apply_background(GtkWidget* socket, Window icon_window) {
+    if (!display_ || !socket) {
+        return;
+    }
+
+    GtkWidget* fallback = tray_box_ ? gtk_widget_get_parent(tray_box_) : nullptr;
+    GdkRGBA color = widget_background_color(socket, fallback);
+    bg_pixel_ = x11_pixel_for_color(display_, color);
+
+    GdkWindow* gdk_window = gtk_widget_get_window(socket);
+    if (gdk_window) {
+        #pragma GCC diagnostic push
+        #pragma GCC diagnostic ignored "-Wdeprecated-declarations"
+        gdk_window_set_background_rgba(gdk_window, &color);
+        #pragma GCC diagnostic pop
+        set_xembed_window_background(display_, GDK_WINDOW_XID(gdk_window), bg_pixel_);
+    }
+
+    GdkWindow* plug_gdk_window = GTK_IS_SOCKET(socket)
+        ? gtk_socket_get_plug_window(GTK_SOCKET(socket))
+        : nullptr;
+    Window plug_window = plug_gdk_window ? GDK_WINDOW_XID(plug_gdk_window) : icon_window;
+    set_xembed_window_tree_background(display_, plug_window, bg_pixel_);
+    send_xembed_expose(socket, plug_window);
+    gtk_widget_queue_draw(socket);
+}
+
 void SystemTrayHost::dock_icon(Window icon_window) {
     if (!tray_box_ || icon_window == 0) {
         return;
@@ -374,20 +439,7 @@ void SystemTrayHost::dock_icon(Window icon_window) {
     }), nullptr);
     gtk_widget_realize(socket);
 
-    GdkWindow* gdk_window = gtk_widget_get_window(socket);
-    GtkWidget* bar = gtk_widget_get_parent(tray_box_);
-    GdkRGBA color = widget_background_color(socket, bar);
-    bg_pixel_ = x11_pixel_for_color(display_, color);
-
-    if (gdk_window) {
-        #pragma GCC diagnostic push
-        #pragma GCC diagnostic ignored "-Wdeprecated-declarations"
-        gdk_window_set_background_rgba(gdk_window, &color);
-        #pragma GCC diagnostic pop
-        set_xembed_window_background(display_, GDK_WINDOW_XID(gdk_window), bg_pixel_);
-    }
-
-    set_xembed_window_tree_background(display_, icon_window, bg_pixel_);
+    apply_background(socket, icon_window);
     gtk_socket_add_id(GTK_SOCKET(socket), icon_window);
     gtk_widget_show(socket);
     icons_.push_back({icon_window, socket});
@@ -397,26 +449,8 @@ void SystemTrayHost::dock_icon(Window icon_window) {
             ? GDK_WINDOW_XID(gtk_socket_get_plug_window(socket))
             : 0;
         if (plug_window != 0) {
-            set_xembed_window_tree_background(host->display_, plug_window, host->bg_pixel_);
-
-            GdkDisplay* display = gtk_widget_get_display(GTK_WIDGET(socket));
-            GtkAllocation alloc = {};
-            gtk_widget_get_allocation(GTK_WIDGET(socket), &alloc);
-            XEvent xev = {};
-            xev.xexpose.type = Expose;
-            xev.xexpose.window = plug_window;
-            xev.xexpose.x = 0;
-            xev.xexpose.y = 0;
-            xev.xexpose.width = alloc.width;
-            xev.xexpose.height = alloc.height;
-            xev.xexpose.count = 0;
-            gdk_x11_display_error_trap_push(display);
-            XSendEvent(GDK_DISPLAY_XDISPLAY(display),
-                       plug_window, False, ExposureMask, &xev);
-            XSync(GDK_DISPLAY_XDISPLAY(display), False);
-            gdk_x11_display_error_trap_pop_ignored(display);
+            host->apply_background(GTK_WIDGET(socket), plug_window);
         }
-        gtk_widget_queue_draw(GTK_WIDGET(socket));
         if (tray_debug_enabled()) {
             g_printerr(
                 "miloPanel tray plug-added socket=0x%lx plug=0x%lx\n",

@@ -22,6 +22,12 @@ private:
     };
 
     struct Item {
+        ~Item() {
+            if (proxy) {
+                g_object_unref(proxy);
+            }
+        }
+
         std::string service;
         std::string object_path;
         GDBusProxy* proxy = nullptr;
@@ -55,8 +61,10 @@ private:
 
     void track_item(const std::string& service);
     void untrack_item(const std::string& service);
+    void clear_items();
     void setup_item(Item* item);
     void update_item_icon(Item* item);
+    void read_icon_pixmap(Item* item, GVariant* value);
     GtkWidget* create_item_widget(Item* item);
 
     GdkPixbuf* load_icon(Item* item);
