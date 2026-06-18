@@ -27,6 +27,7 @@ private:
     Atom opcode_atom_ = None;
     Atom manager_atom_ = None;
     int icon_size_ = 16;
+    unsigned long bg_pixel_ = 0;
     bool claimed_ = false;
     std::vector<TrayIcon> icons_;
 

@@ -67,7 +67,6 @@ void setup_menubar(GtkApplication* app) {
 
     GMenu* effect_menu = g_menu_new();
     g_menu_append(effect_menu, "Aumentar", "app.effect-magnify");
-    g_menu_append(effect_menu, "Elevar", "app.effect-lift");
     g_menu_append(effect_menu, "Ninguno", "app.effect-none");
     g_menu_append_submenu(settings_menu, "Efecto", G_MENU_MODEL(effect_menu));
 
@@ -142,11 +141,6 @@ void setup_actions(GtkApplication* app) {
     add_action(app, "effect-magnify", G_CALLBACK(+[](GSimpleAction*, GVariant*, gpointer user_data) {
         if (DockWindow* dock = dock_for_app(GTK_APPLICATION(user_data))) {
             dock->set_effect("magnify");
-        }
-    }));
-    add_action(app, "effect-lift", G_CALLBACK(+[](GSimpleAction*, GVariant*, gpointer user_data) {
-        if (DockWindow* dock = dock_for_app(GTK_APPLICATION(user_data))) {
-            dock->set_effect("lift");
         }
     }));
     add_action(app, "effect-none", G_CALLBACK(+[](GSimpleAction*, GVariant*, gpointer user_data) {

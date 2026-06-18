@@ -20,12 +20,13 @@
 
 ## Session Integration
 
-miloOS-Core starts `miloPanel` in two ways:
+miloOS-Core starts the native shell through XFCE session clients:
 
-- XFCE failsafe session client: `milopanel --replace` replaces the old `xfce4-panel` client.
-- User autostart entry: `~/.config/autostart/Panel.desktop`.
+- `xfdesktop` starts before the panel so the wallpaper is ready when the bar appears.
+- `milo-theme-daemon`, `milopanel --replace`, and `milodock --replace` start in the same session priority group.
+- Panel and dock autostart `.desktop` files are installed only as disabled overrides.
 
-The `--replace` flag keeps this robust if both paths are present. `xfce4-panel` is stopped during configuration and is no longer part of the miloOS session startup.
+`xfce4-panel` is stopped during configuration, removed from the failsafe session, and old saved XFCE session files are moved aside so it is not restored on login.
 
 ## Global Menu
 

@@ -3,6 +3,7 @@ import os
 import re
 import sys
 import signal
+import fcntl
 import configparser
 import subprocess
 import threading
@@ -10,6 +11,8 @@ import gi
 gi.require_version('Xfconf', '0')
 gi.require_version('GLib', '2.0')
 from gi.repository import GLib, Xfconf
+
+_lock_file = None
 
 
 def load_user_env():
@@ -57,6 +60,20 @@ def load_user_env():
                 continue
     except Exception as e:
         print(f"Error loading user session environment: {e}", file=sys.stderr, flush=True)
+
+def claim_single_instance():
+    global _lock_file
+    cache_dir = os.path.expanduser("~/.cache")
+    os.makedirs(cache_dir, exist_ok=True)
+    lock_path = os.path.join(cache_dir, "milo-theme-daemon.lock")
+    _lock_file = open(lock_path, "w", encoding="utf-8")
+    try:
+        fcntl.flock(_lock_file, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BlockingIOError:
+        print("miloOS Theme Daemon already running.", flush=True)
+        sys.exit(0)
+    _lock_file.write(f"{os.getpid()}\n")
+    _lock_file.flush()
 
 _channels = {}
 def get_channel(channel_name):
@@ -207,10 +224,10 @@ def apply_theme_dependencies(theme_name):
             time.sleep(0.1)
             load_user_env()
             try:
-                # 1. Restart panel cleanly
-                subprocess.run(["pkill", "-u", str(os.getuid()), "-x", "xfce4-panel"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                # 1. Restart miloPanel cleanly
+                subprocess.run(["pkill", "-u", str(os.getuid()), "-x", "milopanel"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
                 time.sleep(0.5)
-                subprocess.Popen(["xfce4-panel"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                subprocess.Popen(["milopanel", "--replace"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
                 
                 # 2. Reload or start xfdesktop
                 xfdesktop_running = False
@@ -250,6 +267,7 @@ def on_xfwm4_changed(channel, property_name, value, user_data):
 
 if __name__ == "__main__":
     load_user_env()
+    claim_single_instance()
     Xfconf.init()
     
     xsettings_channel = Xfconf.Channel.get("xsettings")

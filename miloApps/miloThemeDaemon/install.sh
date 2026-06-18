@@ -5,6 +5,9 @@
 
 set -e
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+cd "$SCRIPT_DIR"
+
 # Colors for output
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -35,16 +38,14 @@ log_info "Installing miloOS Theme Daemon..."
 install -m 755 milo-theme-daemon.py /usr/local/bin/milo-theme-daemon
 log_info "✓ Installed daemon to /usr/local/bin/milo-theme-daemon"
 
-# 2. Configure autostart for all future users (/etc/skel)
-mkdir -p /etc/skel/.config/autostart
-install -m 644 milo-theme-daemon.desktop /etc/skel/.config/autostart/milo-theme-daemon.desktop
-log_info "✓ Configured autostart template in /etc/skel"
+# 2. The daemon is launched by the miloOS XFCE session client list.
+rm -f /etc/skel/.config/autostart/milo-theme-daemon.desktop
+log_info "✓ Autostart template disabled; XFCE session starts the daemon"
 
-# 3. Configure autostart for current user
+# 3. Remove legacy per-user autostart entry
 if [ -d "$REAL_HOME" ]; then
-    mkdir -p "$REAL_HOME/.config/autostart"
-    install -m 644 -o "$REAL_USER" -g "$REAL_USER" milo-theme-daemon.desktop "$REAL_HOME/.config/autostart/milo-theme-daemon.desktop"
-    log_info "✓ Configured autostart for user: $REAL_USER"
+    rm -f "$REAL_HOME/.config/autostart/milo-theme-daemon.desktop"
+    log_info "✓ Removed legacy autostart for user: $REAL_USER"
 fi
 
 # 4. Kill any running instances

@@ -29,7 +29,7 @@ constexpr int STATUS_SEPARATOR_WIDTH = 8;
 constexpr int SYSTRAY_WIDTH = 25;
 constexpr int STATUS_BUTTON_WIDTH = 24;
 constexpr int CLOCK_WIDTH = 117;
-constexpr int ACTIVE_WINDOW_FALLBACK_POLL_SECONDS = 2;
+constexpr int ACTIVE_WINDOW_FALLBACK_POLL_SECONDS = 1;
 constexpr int ACTIVE_WINDOW_REFRESH_DELAY_MS = 35;
 constexpr int MENU_MAX_RETRIES_PER_WINDOW = 2;
 constexpr int DBUSMENU_LAYOUT_DEPTH = 2;
@@ -51,6 +51,12 @@ std::string css_for_settings(const PanelSettings& settings) {
         << "  border-bottom: 1px solid " << border << ";\n"
         << "  color: " << fg << ";\n"
         << "  min-height: " << settings.height << "px;\n"
+        << "}\n"
+        << ".milopanel-tray-socket {\n"
+        << "  background-color: " << bg << ";\n"
+        << "  border: 0;\n"
+        << "  padding: 0;\n"
+        << "  margin: 0;\n"
         << "}\n"
         << ".milopanel-button {\n"
         << "  background: transparent;\n"
@@ -143,27 +149,27 @@ std::string css_for_settings(const PanelSettings& settings) {
         << "  margin: 4px 10px;\n"
         << "}\n"
         << ".milopanel-tray {\n"
-        << "  background: transparent;\n"
-        << "  background-color: transparent;\n"
+        << "  background: " << bg << ";\n"
+        << "  background-color: " << bg << ";\n"
         << "  background-image: none;\n"
         << "  border: 0;\n"
         << "  box-shadow: none;\n"
         << "  padding: 0;\n"
         << "  margin: 0;\n"
+        << "  min-height: " << PANEL_REALIZED_HEIGHT << "px;\n"
         << "}\n"
         << ".milopanel-tray-socket {\n"
-        << "  background: transparent;\n"
-        << "  background-color: transparent;\n"
+        << "  background: " << bg << ";\n"
+        << "  background-color: " << bg << ";\n"
         << "  background-image: none;\n"
         << "  border: 0;\n"
         << "  box-shadow: none;\n"
         << "  padding: 0;\n"
         << "  margin: 0;\n"
+        << "  min-width: " << settings.icon_size << "px;\n"
+        << "  min-height: " << PANEL_REALIZED_HEIGHT << "px;\n"
         << "}\n"
         << ".milopanel-tray *, .milopanel-tray-socket * {\n"
-        << "  background: transparent;\n"
-        << "  background-color: transparent;\n"
-        << "  background-image: none;\n"
         << "  border: 0;\n"
         << "  box-shadow: none;\n"
         << "}\n"
@@ -351,7 +357,12 @@ std::string pretty_app_name(std::string value) {
 
 bool string_identity_is_desktop(const std::string& value) {
     const std::string lower = lowercase_ascii(value);
-    return lower == "xfdesktop" || lower == "xfdesktop4" || lower == "desktop";
+    return lower == "desktop" ||
+        lower == "xfdesktop" ||
+        lower == "xfdesktop4" ||
+        lower == "xfdesktop.desktop" ||
+        lower == "org.xfce.xfdesktop" ||
+        lower.find("xfdesktop") != std::string::npos;
 }
 
 bool window_has_type(Display* display, Window window, const char* type_name) {
@@ -673,20 +684,17 @@ void PanelWindow::build_ui() {
 
     gtk_box_pack_start(GTK_BOX(bar_), fixed_spacer(AFTER_MENU_SEPARATOR_WIDTH), FALSE, FALSE, 0);
 
-    GtkWidget* native_appmenu = create_appmenu_widget();
-    if (native_appmenu) {
-        menu_bar_ = native_appmenu;
-    } else {
-        active_label_ = gtk_label_new("");
-        gtk_label_set_xalign(GTK_LABEL(active_label_), 0.0f);
-        gtk_label_set_ellipsize(GTK_LABEL(active_label_), PANGO_ELLIPSIZE_END);
-        gtk_label_set_max_width_chars(GTK_LABEL(active_label_), 22);
-        gtk_style_context_add_class(gtk_widget_get_style_context(active_label_), "milopanel-active");
-        gtk_widget_set_size_request(active_label_, -1, PANEL_REALIZED_HEIGHT);
-        gtk_widget_set_hexpand(active_label_, FALSE);
-        gtk_box_pack_start(GTK_BOX(bar_), active_label_, FALSE, FALSE, 0);
-        menu_bar_ = gtk_menu_bar_new();
-    }
+    active_label_ = gtk_label_new("");
+    gtk_label_set_xalign(GTK_LABEL(active_label_), 0.0f);
+    gtk_label_set_ellipsize(GTK_LABEL(active_label_), PANGO_ELLIPSIZE_END);
+    gtk_label_set_max_width_chars(GTK_LABEL(active_label_), 22);
+    gtk_style_context_add_class(gtk_widget_get_style_context(active_label_), "milopanel-active");
+    gtk_widget_set_size_request(active_label_, -1, PANEL_REALIZED_HEIGHT);
+    gtk_widget_set_hexpand(active_label_, FALSE);
+    gtk_box_pack_start(GTK_BOX(bar_), active_label_, FALSE, FALSE, 0);
+
+    native_appmenu_ = create_appmenu_widget();
+    menu_bar_ = gtk_menu_bar_new();
     gtk_style_context_add_class(gtk_widget_get_style_context(menu_bar_), "milopanel-menubar");
     gtk_widget_set_size_request(menu_bar_, GLOBAL_MENU_MIN_WIDTH, PANEL_REALIZED_HEIGHT);
     gtk_widget_set_hexpand(menu_bar_, TRUE);
@@ -695,6 +703,16 @@ void PanelWindow::build_ui() {
     GtkWidget* menu_slot = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0);
     gtk_widget_set_size_request(menu_slot, GLOBAL_MENU_MIN_WIDTH, PANEL_REALIZED_HEIGHT);
     gtk_widget_set_hexpand(menu_slot, FALSE);
+    if (native_appmenu_) {
+        gtk_style_context_add_class(gtk_widget_get_style_context(native_appmenu_), "milopanel-menubar");
+        gtk_widget_set_size_request(native_appmenu_, GLOBAL_MENU_MIN_WIDTH, PANEL_REALIZED_HEIGHT);
+        gtk_widget_set_hexpand(native_appmenu_, TRUE);
+        gtk_widget_set_halign(native_appmenu_, GTK_ALIGN_FILL);
+        gtk_widget_set_valign(native_appmenu_, GTK_ALIGN_FILL);
+        gtk_box_pack_start(GTK_BOX(menu_slot), native_appmenu_, TRUE, TRUE, 0);
+        gtk_widget_hide(active_label_);
+        gtk_widget_hide(menu_bar_);
+    }
     gtk_box_pack_start(GTK_BOX(menu_slot), menu_bar_, TRUE, TRUE, 0);
     gtk_box_pack_start(GTK_BOX(bar_), menu_slot, FALSE, FALSE, 0);
 
@@ -913,6 +931,8 @@ void PanelWindow::setup_active_window_tracking() {
         xdisplay_ = GDK_DISPLAY_XDISPLAY(gdk_display);
         root_window_ = DefaultRootWindow(xdisplay_);
         active_window_atom_ = XInternAtom(xdisplay_, "_NET_ACTIVE_WINDOW", False);
+        net_wm_state_atom_ = XInternAtom(xdisplay_, "_NET_WM_STATE", False);
+        fullscreen_atom_ = XInternAtom(xdisplay_, "_NET_WM_STATE_FULLSCREEN", False);
         root_filter_window_ = gdk_get_default_root_window();
         if (root_filter_window_) {
             g_object_ref(root_filter_window_);
@@ -1342,6 +1362,11 @@ std::string PanelWindow::active_window_title() {
 
     const std::string desktop_file = x11_window_string_property(active, "_NET_WM_DESKTOP_FILE");
     const std::string gtk_app_id = x11_window_string_property(active, "_GTK_APPLICATION_ID");
+    if (string_identity_is_desktop(desktop_file) || string_identity_is_desktop(gtk_app_id)) {
+        active_window_is_desktop_ = true;
+        return i18n::tr("desktop");
+    }
+
     std::string title = resolve_app_display_name(desktop_file, gtk_app_id, res_class, res_name);
     if (!title.empty()) {
         return title;
@@ -1378,7 +1403,48 @@ void PanelWindow::update_active_window() {
         last_active_text_ = title;
     }
 
+    update_fullscreen_state();
+
     if (appmenu_module_) {
+        if (active_window_is_desktop_) {
+            if (native_appmenu_) {
+                gtk_widget_hide(native_appmenu_);
+            }
+            if (active_label_) {
+                gtk_widget_show(active_label_);
+            }
+            if (current_menu_kind_ != GlobalMenuKind::DesktopMenu) {
+                clear_menu_bar();
+                current_menu_kind_ = GlobalMenuKind::DesktopMenu;
+                current_menu_service_.clear();
+                current_menu_path_.clear();
+                current_gmenu_bus_.clear();
+                current_gmenu_path_.clear();
+                current_gmenu_app_path_.clear();
+                current_gmenu_window_path_.clear();
+                update_menu_bar();
+            } else if (menu_bar_) {
+                gtk_widget_show_all(menu_bar_);
+            }
+        } else {
+            if (active_label_) {
+                gtk_widget_hide(active_label_);
+            }
+            if (menu_bar_) {
+                clear_menu_bar();
+                gtk_widget_hide(menu_bar_);
+            }
+            if (native_appmenu_) {
+                gtk_widget_show_all(native_appmenu_);
+            }
+            current_menu_kind_ = GlobalMenuKind::NoMenu;
+            current_menu_service_.clear();
+            current_menu_path_.clear();
+            current_gmenu_bus_.clear();
+            current_gmenu_path_.clear();
+            current_gmenu_app_path_.clear();
+            current_gmenu_window_path_.clear();
+        }
         last_active_window_id_ = current_active_window_id_;
         return;
     }
@@ -1441,6 +1507,55 @@ void PanelWindow::update_active_window() {
         startup_trace("menu state changed");
         update_menu_bar();
         startup_trace("menu bar updated");
+    }
+
+    if (xdisplay_ && current_active_window_id_ != 0 && !active_window_is_desktop_) {
+        XWindowAttributes wattr;
+        if (XGetWindowAttributes(xdisplay_, current_active_window_id_, &wattr)) {
+            XSelectInput(xdisplay_, current_active_window_id_, wattr.your_event_mask | PropertyChangeMask);
+        }
+    }
+}
+
+void PanelWindow::update_fullscreen_state() {
+    if (!xdisplay_ || current_active_window_id_ == 0) {
+        if (panel_hidden_for_fullscreen_) {
+            panel_hidden_for_fullscreen_ = false;
+            gtk_widget_show(window_);
+            reserve_screen_space();
+        }
+        return;
+    }
+
+    gdk_x11_display_error_trap_push(gdk_display_get_default());
+    Atom actual_type = None;
+    int actual_format = 0;
+    unsigned long nitems = 0;
+    unsigned long bytes_after = 0;
+    unsigned char* data = nullptr;
+    bool is_fullscreen = false;
+
+    if (XGetWindowProperty(xdisplay_, current_active_window_id_, net_wm_state_atom_,
+                           0, 64, False, XA_ATOM, &actual_type, &actual_format,
+                           &nitems, &bytes_after, &data) == Success && data) {
+        auto* atoms = reinterpret_cast<Atom*>(data);
+        for (unsigned long i = 0; i < nitems; ++i) {
+            if (atoms[i] == fullscreen_atom_) {
+                is_fullscreen = true;
+                break;
+            }
+        }
+        XFree(data);
+    }
+    gdk_x11_display_error_trap_pop_ignored(gdk_display_get_default());
+
+    if (is_fullscreen && !panel_hidden_for_fullscreen_) {
+        panel_hidden_for_fullscreen_ = true;
+        gtk_widget_hide(window_);
+    } else if (!is_fullscreen && panel_hidden_for_fullscreen_) {
+        panel_hidden_for_fullscreen_ = false;
+        gtk_widget_show(window_);
+        reserve_screen_space();
     }
 }
 
@@ -2591,6 +2706,10 @@ GdkFilterReturn PanelWindow::on_root_event(GdkXEvent* xevent, GdkEvent*, gpointe
         event->xproperty.atom == panel->active_window_atom_) {
         panel->schedule_active_window_refresh();
     }
+    if (event->xproperty.window == panel->current_active_window_id_ &&
+        event->xproperty.atom == panel->net_wm_state_atom_) {
+        panel->update_fullscreen_state();
+    }
     return GDK_FILTER_CONTINUE;
 }
 
@@ -2652,7 +2771,8 @@ gboolean PanelWindow::on_realize(GtkWidget*, gpointer user_data) {
     auto* panel = static_cast<PanelWindow*>(user_data);
     panel->reposition();
     panel->reserve_screen_space();
-    panel->tray_host_.start(panel->window_, panel->tray_box_, panel->settings_.icon_size);
+    panel->tray_host_.start(GTK_WIDGET(panel->window_), panel->tray_box_, panel->settings_.icon_size);
+    panel->sni_host_.start(panel->tray_box_, panel->settings_.icon_size);
     return FALSE;
 }
 

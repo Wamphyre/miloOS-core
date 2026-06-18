@@ -48,6 +48,13 @@ bool get_bool(GKeyFile* key_file, const char* key, bool fallback) {
     return value;
 }
 
+std::string normalize_effect(const std::string& effect) {
+    if (effect == "none") {
+        return "none";
+    }
+    return "magnify";
+}
+
 } // namespace
 
 DockSettings DockSettings::load() {
@@ -61,7 +68,7 @@ DockSettings DockSettings::load() {
     settings.icon_size = get_int_clamped(key_file, "icon_size", settings.icon_size, 28, 64);
     settings.launcher_spacing = get_int_clamped(key_file, "launcher_spacing", settings.launcher_spacing, 0, 16);
     settings.auto_hide = get_bool(key_file, "auto_hide", settings.auto_hide);
-    settings.effect = get_string(key_file, "effect", settings.effect);
+    settings.effect = normalize_effect(get_string(key_file, "effect", settings.effect));
     settings.theme = get_string(key_file, "theme", settings.theme);
     settings.system_theme = get_string(key_file, "system_theme", settings.system_theme);
 
@@ -77,7 +84,8 @@ void DockSettings::save() const {
     g_key_file_set_integer(key_file, "Dock", "icon_size", std::max(28, std::min(64, icon_size)));
     g_key_file_set_integer(key_file, "Dock", "launcher_spacing", std::max(0, std::min(16, launcher_spacing)));
     g_key_file_set_boolean(key_file, "Dock", "auto_hide", auto_hide);
-    g_key_file_set_string(key_file, "Dock", "effect", effect.c_str());
+    const std::string saved_effect = normalize_effect(effect);
+    g_key_file_set_string(key_file, "Dock", "effect", saved_effect.c_str());
     g_key_file_set_string(key_file, "Dock", "theme", theme.c_str());
     g_key_file_set_string(key_file, "Dock", "system_theme", system_theme.c_str());
 

@@ -383,7 +383,6 @@ void DockWindow::show_preferences_dialog() {
     gtk_label_set_xalign(GTK_LABEL(effect_label), 0.0f);
     GtkWidget* effect_combo = gtk_combo_box_text_new();
     gtk_combo_box_text_append(GTK_COMBO_BOX_TEXT(effect_combo), "magnify", "Aumentar");
-    gtk_combo_box_text_append(GTK_COMBO_BOX_TEXT(effect_combo), "lift", "Elevar");
     gtk_combo_box_text_append(GTK_COMBO_BOX_TEXT(effect_combo), "none", "Ninguno");
     gtk_combo_box_set_active_id(GTK_COMBO_BOX(effect_combo), settings_.effect.c_str());
     gtk_grid_attach(GTK_GRID(grid), effect_label, 0, 3, 1, 1);
@@ -434,7 +433,7 @@ void DockWindow::set_auto_hide(bool enabled) {
 }
 
 void DockWindow::set_effect(const std::string& effect) {
-    if (effect == "magnify" || effect == "lift" || effect == "none") {
+    if (effect == "magnify" || effect == "none") {
         settings_.effect = effect;
         settings_.save();
         reload_settings();
@@ -476,13 +475,8 @@ void DockWindow::update_item_visual(ItemData* item) {
     gtk_widget_set_size_request(item->image, reserved, reserved);
     gtk_image_set_pixel_size(GTK_IMAGE(item->image), visible_size);
 
-    if (settings_.effect == "lift" && item->hovered) {
-        gtk_widget_set_margin_top(item->item, 0);
-        gtk_widget_set_margin_bottom(item->item, 4);
-    } else {
-        gtk_widget_set_margin_top(item->item, 0);
-        gtk_widget_set_margin_bottom(item->item, 0);
-    }
+    gtk_widget_set_margin_top(item->item, 0);
+    gtk_widget_set_margin_bottom(item->item, 0);
 }
 
 std::vector<TrackedWindow> DockWindow::tracked_windows() const {

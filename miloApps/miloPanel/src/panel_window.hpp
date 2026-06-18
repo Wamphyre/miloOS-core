@@ -3,6 +3,7 @@
 #include "menu_model.hpp"
 #include "panel_settings.hpp"
 #include "system_tray_host.hpp"
+#include "status_notifier_host.hpp"
 
 #include <gtk/gtk.h>
 #include <gmodule.h>
@@ -61,6 +62,9 @@ private:
     Display* xdisplay_ = nullptr;
     Window root_window_ = 0;
     Atom active_window_atom_ = 0;
+    Atom net_wm_state_atom_ = 0;
+    Atom fullscreen_atom_ = 0;
+    bool panel_hidden_for_fullscreen_ = false;
     bool geometry_applied_ = false;
     bool struts_applied_ = false;
     int last_x_ = 0;
@@ -77,11 +81,13 @@ private:
     std::string last_volume_icon_;
     std::string last_active_text_;
     SystemTrayHost tray_host_;
+    StatusNotifierHost sni_host_;
     std::vector<MenuEntry> menu_entries_;
 
     // Global menu
     GlobalMenuKind current_menu_kind_ = GlobalMenuKind::NoMenu;
     GtkWidget* menu_bar_ = nullptr;
+    GtkWidget* native_appmenu_ = nullptr;
     GModule* appmenu_module_ = nullptr;
     GDBusConnection* session_bus_ = nullptr;
     guint registrar_window_registered_signal_id_ = 0;
@@ -119,6 +125,7 @@ private:
     void update_clock();
     void update_volume();
     void update_active_window();
+    void update_fullscreen_state();
     void launch_command(const std::string& command);
     std::string command_output(const std::string& command);
     int current_volume_percent();

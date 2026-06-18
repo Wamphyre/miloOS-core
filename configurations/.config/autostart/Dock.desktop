@@ -9,4 +9,6 @@ OnlyShowIn=XFCE;
 RunHook=0
 StartupNotify=false
 Terminal=false
-Hidden=false
+Hidden=true
+X-GNOME-Autostart-enabled=false
+X-XFCE-Autostart-enabled=false

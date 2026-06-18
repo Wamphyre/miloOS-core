@@ -77,6 +77,9 @@ BACKUP_SUFFIX="backup-$(date +%Y%m%d-%H%M%S)"
 [ -d "$USER_HOME/.config/xfce4/xfconf" ] && mv "$USER_HOME/.config/xfce4/xfconf" "$USER_HOME/.config/xfce4/xfconf.$BACKUP_SUFFIX"
 [ -d "$USER_HOME/.config/miloDock" ] && mv "$USER_HOME/.config/miloDock" "$USER_HOME/.config/miloDock.$BACKUP_SUFFIX"
 [ -d "$USER_HOME/.config/miloPanel" ] && mv "$USER_HOME/.config/miloPanel" "$USER_HOME/.config/miloPanel.$BACKUP_SUFFIX"
+if [ -d "$USER_HOME/.cache/sessions" ]; then
+    find "$USER_HOME/.cache/sessions" -maxdepth 1 -type f -name 'xfce4-session-*' -exec mv {} {}."$BACKUP_SUFFIX" \; 2>/dev/null || true
+fi
 
 # Create necessary directories
 log_info "Creating configuration directories..."
@@ -186,13 +189,14 @@ if [ -f "configurations/miloPanel/settings.ini" ]; then
     chown "$EXEC_USER:$EXEC_USER" "$USER_HOME/.config/miloPanel/settings.ini"
 fi
 
-# Copy autostart configuration for miloOS native shell components
+# Copy disabled autostart overrides; the native shell is launched by the XFCE session clients below.
 if [ -d "configurations/autostart" ]; then
-    log_info "Copying autostart configuration..."
+    log_info "Copying disabled shell autostart overrides..."
     mkdir -p "$USER_HOME/.config/autostart"
     cp configurations/autostart/*.desktop "$USER_HOME/.config/autostart/" 2>/dev/null || true
     chmod 644 "$USER_HOME/.config/autostart"/*.desktop 2>/dev/null || true
     chown "$EXEC_USER:$EXEC_USER" "$USER_HOME/.config/autostart"/*.desktop 2>/dev/null || true
+    rm -f "$USER_HOME/.config/autostart/milo-theme-daemon.desktop"
 else
     log_warn "Autostart configuration not found, skipping"
 fi
@@ -291,65 +295,62 @@ if command -v xfsettingsd &> /dev/null; then
     sleep 1
 fi
 
-# XFCE still provides the session and desktop manager; miloPanel replaces xfce4-panel.
-log_info "Configuring XFCE session to start miloPanel instead of xfce4-panel..."
-for prop in \
-    /sessions/Failsafe/Client0_Command \
-    /sessions/Failsafe/Client1_Command \
-    /sessions/Failsafe/Client2_Command \
-    /sessions/Failsafe/Client3_Command \
-    /sessions/Failsafe/Client4_Command \
-    /sessions/FailsafeWayland/Client0_Command \
-    /sessions/FailsafeWayland/Client1_Command \
-    /sessions/FailsafeWayland/Client2_Command \
-    /sessions/FailsafeWayland/Client3_Command; do
-    xfconf-query -c xfce4-session -p "$prop" -r 2>/dev/null || true
+# XFCE still provides the session, window manager, settings daemon, and desktop manager.
+log_info "Configuring XFCE session to start the native miloOS shell..."
+
+set_xfce_session_value() {
+    local prop="$1"
+    local type="$2"
+    local value="$3"
+    xfconf-query -c xfce4-session -p "$prop" -n -t "$type" -s "$value" 2>/dev/null || \
+        xfconf-query -c xfce4-session -p "$prop" -t "$type" -s "$value"
+}
+
+set_xfce_session_client() {
+    local session="$1"
+    local index="$2"
+    local priority="$3"
+    shift 3
+
+    local base="/sessions/${session}/Client${index}"
+    xfconf-query -c xfce4-session -p "${base}_Command" -r 2>/dev/null || true
+
+    local args=(-c xfce4-session -p "${base}_Command" -n -a)
+    local arg
+    for arg in "$@"; do
+        args+=(-t string -s "$arg")
+    done
+    xfconf-query "${args[@]}"
+
+    set_xfce_session_value "${base}_Priority" int "$priority"
+    set_xfce_session_value "${base}_PerScreen" bool false
+}
+
+for session in Failsafe FailsafeWayland; do
+    for index in 0 1 2 3 4 5 6 7; do
+        xfconf-query -c xfce4-session -p "/sessions/${session}/Client${index}_Command" -r 2>/dev/null || true
+        xfconf-query -c xfce4-session -p "/sessions/${session}/Client${index}_Priority" -r 2>/dev/null || true
+        xfconf-query -c xfce4-session -p "/sessions/${session}/Client${index}_PerScreen" -r 2>/dev/null || true
+    done
 done
 
-xfconf-query -c xfce4-session -p /sessions/Failsafe/IsFailsafe -n -t bool -s true 2>/dev/null || \
-    xfconf-query -c xfce4-session -p /sessions/Failsafe/IsFailsafe -t bool -s true
-xfconf-query -c xfce4-session -p /sessions/Failsafe/Count -n -t int -s 4 2>/dev/null || \
-    xfconf-query -c xfce4-session -p /sessions/Failsafe/Count -t int -s 4
-xfconf-query -c xfce4-session -p /sessions/Failsafe/Client0_Command -n -a -t string -s xfwm4
-xfconf-query -c xfce4-session -p /sessions/Failsafe/Client0_Priority -n -t int -s 15 2>/dev/null || \
-    xfconf-query -c xfce4-session -p /sessions/Failsafe/Client0_Priority -t int -s 15
-xfconf-query -c xfce4-session -p /sessions/Failsafe/Client0_PerScreen -n -t bool -s false 2>/dev/null || \
-    xfconf-query -c xfce4-session -p /sessions/Failsafe/Client0_PerScreen -t bool -s false
-xfconf-query -c xfce4-session -p /sessions/Failsafe/Client1_Command -n -a -t string -s xfsettingsd
-xfconf-query -c xfce4-session -p /sessions/Failsafe/Client1_Priority -n -t int -s 20 2>/dev/null || \
-    xfconf-query -c xfce4-session -p /sessions/Failsafe/Client1_Priority -t int -s 20
-xfconf-query -c xfce4-session -p /sessions/Failsafe/Client1_PerScreen -n -t bool -s false 2>/dev/null || \
-    xfconf-query -c xfce4-session -p /sessions/Failsafe/Client1_PerScreen -t bool -s false
-xfconf-query -c xfce4-session -p /sessions/Failsafe/Client2_Command -n -a -t string -s milopanel -t string -s --replace
-xfconf-query -c xfce4-session -p /sessions/Failsafe/Client2_Priority -n -t int -s 25 2>/dev/null || \
-    xfconf-query -c xfce4-session -p /sessions/Failsafe/Client2_Priority -t int -s 25
-xfconf-query -c xfce4-session -p /sessions/Failsafe/Client2_PerScreen -n -t bool -s false 2>/dev/null || \
-    xfconf-query -c xfce4-session -p /sessions/Failsafe/Client2_PerScreen -t bool -s false
-xfconf-query -c xfce4-session -p /sessions/Failsafe/Client3_Command -n -a -t string -s xfdesktop
-xfconf-query -c xfce4-session -p /sessions/Failsafe/Client3_Priority -n -t int -s 35 2>/dev/null || \
-    xfconf-query -c xfce4-session -p /sessions/Failsafe/Client3_Priority -t int -s 35
-xfconf-query -c xfce4-session -p /sessions/Failsafe/Client3_PerScreen -n -t bool -s false 2>/dev/null || \
-    xfconf-query -c xfce4-session -p /sessions/Failsafe/Client3_PerScreen -t bool -s false
+set_xfce_session_value /general/SaveOnExit bool false
+set_xfce_session_value /sessions/Failsafe/IsFailsafe bool true
+set_xfce_session_value /sessions/Failsafe/Count int 6
+set_xfce_session_client Failsafe 0 15 xfwm4
+set_xfce_session_client Failsafe 1 20 xfsettingsd
+set_xfce_session_client Failsafe 2 22 xfdesktop
+set_xfce_session_client Failsafe 3 25 milo-theme-daemon
+set_xfce_session_client Failsafe 4 25 milopanel --replace
+set_xfce_session_client Failsafe 5 25 milodock --replace
 
-xfconf-query -c xfce4-session -p /sessions/FailsafeWayland/IsFailsafe -n -t bool -s true 2>/dev/null || \
-    xfconf-query -c xfce4-session -p /sessions/FailsafeWayland/IsFailsafe -t bool -s true
-xfconf-query -c xfce4-session -p /sessions/FailsafeWayland/Count -n -t int -s 3 2>/dev/null || \
-    xfconf-query -c xfce4-session -p /sessions/FailsafeWayland/Count -t int -s 3
-xfconf-query -c xfce4-session -p /sessions/FailsafeWayland/Client0_Command -n -a -t string -s xfsettingsd
-xfconf-query -c xfce4-session -p /sessions/FailsafeWayland/Client0_Priority -n -t int -s 15 2>/dev/null || \
-    xfconf-query -c xfce4-session -p /sessions/FailsafeWayland/Client0_Priority -t int -s 15
-xfconf-query -c xfce4-session -p /sessions/FailsafeWayland/Client0_PerScreen -n -t bool -s false 2>/dev/null || \
-    xfconf-query -c xfce4-session -p /sessions/FailsafeWayland/Client0_PerScreen -t bool -s false
-xfconf-query -c xfce4-session -p /sessions/FailsafeWayland/Client1_Command -n -a -t string -s milopanel -t string -s --replace
-xfconf-query -c xfce4-session -p /sessions/FailsafeWayland/Client1_Priority -n -t int -s 15 2>/dev/null || \
-    xfconf-query -c xfce4-session -p /sessions/FailsafeWayland/Client1_Priority -t int -s 15
-xfconf-query -c xfce4-session -p /sessions/FailsafeWayland/Client1_PerScreen -n -t bool -s false 2>/dev/null || \
-    xfconf-query -c xfce4-session -p /sessions/FailsafeWayland/Client1_PerScreen -t bool -s false
-xfconf-query -c xfce4-session -p /sessions/FailsafeWayland/Client2_Command -n -a -t string -s xfdesktop
-xfconf-query -c xfce4-session -p /sessions/FailsafeWayland/Client2_Priority -n -t int -s 15 2>/dev/null || \
-    xfconf-query -c xfce4-session -p /sessions/FailsafeWayland/Client2_Priority -t int -s 15
-xfconf-query -c xfce4-session -p /sessions/FailsafeWayland/Client2_PerScreen -n -t bool -s false 2>/dev/null || \
-    xfconf-query -c xfce4-session -p /sessions/FailsafeWayland/Client2_PerScreen -t bool -s false
+set_xfce_session_value /sessions/FailsafeWayland/IsFailsafe bool true
+set_xfce_session_value /sessions/FailsafeWayland/Count int 5
+set_xfce_session_client FailsafeWayland 0 15 xfsettingsd
+set_xfce_session_client FailsafeWayland 1 18 xfdesktop
+set_xfce_session_client FailsafeWayland 2 20 milo-theme-daemon
+set_xfce_session_client FailsafeWayland 3 20 milopanel --replace
+set_xfce_session_client FailsafeWayland 4 20 milodock --replace
 
 # Window manager theme
 xfconf-query -c xfwm4 -p /general/theme -n -t string -s miloOS 2>/dev/null || \
