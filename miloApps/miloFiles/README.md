@@ -15,7 +15,7 @@ The native application is organized as a modular C++17 codebase:
 | `main.cpp` | Application entry point, locale setup, command-line path/URI handling, and GTK main loop |
 | `app_window.hpp/cpp` | Main window, toolbar, menu bar, breadcrumbs, location entry, navigation, and server connection dialogs |
 | `sidebar.hpp/cpp` | Devices, removable volumes, network mounts, Favorites, and Trash sidebar |
-| `file_view.hpp/cpp` | Icon/list views, async directory loading, search filtering, context menus, DnD, and file actions |
+| `file_view.hpp/cpp` | Icon/list views, async directory loading, search filtering, context menus, drag and drop, and file actions |
 | `progress_dialog.hpp/cpp` | Modal progress and cancellation UI for background operations |
 | `utils.hpp/cpp` | Filesystem helpers, MIME handling, default open handlers, archive operations, mounts, and bookmarks |
 | `i18n.hpp` | Header-only English/Spanish translation catalog |
@@ -38,7 +38,8 @@ The native application is organized as a modular C++17 codebase:
 3. **Devices, removable media, and network mounts**
    - Uses `GVolumeMonitor` to update mounted devices and removable volumes in real time.
    - Sidebar device actions include mount, unmount, and eject where supported.
-   - Remote servers are mounted through GVfs and then opened through their local mount path.
+   - Remote servers are mounted through GVfs and opened through their native GIO URI, for example `smb://server/share`.
+   - Connected SMB shares can be added to Favorites and stay stored as GTK bookmark URIs.
 
 4. **Archive compression and extraction**
    - Compress selected files or folders to `.zip`, `.7z`, `.tar.gz`, `.tar.xz`, or `.tar.bz2`.
@@ -47,13 +48,16 @@ The native application is organized as a modular C++17 codebase:
 
 5. **File operations**
    - Cut, copy, paste, rename, move to Trash, permanent delete, drag and drop, and properties.
+   - Copy, cut, paste, rename, delete, and folder/file creation use GIO locations, so they work with local paths and connected GVfs/SMB shares.
+   - Clipboard data is exported as `x-special/gnome-copied-files` and `text/uri-list`, allowing copy/cut/paste between separate miloFiles windows.
+   - Drag and drop works both as a source and a destination using URI lists, including between different miloFiles instances.
    - Smart duplicate-name handling when pasting into the same folder.
    - Directory size calculation in the properties dialog runs asynchronously.
    - Context menu action to open the current folder in `xfce4-terminal` when available.
 
 6. **Favorites and Trash**
    - Favorites are stored in `~/.config/gtk-3.0/bookmarks`, so they stay compatible with GTK desktop apps.
-   - Directories can be added to Favorites from the main file view.
+   - Local directories and connected SMB/GVfs locations can be added to Favorites from the main file view.
    - Favorite rows can be renamed or removed from the sidebar.
    - Trash can be emptied from the sidebar with confirmation.
 

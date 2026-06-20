@@ -14,6 +14,7 @@
 #include <chrono>
 #include <cstring>
 #include <cctype>
+#include <ctime>
 
 static std::unordered_map<std::string, GdkPixbuf*> _icon_pixbuf_cache;
 static std::unordered_map<std::string, GdkPixbuf*> _icon_cache;
@@ -112,7 +113,7 @@ GdkPixbuf* FileView::get_file_icon(const std::string& path, int size, bool is_di
             }
         }
         if (!pb) {
-            GFile* gfile = g_file_new_for_path(path.c_str());
+            GFile* gfile = utils::new_gfile_for_location(path);
             GFileInfo* info = g_file_query_info(gfile, "standard::icon", G_FILE_QUERY_INFO_NONE, NULL, NULL);
             if (info) {
                 GIcon* icon = g_file_info_get_icon(info);
@@ -141,7 +142,7 @@ FileView::FileView(AppWindow* parent_window,
                    std::function<void(const std::string&)> on_dir_activated_cb,
                    std::function<void(const std::string&)> on_status_update_cb)
     : parent(parent_window), on_dir_activated(on_dir_activated_cb), on_status_update(on_status_update_cb), 
-      view_mode("icon"), current_thumbnail_load_id(0) {
+      view_mode("icon"), current_thumbnail_load_id(0), directory_monitor(nullptr), directory_reload_timeout_id(0) {
     
     stack = gtk_stack_new();
     gtk_stack_set_transition_type(GTK_STACK(stack), GTK_STACK_TRANSITION_TYPE_CROSSFADE);
@@ -165,6 +166,12 @@ FileView::FileView(AppWindow* parent_window,
 }
 
 FileView::~FileView() {
+    clear_directory_monitor();
+    if (directory_reload_timeout_id != 0) {
+        g_source_remove(directory_reload_timeout_id);
+        directory_reload_timeout_id = 0;
+    }
+
     std::lock_guard<std::mutex> lock(cache_mutex);
     for (auto& pair : thumbnail_cache) {
         if (pair.second.first) g_object_unref(pair.second.first);
@@ -174,6 +181,51 @@ FileView::~FileView() {
 
 GtkWidget* FileView::get_widget() {
     return stack;
+}
+
+void FileView::clear_directory_monitor() {
+    if (!directory_monitor) return;
+    g_signal_handlers_disconnect_by_data(directory_monitor, this);
+    g_file_monitor_cancel(directory_monitor);
+    g_object_unref(directory_monitor);
+    directory_monitor = nullptr;
+}
+
+void FileView::update_directory_monitor() {
+    clear_directory_monitor();
+    if (current_dir.empty()) return;
+
+    GFile* dir_file = utils::new_gfile_for_location(current_dir);
+    GError* error = NULL;
+    directory_monitor = g_file_monitor_directory(dir_file, G_FILE_MONITOR_NONE, NULL, &error);
+    if (directory_monitor) {
+        g_signal_connect(directory_monitor, "changed", G_CALLBACK(on_directory_changed), this);
+    }
+    if (error) {
+        g_error_free(error);
+    }
+    g_object_unref(dir_file);
+}
+
+void FileView::schedule_directory_reload() {
+    if (directory_reload_timeout_id != 0) return;
+
+    directory_reload_timeout_id = g_timeout_add(180, [](gpointer user_data) -> gboolean {
+        FileView* self = static_cast<FileView*>(user_data);
+        self->directory_reload_timeout_id = 0;
+        if (!self->current_dir.empty()) {
+            self->parent->load_directory(self->current_dir, false);
+        }
+        return FALSE;
+    }, this);
+}
+
+void FileView::on_directory_changed(GFileMonitor*, GFile*, GFile*, GFileMonitorEvent event_type, gpointer user_data) {
+    if (event_type == G_FILE_MONITOR_EVENT_ATTRIBUTE_CHANGED) return;
+
+    FileView* self = static_cast<FileView*>(user_data);
+    if (!self) return;
+    self->schedule_directory_reload();
 }
 
 void FileView::setup_icon_view() {
@@ -197,6 +249,20 @@ void FileView::setup_icon_view() {
                                                                       GtkSelectionData* data, guint info, guint time, gpointer user_data) {
         FileView* self = static_cast<FileView*>(user_data);
         self->parent->handle_drag_data_received(w, context, x, y, data, info, time);
+    }), this);
+
+    gtk_drag_source_set(icon_view, GDK_BUTTON1_MASK, NULL, 0, (GdkDragAction)(GDK_ACTION_COPY | GDK_ACTION_MOVE));
+    gtk_drag_source_add_uri_targets(icon_view);
+    g_signal_connect(icon_view, "drag-data-get", G_CALLBACK(+[](GtkWidget*, GdkDragContext*, GtkSelectionData* data,
+                                                                  guint, guint, gpointer user_data) {
+        FileView* self = static_cast<FileView*>(user_data);
+        std::vector<std::string> paths = self->get_selected_paths();
+        gchar** uris = g_new0(gchar*, paths.size() + 1);
+        for (size_t i = 0; i < paths.size(); ++i) {
+            uris[i] = g_strdup(utils::location_to_uri(paths[i]).c_str());
+        }
+        gtk_selection_data_set_uris(data, uris);
+        g_strfreev(uris);
     }), this);
 }
 
@@ -277,53 +343,120 @@ void FileView::setup_tree_view() {
         FileView* self = static_cast<FileView*>(user_data);
         self->parent->handle_drag_data_received(w, context, x, y, data, info, time);
     }), this);
+
+    gtk_drag_source_set(tree_view, GDK_BUTTON1_MASK, NULL, 0, (GdkDragAction)(GDK_ACTION_COPY | GDK_ACTION_MOVE));
+    gtk_drag_source_add_uri_targets(tree_view);
+    g_signal_connect(tree_view, "drag-data-get", G_CALLBACK(+[](GtkWidget*, GdkDragContext*, GtkSelectionData* data,
+                                                                  guint, guint, gpointer user_data) {
+        FileView* self = static_cast<FileView*>(user_data);
+        std::vector<std::string> paths = self->get_selected_paths();
+        gchar** uris = g_new0(gchar*, paths.size() + 1);
+        for (size_t i = 0; i < paths.size(); ++i) {
+            uris[i] = g_strdup(utils::location_to_uri(paths[i]).c_str());
+        }
+        gtk_selection_data_set_uris(data, uris);
+        g_strfreev(uris);
+    }), this);
 }
 
 void FileView::load_directory(const std::string& path, bool show_hidden, const std::string& search_query) {
-    current_dir = path;
-    
-    DIR* dir = opendir(path.c_str());
-    if (!dir) {
-        parent->show_error_dialog(i18n::_("cannot_read_dir"), "Could not open directory " + path);
+    current_dir = utils::normalize_path(path);
+    if (current_dir.empty()) {
+        current_dir = g_get_home_dir();
+    }
+
+    GFile* dir_file = utils::new_gfile_for_location(current_dir);
+    GError* error = NULL;
+    GFileEnumerator* enumerator = g_file_enumerate_children(
+        dir_file,
+        G_FILE_ATTRIBUTE_STANDARD_NAME ","
+        G_FILE_ATTRIBUTE_STANDARD_DISPLAY_NAME ","
+        G_FILE_ATTRIBUTE_STANDARD_TYPE ","
+        G_FILE_ATTRIBUTE_STANDARD_SIZE ","
+        G_FILE_ATTRIBUTE_STANDARD_IS_HIDDEN ","
+        G_FILE_ATTRIBUTE_TIME_MODIFIED,
+        G_FILE_QUERY_INFO_NONE,
+        NULL,
+        &error);
+    if (!enumerator) {
+        std::string message = error ? error->message : "Could not open directory " + current_dir;
+        if (error) {
+            g_error_free(error);
+        }
+        g_object_unref(dir_file);
+        parent->show_error_dialog(i18n::_("cannot_read_dir"), message);
         return;
     }
-    
-    std::vector<std::string> dir_list;
-    std::vector<std::string> file_list;
+
+    struct DirectoryItem {
+        std::string name;
+        std::string display_name;
+        std::string location;
+        bool is_dir = false;
+        int64_t size = 0;
+        int64_t mtime = 0;
+    };
+
+    std::vector<DirectoryItem> dir_list;
+    std::vector<DirectoryItem> file_list;
     
     std::string search_lower = search_query;
     std::transform(search_lower.begin(), search_lower.end(), search_lower.begin(), ::tolower);
     
-    struct dirent* entry;
-    while ((entry = readdir(dir)) != NULL) {
-        std::string name = entry->d_name;
-        if (name == "." || name == "..") continue;
-        if (!show_hidden && name[0] == '.') continue;
+    GFileInfo* info = NULL;
+    while ((info = g_file_enumerator_next_file(enumerator, NULL, &error)) != NULL) {
+        const char* raw_name = g_file_info_get_name(info);
+        if (!raw_name || std::strcmp(raw_name, ".") == 0 || std::strcmp(raw_name, "..") == 0) {
+            g_object_unref(info);
+            continue;
+        }
+        if (!show_hidden && g_file_info_get_is_hidden(info)) {
+            g_object_unref(info);
+            continue;
+        }
+
+        const char* display = g_file_info_get_display_name(info);
+        std::string name = raw_name;
+        std::string display_name = display ? display : name;
         
         if (!search_lower.empty()) {
-            std::string name_lower = name;
+            std::string name_lower = display_name;
             std::transform(name_lower.begin(), name_lower.end(), name_lower.begin(), ::tolower);
-            if (name_lower.find(search_lower) == std::string::npos) continue;
+            if (name_lower.find(search_lower) == std::string::npos) {
+                g_object_unref(info);
+                continue;
+            }
         }
         
-        std::string full_path = path + "/" + name;
-        struct stat st;
-        bool is_dir = false;
-        if (stat(full_path.c_str(), &st) == 0) {
-            is_dir = S_ISDIR(st.st_mode);
-        }
-        
-        if (is_dir) {
-            dir_list.push_back(name);
+        GFile* child = g_file_get_child(dir_file, name.c_str());
+        DirectoryItem item;
+        item.name = name;
+        item.display_name = display_name;
+        item.location = utils::location_from_gfile(child);
+        item.is_dir = g_file_info_get_file_type(info) == G_FILE_TYPE_DIRECTORY;
+        item.size = g_file_info_get_size(info);
+        item.mtime = static_cast<int64_t>(g_file_info_get_attribute_uint64(info, G_FILE_ATTRIBUTE_TIME_MODIFIED));
+
+        if (item.is_dir) {
+            dir_list.push_back(std::move(item));
         } else {
-            file_list.push_back(name);
+            file_list.push_back(std::move(item));
         }
+
+        g_object_unref(child);
+        g_object_unref(info);
     }
-    closedir(dir);
-    
-    auto cmp = [](const std::string& a, const std::string& b) {
-        std::string a_l = a;
-        std::string b_l = b;
+    if (error) {
+        g_error_free(error);
+    }
+    g_object_unref(enumerator);
+    g_object_unref(dir_file);
+
+    update_directory_monitor();
+
+    auto cmp = [](const DirectoryItem& a, const DirectoryItem& b) {
+        std::string a_l = a.display_name;
+        std::string b_l = b.display_name;
         std::transform(a_l.begin(), a_l.end(), a_l.begin(), ::tolower);
         std::transform(b_l.begin(), b_l.end(), b_l.begin(), ::tolower);
         return a_l < b_l;
@@ -336,60 +469,55 @@ void FileView::load_directory(const std::string& path, bool show_hidden, const s
     
     std::vector<std::string> files_to_process;
     
-    auto process_item = [&](const std::string& name, bool is_dir) {
-        std::string full_path = path + "/" + name;
-        int64_t raw_size = 0;
-        int64_t raw_mtime = 0;
+    auto process_item = [&](const DirectoryItem& item) {
         std::string modified = "";
-        
-        struct stat st;
-        if (stat(full_path.c_str(), &st) == 0) {
-            raw_size = st.st_size;
-            raw_mtime = st.st_mtime;
-            
-            struct tm* timeinfo = localtime(&st.st_mtime);
-            char buffer[80];
-            strftime(buffer, sizeof(buffer), "%Y-%m-%d %H:%M", timeinfo);
-            modified = buffer;
+        if (item.mtime > 0) {
+            time_t mtime = static_cast<time_t>(item.mtime);
+            struct tm* timeinfo = localtime(&mtime);
+            if (timeinfo) {
+                char buffer[80];
+                strftime(buffer, sizeof(buffer), "%Y-%m-%d %H:%M", timeinfo);
+                modified = buffer;
+            }
         }
+
+        std::string size_str = item.is_dir ? "" : utils::format_size(item.size);
+        std::string type_str = utils::get_file_type_description(item.location, item.is_dir);
         
-        std::string size_str = is_dir ? "" : utils::format_size(raw_size);
-        std::string type_str = utils::get_file_type_description(full_path, is_dir);
-        
-        GdkPixbuf* icon_pb = get_file_icon(full_path, 48, is_dir);
-        GdkPixbuf* list_icon_pb = get_file_icon(full_path, 20, is_dir);
+        GdkPixbuf* icon_pb = get_file_icon(item.location, 48, item.is_dir);
+        GdkPixbuf* list_icon_pb = get_file_icon(item.location, 20, item.is_dir);
         
         GtkTreeIter iter;
         gtk_list_store_append(icon_store, &iter);
         gtk_list_store_set(icon_store, &iter,
                            0, icon_pb,
-                           1, name.c_str(),
-                           2, full_path.c_str(),
-                           3, is_dir,
+                           1, item.display_name.c_str(),
+                           2, item.location.c_str(),
+                           3, item.is_dir,
                            -1);
                            
         gtk_list_store_append(list_store, &iter);
         gtk_list_store_set(list_store, &iter,
                            0, list_icon_pb,
-                           1, name.c_str(),
+                           1, item.display_name.c_str(),
                            2, size_str.c_str(),
                            3, type_str.c_str(),
                            4, modified.c_str(),
-                           5, full_path.c_str(),
-                           6, is_dir,
-                           7, raw_size,
-                           8, raw_mtime,
+                           5, item.location.c_str(),
+                           6, item.is_dir,
+                           7, item.size,
+                           8, item.mtime,
                            -1);
                            
-        if (!is_dir) {
-            files_to_process.push_back(full_path);
+        if (!item.is_dir) {
+            files_to_process.push_back(item.location);
         }
     };
     
-    for (const auto& d : dir_list) process_item(d, true);
-    for (const auto& f : file_list) process_item(f, false);
+    for (const auto& d : dir_list) process_item(d);
+    for (const auto& f : file_list) process_item(f);
     
-    start_thumbnail_loading(path, files_to_process);
+    start_thumbnail_loading(current_dir, files_to_process);
     
     int total_items = dir_list.size() + file_list.size();
     std::string status_msg = std::to_string(total_items) + " " + i18n::_("items");
@@ -576,7 +704,7 @@ void FileView::start_thumbnail_loading(const std::string& dir_path, const std::v
             }
             
             if (!icon_pb) {
-                GFile* gfile = g_file_new_for_path(file_path.c_str());
+                GFile* gfile = utils::new_gfile_for_location(file_path);
                 GFileInfo* info = g_file_query_info(gfile, "thumbnail::path", G_FILE_QUERY_INFO_NONE, NULL, NULL);
                 if (info) {
                     const char* thumb_path = g_file_info_get_attribute_string(info, "thumbnail::path");
@@ -589,8 +717,11 @@ void FileView::start_thumbnail_loading(const std::string& dir_path, const std::v
                 g_object_unref(gfile);
                 
                 if (!icon_pb) {
-                    icon_pb = gdk_pixbuf_new_from_file_at_scale(file_path.c_str(), 48, 48, TRUE, NULL);
-                    list_icon_pb = gdk_pixbuf_new_from_file_at_scale(file_path.c_str(), 20, 20, TRUE, NULL);
+                    std::string local_path = utils::location_to_path(file_path);
+                    if (!local_path.empty()) {
+                        icon_pb = gdk_pixbuf_new_from_file_at_scale(local_path.c_str(), 48, 48, TRUE, NULL);
+                        list_icon_pb = gdk_pixbuf_new_from_file_at_scale(local_path.c_str(), 20, 20, TRUE, NULL);
+                    }
                 }
                 
                 if (icon_pb && list_icon_pb) {
@@ -677,8 +808,7 @@ void FileView::show_context_menu(GdkEventButton* event, const std::vector<std::s
         
         if (selected_paths.size() == 1) {
             std::string path = selected_paths[0];
-            struct stat st;
-            if (stat(path.c_str(), &st) == 0 && !S_ISDIR(st.st_mode)) {
+            if (!utils::is_directory(path)) {
                 GtkWidget* item_open_with = gtk_menu_item_new_with_label(i18n::_("open_with").c_str());
                 GtkWidget* open_with_menu = gtk_menu_new();
                 gtk_menu_item_set_submenu(GTK_MENU_ITEM(item_open_with), open_with_menu);
@@ -706,7 +836,7 @@ void FileView::show_context_menu(GdkEventButton* event, const std::vector<std::s
                                 
                                 g_signal_connect_data(app_item, "activate", G_CALLBACK(+[](GtkWidget* w, gpointer d) {
                                     LaunchData* ldata = static_cast<LaunchData*>(d);
-                                    GFile* gfile = g_file_new_for_path(ldata->path.c_str());
+                                    GFile* gfile = utils::new_gfile_for_location(ldata->path);
                                     GList* files = NULL;
                                     files = g_list_append(files, gfile);
                                     g_app_info_launch(ldata->app, files, NULL, NULL);
@@ -765,7 +895,7 @@ void FileView::show_context_menu(GdkEventButton* event, const std::vector<std::s
     }
     
     GtkWidget* item_paste = gtk_menu_item_new_with_label(i18n::_("paste").c_str());
-    gtk_widget_set_sensitive(item_paste, !parent->clipboard_files.empty());
+    gtk_widget_set_sensitive(item_paste, parent->has_paste_data());
     g_signal_connect_swapped(item_paste, "activate", G_CALLBACK(+[](FileView* self) {
         self->handle_paste();
     }), this);
@@ -821,8 +951,7 @@ void FileView::show_context_menu(GdkEventButton* event, const std::vector<std::s
                 gtk_menu_shell_append(GTK_MENU_SHELL(menu), item_extract);
             }
             
-            struct stat st;
-            if (stat(selected_paths[0].c_str(), &st) == 0 && S_ISDIR(st.st_mode)) {
+            if (utils::is_directory(selected_paths[0])) {
                 GtkWidget* item_fav = gtk_menu_item_new_with_label(i18n::_("add_to_favorites").c_str());
                 g_signal_connect_swapped(item_fav, "activate", G_CALLBACK(+[](FileView* self) {
                     self->handle_add_favorites(self->get_selected_paths());
@@ -871,13 +1000,10 @@ void FileView::show_context_menu(GdkEventButton* event, const std::vector<std::s
 
 void FileView::handle_open(const std::vector<std::string>& paths) {
     for (const auto& path : paths) {
-        struct stat st;
-        if (stat(path.c_str(), &st) == 0) {
-            if (S_ISDIR(st.st_mode)) {
-                on_dir_activated(path);
-            } else {
-                utils::open_file(path);
-            }
+        if (utils::is_directory(path)) {
+            on_dir_activated(path);
+        } else if (utils::location_exists(path)) {
+            utils::open_file(path);
         }
     }
 }
@@ -886,7 +1012,7 @@ void FileView::handle_other_app(const std::vector<std::string>& paths) {
     if (paths.empty()) return;
     std::string path = paths[0];
     
-    GFile* gfile = g_file_new_for_path(path.c_str());
+    GFile* gfile = utils::new_gfile_for_location(path);
     GtkWidget* dialog = gtk_app_chooser_dialog_new(GTK_WINDOW(parent->get_window()), GTK_DIALOG_MODAL, gfile);
     gint response = gtk_dialog_run(GTK_DIALOG(dialog));
     if (response == GTK_RESPONSE_OK) {
@@ -908,25 +1034,51 @@ void FileView::handle_properties(const std::vector<std::string>& paths) {
     std::string path = paths[0];
     
     std::string name = utils::get_filename(path);
-    struct stat st;
-    bool is_dir = false;
+    bool is_dir = utils::is_directory(path);
     std::string size_str = "Calculating...";
     std::string modified = "N/A";
     std::string owner = "unknown";
     std::string group = "unknown";
     std::string permissions = "";
-    
-    if (stat(path.c_str(), &st) == 0) {
-        is_dir = S_ISDIR(st.st_mode);
+
+    GFile* prop_file = utils::new_gfile_for_location(path);
+    GError* prop_error = NULL;
+    GFileInfo* prop_info = g_file_query_info(
+        prop_file,
+        G_FILE_ATTRIBUTE_STANDARD_SIZE ","
+        G_FILE_ATTRIBUTE_TIME_MODIFIED,
+        G_FILE_QUERY_INFO_NONE,
+        NULL,
+        &prop_error);
+    if (prop_info) {
         if (!is_dir) {
-            size_str = utils::format_size(st.st_size) + " (" + std::to_string(st.st_size) + " bytes)";
+            const gint64 size = g_file_info_get_size(prop_info);
+            size_str = utils::format_size(size) + " (" + std::to_string(size) + " bytes)";
         }
-        
-        struct tm* timeinfo = localtime(&st.st_mtime);
-        char buffer[80];
-        strftime(buffer, sizeof(buffer), "%Y-%m-%d %H:%M:%S", timeinfo);
-        modified = buffer;
-        
+        const guint64 mtime_attr = g_file_info_get_attribute_uint64(prop_info, G_FILE_ATTRIBUTE_TIME_MODIFIED);
+        if (mtime_attr > 0) {
+            time_t mtime = static_cast<time_t>(mtime_attr);
+            struct tm* timeinfo = localtime(&mtime);
+            if (timeinfo) {
+                char buffer[80];
+                strftime(buffer, sizeof(buffer), "%Y-%m-%d %H:%M:%S", timeinfo);
+                modified = buffer;
+            }
+        }
+        g_object_unref(prop_info);
+    }
+    if (prop_error) {
+        g_error_free(prop_error);
+    }
+    g_object_unref(prop_file);
+
+    std::string local_path = utils::location_to_path(path);
+    if (is_dir && local_path.empty()) {
+        size_str = "N/A";
+    }
+    if (!local_path.empty()) {
+        struct stat st;
+        if (stat(local_path.c_str(), &st) == 0) {
         struct passwd* pw = getpwuid(st.st_uid);
         if (pw) owner = pw->pw_name;
         
@@ -936,6 +1088,7 @@ void FileView::handle_properties(const std::vector<std::string>& paths) {
         char perm_buf[32];
         std::snprintf(perm_buf, sizeof(perm_buf), "%o", st.st_mode & 0777);
         permissions = perm_buf;
+        }
     }
     
     std::string type_str = utils::get_file_type_description(path, is_dir);
@@ -1024,10 +1177,10 @@ void FileView::handle_properties(const std::vector<std::string>& paths) {
     gtk_notebook_append_page(GTK_NOTEBOOK(notebook), vbox_perm, gtk_label_new(i18n::_("permissions").c_str()));
     
     // Async size calculation for directories
-    if (is_dir && lbl_size_value) {
+    if (is_dir && lbl_size_value && !local_path.empty()) {
         // Increment reference count of label so it stays alive during async thread
         g_object_ref(lbl_size_value);
-        std::thread([path, lbl_size_value]() {
+        std::thread([local_path, lbl_size_value]() {
             int64_t size_bytes = 0;
             int64_t file_count = 0;
             
@@ -1068,7 +1221,7 @@ void FileView::handle_properties(const std::vector<std::string>& paths) {
                 closedir(dir);
             };
             
-            scan(path);
+            scan(local_path);
             
             struct UpdateData {
                 GtkWidget* lbl;
@@ -1092,17 +1245,17 @@ void FileView::handle_properties(const std::vector<std::string>& paths) {
 }
 
 void FileView::handle_cut(const std::vector<std::string>& paths) {
-    parent->clipboard_files = paths;
-    parent->clipboard_action = "cut";
+    parent->set_clipboard_files(paths, "cut");
 }
 
 void FileView::handle_copy(const std::vector<std::string>& paths) {
-    parent->clipboard_files = paths;
-    parent->clipboard_action = "copy";
+    parent->set_clipboard_files(paths, "copy");
 }
 
 void FileView::handle_paste() {
-    parent->start_paste_operation(parent->clipboard_files, current_dir, parent->clipboard_action);
+    if (!parent->load_clipboard_files() && parent->clipboard_files.empty()) return;
+    std::string action = parent->clipboard_action == "cut" ? "cut" : "copy";
+    parent->start_paste_operation(parent->clipboard_files, current_dir, action);
 }
 
 void FileView::handle_rename(const std::vector<std::string>& paths) {
@@ -1143,8 +1296,8 @@ void FileView::handle_rename(const std::vector<std::string>& paths) {
         }).base(), new_name.end());
         
         if (!new_name.empty() && new_name != old_name) {
-            std::string new_path = utils::get_parent_directory(old_path) + "/" + new_name;
-            if (std::rename(old_path.c_str(), new_path.c_str()) == 0) {
+            std::string new_path = utils::child_location(utils::get_parent_directory(old_path), new_name);
+            if (utils::move_path(old_path, new_path)) {
                 parent->load_directory(current_dir, false);
             }
         }
@@ -1156,7 +1309,7 @@ void FileView::handle_trash(const std::vector<std::string>& paths) {
     if (paths.empty()) return;
     
     for (const auto& path : paths) {
-        GFile* gfile = g_file_new_for_path(path.c_str());
+        GFile* gfile = utils::new_gfile_for_location(path);
         g_file_trash(gfile, NULL, NULL);
         g_object_unref(gfile);
     }
@@ -1278,12 +1431,12 @@ void FileView::handle_new_folder() {
     std::string base_name = i18n::_("new_folder_name");
     std::string name = base_name;
     int counter = 1;
-    while (access((current_dir + "/" + name).c_str(), F_OK) == 0) {
+    while (utils::location_exists(utils::child_location(current_dir, name))) {
         counter++;
         name = base_name + " " + std::to_string(counter);
     }
 
-    std::string folder_path = current_dir + "/" + name;
+    std::string folder_path = utils::child_location(current_dir, name);
     if (utils::make_directory(folder_path)) {
         parent->load_directory(current_dir, false);
     } else {
@@ -1295,12 +1448,12 @@ void FileView::handle_new_file() {
     std::string base_name = i18n::_("new_file_name");
     std::string name = base_name;
     int counter = 1;
-    while (access((current_dir + "/" + name).c_str(), F_OK) == 0) {
+    while (utils::location_exists(utils::child_location(current_dir, name))) {
         counter++;
         name = base_name + " " + std::to_string(counter);
     }
 
-    std::string file_path = current_dir + "/" + name;
+    std::string file_path = utils::child_location(current_dir, name);
     if (utils::create_empty_file(file_path)) {
         parent->load_directory(current_dir, false);
     } else {

@@ -11,6 +11,10 @@
 #include <cctype>
 
 static std::string sidebar_icon_for_path(const std::string& path) {
+    if (utils::has_uri_scheme(path) && path.rfind("file://", 0) != 0) {
+        return "folder-remote";
+    }
+
     std::string basename = utils::get_filename(path);
     std::transform(basename.begin(), basename.end(), basename.begin(), [](unsigned char ch) {
         return std::tolower(ch);
@@ -158,9 +162,12 @@ void Sidebar::setup_sidebar() {
         GFile* loc = g_mount_get_default_location(mount);
         char* path = g_file_get_path(loc);
         if (!path) {
-            GFile* root = g_mount_get_root(mount);
-            path = g_file_get_path(root);
-            g_object_unref(root);
+            path = g_file_get_uri(loc);
+            if (!path) {
+                GFile* root = g_mount_get_root(mount);
+                path = g_file_get_uri(root);
+                g_object_unref(root);
+            }
         }
         
         if (path) {
@@ -205,11 +212,17 @@ void Sidebar::setup_sidebar() {
     for (const auto& item : fav_items) {
         GFile* gfile = g_file_new_for_uri(item.uri.c_str());
         char* path = g_file_get_path(gfile);
+        std::string location;
         if (path) {
-            favorites.push_back({item.label, path});
-            fav_icons.push_back(sidebar_icon_for_path(path));
-            fav_volumes.push_back(nullptr);
+            location = path;
             g_free(path);
+        } else {
+            location = item.uri;
+        }
+        if (!location.empty()) {
+            favorites.push_back({item.label, location});
+            fav_icons.push_back(sidebar_icon_for_path(location));
+            fav_volumes.push_back(nullptr);
         }
         g_object_unref(gfile);
     }
@@ -249,8 +262,7 @@ void Sidebar::add_sidebar_section(const std::string& section_title,
         
         // Skip directory if it doesn't exist (unless it's an unmounted volume or Trash)
         if (!path.empty() && name != i18n::_("trash")) {
-            struct stat st;
-            if (stat(path.c_str(), &st) != 0 || !S_ISDIR(st.st_mode)) {
+            if (!utils::has_uri_scheme(path) && !utils::is_directory(path)) {
                 if (!volume) continue;
             }
         }
@@ -497,14 +509,9 @@ void Sidebar::handle_rename_favorite(GtkListBoxRow* row, const std::string& name
         }).base(), new_name.end());
         
         if (!new_name.empty() && new_name != name) {
-            // Find bookmark URI
-            GFile* gfile = g_file_new_for_path(path.c_str());
-            char* uri = g_file_get_uri(gfile);
-            g_object_unref(gfile);
-            
-            if (uri) {
+            std::string uri = utils::location_to_uri(path);
+            if (!uri.empty()) {
                 utils::rename_favorite(uri, new_name);
-                g_free(uri);
             }
             reload();
         }
@@ -513,13 +520,9 @@ void Sidebar::handle_rename_favorite(GtkListBoxRow* row, const std::string& name
 }
 
 void Sidebar::handle_remove_favorite(const std::string& path) {
-    GFile* gfile = g_file_new_for_path(path.c_str());
-    char* uri = g_file_get_uri(gfile);
-    g_object_unref(gfile);
-    
-    if (uri) {
+    std::string uri = utils::location_to_uri(path);
+    if (!uri.empty()) {
         utils::remove_favorite(uri);
-        g_free(uri);
     }
     reload();
 }
@@ -593,11 +596,6 @@ void Sidebar::handle_unmount_volume(const std::string& path) {
 }
 
 void Sidebar::select_path(const std::string& path) {
-    // Standardize path normalization
-    char* real_p = canonicalize_file_name(path.c_str());
-    std::string norm_path = real_p ? real_p : path;
-    if (real_p) free(real_p);
-    
     for (GtkWidget* listbox : listboxes) {
         // Temporarily block activated signals
         g_signal_handlers_block_by_func(listbox, (gpointer)on_row_activated, this);
@@ -608,11 +606,7 @@ void Sidebar::select_path(const std::string& path) {
             GtkListBoxRow* row = GTK_LIST_BOX_ROW(l->data);
             const char* rpath = (const char*)g_object_get_data(G_OBJECT(row), "path");
             if (rpath) {
-                char* real_rp = canonicalize_file_name(rpath);
-                std::string norm_rpath = real_rp ? real_rp : rpath;
-                if (real_rp) free(real_rp);
-                
-                if (norm_rpath == norm_path) {
+                if (utils::same_location(rpath, path)) {
                     gtk_list_box_select_row(GTK_LIST_BOX(listbox), row);
                 }
             }

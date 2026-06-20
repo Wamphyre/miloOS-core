@@ -23,6 +23,9 @@ public:
     std::vector<std::string> clipboard_files;
     std::string clipboard_action;
     
+    void set_clipboard_files(const std::vector<std::string>& locations, const std::string& action);
+    bool load_clipboard_files();
+    bool has_paste_data();
     void start_paste_operation(const std::vector<std::string>& src_paths, const std::string& dest_dir, const std::string& action);
     void start_compress_operation(const std::vector<std::string>& src_paths, const std::string& archive_path, const std::string& format);
     void start_extract_operation(const std::string& archive_path, const std::string& dest_dir);

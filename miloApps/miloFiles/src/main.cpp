@@ -5,6 +5,7 @@
 #include <locale.h>
 #include <sys/stat.h>
 #include "app_window.hpp"
+#include "utils.hpp"
 
 int main(int argc, char* argv[]) {
     setlocale(LC_ALL, "");
@@ -28,8 +29,7 @@ int main(int argc, char* argv[]) {
             initial_dir = arg_path;
         }
 
-        struct stat st;
-        if (initial_dir.empty() || stat(initial_dir.c_str(), &st) != 0 || !S_ISDIR(st.st_mode)) {
+        if (initial_dir.empty() || !utils::is_directory(initial_dir)) {
             initial_dir.clear();
         }
     }

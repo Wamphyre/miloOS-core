@@ -4,6 +4,7 @@
 #include <string>
 #include <vector>
 #include <cstdint>
+#include <gio/gio.h>
 
 namespace utils {
 
@@ -13,6 +14,15 @@ struct FavoriteItem {
 };
 
 std::string format_size(int64_t size);
+bool has_uri_scheme(const std::string& location);
+GFile* new_gfile_for_location(const std::string& location);
+std::string location_from_gfile(GFile* file);
+std::string location_to_uri(const std::string& location);
+std::string location_to_path(const std::string& location);
+std::string child_location(const std::string& parent, const std::string& child_name);
+bool location_exists(const std::string& location);
+bool is_directory(const std::string& location);
+bool same_location(const std::string& a, const std::string& b);
 std::string get_mime_type(const std::string& path);
 std::string get_custom_default_command(const std::string& path);
 bool open_file(const std::string& path);
@@ -34,6 +44,7 @@ std::string get_free_space_description(const std::string& path);
 std::string normalize_path(const std::string& path);
 void copy_path_recursive(const std::string& src, const std::string& dest);
 bool move_path(const std::string& src, const std::string& dest);
+std::string unique_child_location(const std::string& dest_dir, const std::string& name);
 
 } // namespace utils
 

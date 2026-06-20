@@ -16,6 +16,7 @@
 #include <filesystem>
 #include <cerrno>
 #include <cctype>
+#include <stdexcept>
 
 namespace utils {
 
@@ -38,6 +39,55 @@ static void ensure_bookmarks_dir() {
     g_mkdir_with_parents(config_dir.c_str(), 0700);
 }
 
+bool has_uri_scheme(const std::string& location) {
+    const size_t pos = location.find("://");
+    if (pos == std::string::npos || pos == 0) {
+        return false;
+    }
+    for (size_t i = 0; i < pos; ++i) {
+        const unsigned char ch = static_cast<unsigned char>(location[i]);
+        if (!std::isalpha(ch) && !std::isdigit(ch) && ch != '+' && ch != '-' && ch != '.') {
+            return false;
+        }
+    }
+    return true;
+}
+
+static GFile* file_for_location(const std::string& location) {
+    if (has_uri_scheme(location)) {
+        return g_file_new_for_uri(location.c_str());
+    }
+    return g_file_new_for_path(location.c_str());
+}
+
+static std::string location_from_file(GFile* file) {
+    if (!file) {
+        return "";
+    }
+
+    char* path = g_file_get_path(file);
+    if (path) {
+        std::string result = path;
+        g_free(path);
+        return result;
+    }
+
+    char* uri = g_file_get_uri(file);
+    std::string result = uri ? uri : "";
+    if (uri) {
+        g_free(uri);
+    }
+    return result;
+}
+
+GFile* new_gfile_for_location(const std::string& location) {
+    return file_for_location(location);
+}
+
+std::string location_from_gfile(GFile* file) {
+    return location_from_file(file);
+}
+
 static std::string uri_to_path(const std::string& uri) {
     GFile* gfile = g_file_new_for_uri(uri.c_str());
     char* path = g_file_get_path(gfile);
@@ -54,6 +104,74 @@ static std::string path_to_uri(const std::string& path) {
     if (uri) g_free(uri);
     g_object_unref(gfile);
     return result;
+}
+
+std::string location_to_uri(const std::string& location) {
+    GFile* gfile = file_for_location(location);
+    char* uri = g_file_get_uri(gfile);
+    std::string result = uri ? uri : "";
+    if (uri) {
+        g_free(uri);
+    }
+    g_object_unref(gfile);
+    return result;
+}
+
+std::string location_to_path(const std::string& location) {
+    GFile* gfile = file_for_location(location);
+    char* path = g_file_get_path(gfile);
+    std::string result = path ? path : "";
+    if (path) {
+        g_free(path);
+    }
+    g_object_unref(gfile);
+    return result;
+}
+
+std::string child_location(const std::string& parent, const std::string& child_name) {
+    GFile* parent_file = file_for_location(parent);
+    GFile* child = g_file_get_child(parent_file, child_name.c_str());
+    std::string result = location_from_file(child);
+    g_object_unref(child);
+    g_object_unref(parent_file);
+    return result;
+}
+
+bool location_exists(const std::string& location) {
+    GFile* gfile = file_for_location(location);
+    const bool exists = g_file_query_exists(gfile, NULL);
+    g_object_unref(gfile);
+    return exists;
+}
+
+bool is_directory(const std::string& location) {
+    GFile* gfile = file_for_location(location);
+    GError* error = NULL;
+    GFileInfo* info = g_file_query_info(
+        gfile,
+        G_FILE_ATTRIBUTE_STANDARD_TYPE,
+        G_FILE_QUERY_INFO_NONE,
+        NULL,
+        &error);
+    bool result = false;
+    if (info) {
+        result = g_file_info_get_file_type(info) == G_FILE_TYPE_DIRECTORY;
+        g_object_unref(info);
+    }
+    if (error) {
+        g_error_free(error);
+    }
+    g_object_unref(gfile);
+    return result;
+}
+
+bool same_location(const std::string& a, const std::string& b) {
+    GFile* fa = file_for_location(a);
+    GFile* fb = file_for_location(b);
+    const bool same = g_file_equal(fa, fb);
+    g_object_unref(fa);
+    g_object_unref(fb);
+    return same;
 }
 
 static std::vector<FavoriteItem> get_default_favorites() {
@@ -126,7 +244,7 @@ std::string format_size(int64_t size) {
 }
 
 std::string get_mime_type(const std::string& path) {
-    GFile* gfile = g_file_new_for_path(path.c_str());
+    GFile* gfile = file_for_location(path);
     GError* error = NULL;
     GFileInfo* info = g_file_query_info(gfile, G_FILE_ATTRIBUTE_STANDARD_CONTENT_TYPE, G_FILE_QUERY_INFO_NONE, NULL, &error);
     std::string mime = "application/octet-stream";
@@ -203,13 +321,14 @@ std::string get_custom_default_command(const std::string& path) {
 
 bool open_file(const std::string& path) {
     std::string cmd = get_custom_default_command(path);
-    if (!cmd.empty()) {
+    const std::string local_path = location_to_path(path);
+    if (!cmd.empty() && !local_path.empty()) {
         std::vector<std::string> argv = {cmd, path};
         return run_command_async(argv);
     }
     
     // Fallback to GIO launcher
-    GFile* gfile = g_file_new_for_path(path.c_str());
+    GFile* gfile = file_for_location(path);
     char* uri = g_file_get_uri(gfile);
     GError* error = NULL;
     g_app_info_launch_default_for_uri(uri, NULL, &error);
@@ -221,7 +340,7 @@ bool open_file(const std::string& path) {
     g_object_unref(gfile);
     if (success) return true;
 
-    return run_command_async({"xdg-open", path});
+    return run_command_async({"xdg-open", local_path.empty() ? path : local_path});
 }
 
 bool is_dangerous_archive_path(const std::string& path) {
@@ -308,18 +427,13 @@ std::vector<FavoriteItem> get_favorites() {
 }
 
 bool add_favorite(const std::string& path, const std::string& label) {
-    GFile* gfile = nullptr;
-    if (path.rfind("file://", 0) == 0) {
-        gfile = g_file_new_for_uri(path.c_str());
-    } else {
-        gfile = g_file_new_for_path(path.c_str());
-    }
+    GFile* gfile = file_for_location(path);
 
     char* uri = g_file_get_uri(gfile);
     char* local_path = g_file_get_path(gfile);
-    g_object_unref(gfile);
     if (!uri) {
         if (local_path) g_free(local_path);
+        g_object_unref(gfile);
         return false;
     }
     
@@ -328,6 +442,7 @@ bool add_favorite(const std::string& path, const std::string& label) {
         if (fav.uri == uri) {
             g_free(uri);
             if (local_path) g_free(local_path);
+            g_object_unref(gfile);
             return true; // Already exists
         }
     }
@@ -338,17 +453,21 @@ bool add_favorite(const std::string& path, const std::string& label) {
     if (!file.is_open()) {
         g_free(uri);
         if (local_path) g_free(local_path);
+        g_object_unref(gfile);
         return false;
     }
     
     std::string final_label = label;
     if (final_label.empty()) {
-        final_label = local_path ? get_filename(local_path) : "";
+        char* basename = g_file_get_basename(gfile);
+        final_label = basename ? basename : "";
+        if (basename) g_free(basename);
     }
     
     file << uri << " " << final_label << "\n";
     g_free(uri);
     if (local_path) g_free(local_path);
+    g_object_unref(gfile);
     return true;
 }
 
@@ -435,7 +554,7 @@ bool run_command_async(const std::vector<std::string>& argv) {
 }
 
 bool make_directory(const std::string& path) {
-    GFile* gfile = g_file_new_for_path(path.c_str());
+    GFile* gfile = file_for_location(path);
     GError* error = NULL;
     bool success = g_file_make_directory(gfile, NULL, &error);
     if (error) {
@@ -446,7 +565,7 @@ bool make_directory(const std::string& path) {
 }
 
 bool create_empty_file(const std::string& path) {
-    GFile* gfile = g_file_new_for_path(path.c_str());
+    GFile* gfile = file_for_location(path);
     GError* error = NULL;
     GFileOutputStream* stream = g_file_create(gfile, G_FILE_CREATE_NONE, NULL, &error);
     bool success = false;
@@ -463,15 +582,11 @@ bool create_empty_file(const std::string& path) {
 }
 
 std::string get_parent_directory(const std::string& path) {
-    GFile* gfile = g_file_new_for_path(path.c_str());
+    GFile* gfile = file_for_location(path);
     GFile* parent = g_file_get_parent(gfile);
     std::string parent_path = "";
     if (parent) {
-        char* path_str = g_file_get_path(parent);
-        if (path_str) {
-            parent_path = path_str;
-            g_free(path_str);
-        }
+        parent_path = location_from_file(parent);
         g_object_unref(parent);
     }
     g_object_unref(gfile);
@@ -479,7 +594,7 @@ std::string get_parent_directory(const std::string& path) {
 }
 
 std::string get_filename(const std::string& path) {
-    GFile* gfile = g_file_new_for_path(path.c_str());
+    GFile* gfile = file_for_location(path);
     char* basename = g_file_get_basename(gfile);
     std::string filename = "";
     if (basename) {
@@ -491,12 +606,69 @@ std::string get_filename(const std::string& path) {
 }
 
 bool delete_path_recursive(const std::string& path) {
-    try {
-        std::filesystem::remove_all(path);
-        return true;
-    } catch (...) {
-        return false;
+    GFile* gfile = file_for_location(path);
+    GError* error = NULL;
+    GFileInfo* info = g_file_query_info(
+        gfile,
+        G_FILE_ATTRIBUTE_STANDARD_TYPE,
+        G_FILE_QUERY_INFO_NONE,
+        NULL,
+        &error);
+
+    bool success = false;
+    if (info) {
+        if (g_file_info_get_file_type(info) == G_FILE_TYPE_DIRECTORY) {
+            GFileEnumerator* enumerator = g_file_enumerate_children(
+                gfile,
+                G_FILE_ATTRIBUTE_STANDARD_NAME "," G_FILE_ATTRIBUTE_STANDARD_TYPE,
+                G_FILE_QUERY_INFO_NOFOLLOW_SYMLINKS,
+                NULL,
+                &error);
+            success = true;
+            if (enumerator) {
+                GFileInfo* child_info = NULL;
+                while ((child_info = g_file_enumerator_next_file(enumerator, NULL, &error)) != NULL) {
+                    const char* child_name = g_file_info_get_name(child_info);
+                    GFile* child = child_name ? g_file_get_child(gfile, child_name) : NULL;
+                    if (child) {
+                        std::string child_location_str = location_from_file(child);
+                        if (!delete_path_recursive(child_location_str)) {
+                            success = false;
+                        }
+                        g_object_unref(child);
+                    }
+                    g_object_unref(child_info);
+                    if (error) {
+                        success = false;
+                        g_error_free(error);
+                        error = NULL;
+                        break;
+                    }
+                }
+                g_object_unref(enumerator);
+            } else {
+                success = false;
+            }
+        } else {
+            success = true;
+        }
+        g_object_unref(info);
     }
+
+    if (error) {
+        g_error_free(error);
+        error = NULL;
+    }
+
+    if (success) {
+        success = g_file_delete(gfile, NULL, &error);
+        if (error) {
+            g_error_free(error);
+        }
+    }
+
+    g_object_unref(gfile);
+    return success;
 }
 
 std::string get_free_space_description(const std::string& path) {
@@ -511,6 +683,10 @@ std::string get_free_space_description(const std::string& path) {
 std::string normalize_path(const std::string& path) {
     std::string expanded = trim_copy(path);
     if (expanded.empty()) return "";
+
+    if (has_uri_scheme(expanded) && expanded.rfind("file://", 0) != 0) {
+        return expanded;
+    }
 
     if (expanded.rfind("file://", 0) == 0) {
         gchar* local_path = g_filename_from_uri(expanded.c_str(), NULL, NULL);
@@ -539,13 +715,108 @@ std::string normalize_path(const std::string& path) {
 }
 
 void copy_path_recursive(const std::string& src, const std::string& dest) {
-    std::filesystem::copy(src, dest, std::filesystem::copy_options::recursive | std::filesystem::copy_options::overwrite_existing);
+    GFile* src_file = file_for_location(src);
+    GFile* dest_file = file_for_location(dest);
+    GError* error = NULL;
+    GFileInfo* info = g_file_query_info(
+        src_file,
+        G_FILE_ATTRIBUTE_STANDARD_TYPE,
+        G_FILE_QUERY_INFO_NOFOLLOW_SYMLINKS,
+        NULL,
+        &error);
+
+    if (!info) {
+        std::string message = error ? error->message : "Could not query source.";
+        if (error) g_error_free(error);
+        g_object_unref(src_file);
+        g_object_unref(dest_file);
+        throw std::runtime_error(message);
+    }
+
+    if (g_file_info_get_file_type(info) == G_FILE_TYPE_DIRECTORY) {
+        if (!g_file_query_exists(dest_file, NULL)) {
+            if (!g_file_make_directory(dest_file, NULL, &error)) {
+                std::string message = error ? error->message : "Could not create destination folder.";
+                if (error) g_error_free(error);
+                g_object_unref(info);
+                g_object_unref(src_file);
+                g_object_unref(dest_file);
+                throw std::runtime_error(message);
+            }
+        }
+
+        GFileEnumerator* enumerator = g_file_enumerate_children(
+            src_file,
+            G_FILE_ATTRIBUTE_STANDARD_NAME "," G_FILE_ATTRIBUTE_STANDARD_TYPE,
+            G_FILE_QUERY_INFO_NOFOLLOW_SYMLINKS,
+            NULL,
+            &error);
+        if (!enumerator) {
+            std::string message = error ? error->message : "Could not enumerate source folder.";
+            if (error) g_error_free(error);
+            g_object_unref(info);
+            g_object_unref(src_file);
+            g_object_unref(dest_file);
+            throw std::runtime_error(message);
+        }
+
+        GFileInfo* child_info = NULL;
+        while ((child_info = g_file_enumerator_next_file(enumerator, NULL, &error)) != NULL) {
+            const char* child_name = g_file_info_get_name(child_info);
+            if (child_name) {
+                GFile* child_src = g_file_get_child(src_file, child_name);
+                GFile* child_dest = g_file_get_child(dest_file, child_name);
+                std::string child_src_location = location_from_file(child_src);
+                std::string child_dest_location = location_from_file(child_dest);
+                copy_path_recursive(child_src_location, child_dest_location);
+                g_object_unref(child_src);
+                g_object_unref(child_dest);
+            }
+            g_object_unref(child_info);
+        }
+        if (error) {
+            std::string message = error->message;
+            g_error_free(error);
+            g_object_unref(enumerator);
+            g_object_unref(info);
+            g_object_unref(src_file);
+            g_object_unref(dest_file);
+            throw std::runtime_error(message);
+        }
+        g_object_unref(enumerator);
+    } else {
+        if (!g_file_copy(src_file, dest_file,
+                         (GFileCopyFlags)(G_FILE_COPY_OVERWRITE | G_FILE_COPY_ALL_METADATA),
+                         NULL, NULL, NULL, &error)) {
+            std::string message = error ? error->message : "Could not copy file.";
+            if (error) g_error_free(error);
+            g_object_unref(info);
+            g_object_unref(src_file);
+            g_object_unref(dest_file);
+            throw std::runtime_error(message);
+        }
+    }
+
+    g_object_unref(info);
+    g_object_unref(src_file);
+    g_object_unref(dest_file);
 }
 
 bool move_path(const std::string& src, const std::string& dest) {
-    if (std::rename(src.c_str(), dest.c_str()) == 0) {
+    GFile* src_file = file_for_location(src);
+    GFile* dest_file = file_for_location(dest);
+    GError* error = NULL;
+    if (g_file_move(src_file, dest_file, G_FILE_COPY_NONE, NULL, NULL, NULL, &error)) {
+        g_object_unref(src_file);
+        g_object_unref(dest_file);
         return true;
     }
+    if (error) {
+        g_error_free(error);
+        error = NULL;
+    }
+    g_object_unref(src_file);
+    g_object_unref(dest_file);
 
     try {
         copy_path_recursive(src, dest);
@@ -553,6 +824,30 @@ bool move_path(const std::string& src, const std::string& dest) {
     } catch (...) {
         return false;
     }
+}
+
+std::string unique_child_location(const std::string& dest_dir, const std::string& name) {
+    std::string dest = child_location(dest_dir, name);
+    if (!location_exists(dest)) {
+        return dest;
+    }
+
+    std::string base = name;
+    std::string ext = "";
+    size_t dot = name.find_last_of('.');
+    if (dot != std::string::npos && dot > 0) {
+        base = name.substr(0, dot);
+        ext = name.substr(dot);
+    }
+
+    std::string copy_name = base + " copy" + ext;
+    dest = child_location(dest_dir, copy_name);
+    int counter = 2;
+    while (location_exists(dest)) {
+        copy_name = base + " copy " + std::to_string(counter++) + ext;
+        dest = child_location(dest_dir, copy_name);
+    }
+    return dest;
 }
 
 } // namespace utils

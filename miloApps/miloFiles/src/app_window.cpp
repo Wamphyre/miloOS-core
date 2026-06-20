@@ -734,8 +734,7 @@ void AppWindow::load_directory(const std::string& path, bool add_to_history) {
     std::string norm_path = utils::normalize_path(path);
     if (norm_path.empty()) norm_path = g_get_home_dir();
 
-    struct stat st;
-    if (stat(norm_path.c_str(), &st) != 0 || !S_ISDIR(st.st_mode)) {
+    if (!utils::is_directory(norm_path)) {
         norm_path = g_get_home_dir();
     }
     
@@ -767,6 +766,18 @@ void AppWindow::update_breadcrumbs() {
     g_list_free(children);
     
     std::string path = file_view->get_current_dir();
+
+    if (utils::has_uri_scheme(path) && path.rfind("file://", 0) != 0) {
+        GtkWidget* btn = gtk_button_new_with_label(path.c_str());
+        gtk_widget_set_focus_on_click(btn, FALSE);
+        GtkStyleContext* context = gtk_widget_get_style_context(btn);
+        gtk_style_context_add_class(context, "flat");
+        gtk_style_context_add_class(context, "path-btn");
+        gtk_box_pack_start(GTK_BOX(path_box), btn, FALSE, FALSE, 0);
+        gtk_widget_show_all(path_box);
+        return;
+    }
+
     std::vector<std::string> parts;
     
     std::stringstream ss(path);
@@ -1071,16 +1082,31 @@ void AppWindow::handle_drag_data_received(GtkWidget* widget, GdkDragContext* con
     
     std::vector<std::string> src_paths;
     for (int i = 0; uris[i] != NULL; ++i) {
-        gchar* path = g_filename_from_uri(uris[i], NULL, NULL);
-        if (path) {
-            src_paths.push_back(path);
-            g_free(path);
+        GFile* gfile = g_file_new_for_uri(uris[i]);
+        std::string location = utils::location_from_gfile(gfile);
+        if (!location.empty()) {
+            src_paths.push_back(location);
         }
+        g_object_unref(gfile);
     }
     g_strfreev(uris);
     
     if (src_paths.empty()) {
         gtk_drag_finish(context, FALSE, FALSE, time);
+        return;
+    }
+
+    std::string dest_dir = file_view->get_current_dir();
+    bool all_sources_already_here = true;
+    for (const auto& src : src_paths) {
+        std::string parent = utils::get_parent_directory(src);
+        if (parent.empty() || !utils::same_location(parent, dest_dir)) {
+            all_sources_already_here = false;
+            break;
+        }
+    }
+    if (all_sources_already_here) {
+        gtk_drag_finish(context, TRUE, FALSE, time);
         return;
     }
     
@@ -1090,12 +1116,234 @@ void AppWindow::handle_drag_data_received(GtkWidget* widget, GdkDragContext* con
         action = "cut";
     }
     
-    start_paste_operation(src_paths, file_view->get_current_dir(), action);
-    gtk_drag_finish(context, TRUE, action == "cut", time);
+    gtk_drag_finish(context, TRUE, FALSE, time);
+    start_paste_operation(src_paths, dest_dir, action);
+}
+
+struct ClipboardData {
+    std::vector<std::string> uris;
+    std::string action;
+};
+
+static void clipboard_get_func(GtkClipboard*, GtkSelectionData* selection_data, guint info, gpointer user_data) {
+    ClipboardData* data = static_cast<ClipboardData*>(user_data);
+    if (!data) return;
+
+    if (info == 0) {
+        std::string payload = data->action.empty() ? "copy" : data->action;
+        for (const auto& uri : data->uris) {
+            payload += "\n" + uri;
+        }
+        gtk_selection_data_set(
+            selection_data,
+            gdk_atom_intern_static_string("x-special/gnome-copied-files"),
+            8,
+            reinterpret_cast<const guchar*>(payload.c_str()),
+            static_cast<gint>(payload.size()));
+        return;
+    }
+
+    gchar** uri_array = g_new0(gchar*, data->uris.size() + 1);
+    for (size_t i = 0; i < data->uris.size(); ++i) {
+        uri_array[i] = g_strdup(data->uris[i].c_str());
+    }
+    gtk_selection_data_set_uris(selection_data, uri_array);
+    g_strfreev(uri_array);
+}
+
+static void clipboard_clear_func(GtkClipboard*, gpointer user_data) {
+    delete static_cast<ClipboardData*>(user_data);
+}
+
+void AppWindow::set_clipboard_files(const std::vector<std::string>& locations, const std::string& action) {
+    clipboard_files = locations;
+    clipboard_action = action;
+
+    auto* data = new ClipboardData();
+    data->action = action == "cut" ? "cut" : "copy";
+    for (const auto& location : locations) {
+        std::string uri = utils::location_to_uri(location);
+        if (!uri.empty()) {
+            data->uris.push_back(uri);
+        }
+    }
+    if (data->uris.empty()) {
+        delete data;
+        return;
+    }
+
+    GtkTargetEntry targets[] = {
+        {const_cast<gchar*>("x-special/gnome-copied-files"), 0, 0},
+        {const_cast<gchar*>("text/uri-list"), 0, 1},
+    };
+    GtkClipboard* clipboard = gtk_clipboard_get(GDK_SELECTION_CLIPBOARD);
+    gtk_clipboard_set_with_data(
+        clipboard,
+        targets,
+        G_N_ELEMENTS(targets),
+        clipboard_get_func,
+        clipboard_clear_func,
+        data);
+}
+
+bool AppWindow::load_clipboard_files() {
+    GtkClipboard* clipboard = gtk_clipboard_get(GDK_SELECTION_CLIPBOARD);
+    std::vector<std::string> locations;
+    std::string action = "copy";
+
+    GdkAtom copied_atom = gdk_atom_intern_static_string("x-special/gnome-copied-files");
+    GtkSelectionData* copied = gtk_clipboard_wait_for_contents(clipboard, copied_atom);
+    if (copied) {
+        const guchar* raw = gtk_selection_data_get_data(copied);
+        const gint length = gtk_selection_data_get_length(copied);
+        if (raw && length > 0) {
+            std::string payload(reinterpret_cast<const char*>(raw), length);
+            std::stringstream stream(payload);
+            std::string line;
+            bool first = true;
+            while (std::getline(stream, line)) {
+                if (!line.empty() && line.back() == '\r') {
+                    line.pop_back();
+                }
+                if (first) {
+                    action = line == "cut" ? "cut" : "copy";
+                    first = false;
+                    continue;
+                }
+                if (line.empty()) continue;
+                GFile* gfile = g_file_new_for_uri(line.c_str());
+                std::string location = utils::location_from_gfile(gfile);
+                if (!location.empty()) {
+                    locations.push_back(location);
+                }
+                g_object_unref(gfile);
+            }
+        }
+        gtk_selection_data_free(copied);
+    }
+
+    if (locations.empty()) {
+        gchar** uris = gtk_clipboard_wait_for_uris(clipboard);
+        if (uris) {
+            for (int i = 0; uris[i] != NULL; ++i) {
+                GFile* gfile = g_file_new_for_uri(uris[i]);
+                std::string location = utils::location_from_gfile(gfile);
+                if (!location.empty()) {
+                    locations.push_back(location);
+                }
+                g_object_unref(gfile);
+            }
+            g_strfreev(uris);
+            action = "copy";
+        }
+    }
+
+    if (locations.empty()) {
+        return false;
+    }
+
+    clipboard_files = std::move(locations);
+    clipboard_action = action;
+    return true;
+}
+
+bool AppWindow::has_paste_data() {
+    if (!clipboard_files.empty()) {
+        return true;
+    }
+    GtkClipboard* clipboard = gtk_clipboard_get(GDK_SELECTION_CLIPBOARD);
+    return gtk_clipboard_wait_is_target_available(clipboard, gdk_atom_intern_static_string("x-special/gnome-copied-files")) ||
+           gtk_clipboard_wait_is_target_available(clipboard, gdk_atom_intern_static_string("text/uri-list"));
 }
 
 void AppWindow::start_paste_operation(const std::vector<std::string>& src_paths, const std::string& dest_dir, const std::string& action) {
     if (src_paths.empty()) return;
+
+    const std::string resolved_action = action == "cut" ? "cut" : "copy";
+
+    struct PasteJob {
+        std::string src;
+        std::string dest;
+        bool replace;
+    };
+
+    enum class ConflictChoice {
+        Cancel,
+        Skip,
+        Replace,
+        KeepBoth
+    };
+
+    auto ask_conflict = [this](const std::string& name, const std::string& dest) -> ConflictChoice {
+        std::string message = i18n::_("replace_existing_prefix") + name + i18n::_("replace_existing_suffix");
+        GtkWidget* dialog = gtk_message_dialog_new(
+            GTK_WINDOW(window),
+            GTK_DIALOG_MODAL,
+            GTK_MESSAGE_QUESTION,
+            GTK_BUTTONS_NONE,
+            "%s",
+            message.c_str());
+        gtk_window_set_title(GTK_WINDOW(dialog), i18n::_("replace_existing_title").c_str());
+        gtk_message_dialog_format_secondary_text(GTK_MESSAGE_DIALOG(dialog), "%s", dest.c_str());
+        gtk_dialog_add_button(GTK_DIALOG(dialog), i18n::_("cancel").c_str(), GTK_RESPONSE_CANCEL);
+        gtk_dialog_add_button(GTK_DIALOG(dialog), i18n::_("skip").c_str(), 1);
+        gtk_dialog_add_button(GTK_DIALOG(dialog), i18n::_("keep_both").c_str(), 2);
+        gtk_dialog_add_button(GTK_DIALOG(dialog), i18n::_("replace").c_str(), GTK_RESPONSE_ACCEPT);
+        gtk_dialog_set_default_response(GTK_DIALOG(dialog), GTK_RESPONSE_ACCEPT);
+        gint response = gtk_dialog_run(GTK_DIALOG(dialog));
+        gtk_widget_destroy(dialog);
+
+        if (response == GTK_RESPONSE_ACCEPT) return ConflictChoice::Replace;
+        if (response == 1) return ConflictChoice::Skip;
+        if (response == 2) return ConflictChoice::KeepBoth;
+        return ConflictChoice::Cancel;
+    };
+
+    std::vector<PasteJob> jobs;
+    for (const auto& src : src_paths) {
+        if (!utils::location_exists(src)) continue;
+
+        std::string name = utils::get_filename(src);
+        if (name.empty()) continue;
+
+        std::string src_uri = utils::location_to_uri(src);
+        std::string dest_uri = utils::location_to_uri(dest_dir);
+        if (!src_uri.empty() && !dest_uri.empty() &&
+            dest_uri.size() > src_uri.size() &&
+            dest_uri.rfind(src_uri, 0) == 0 &&
+            (src_uri.back() == '/' || dest_uri[src_uri.size()] == '/')) {
+            continue;
+        }
+        if (utils::same_location(src, dest_dir)) continue;
+
+        std::string src_parent = utils::get_parent_directory(src);
+        if (resolved_action == "cut" && !src_parent.empty() && utils::same_location(src_parent, dest_dir)) {
+            continue;
+        }
+
+        std::string dest = utils::child_location(dest_dir, name);
+        bool replace = false;
+        if (utils::location_exists(dest)) {
+            if (utils::same_location(src, dest)) {
+                if (resolved_action == "cut") continue;
+                dest = utils::unique_child_location(dest_dir, name);
+            } else {
+                ConflictChoice choice = ask_conflict(name, dest);
+                if (choice == ConflictChoice::Cancel) return;
+                if (choice == ConflictChoice::Skip) continue;
+                if (choice == ConflictChoice::KeepBoth) {
+                    dest = utils::unique_child_location(dest_dir, name);
+                } else {
+                    replace = true;
+                }
+            }
+        }
+
+        jobs.push_back({src, dest, replace});
+    }
+
+    if (jobs.empty()) return;
+
     operation_cancelled = false;
     
     current_progress_dialog = std::make_shared<ProgressDialog>(
@@ -1107,13 +1355,13 @@ void AppWindow::start_paste_operation(const std::vector<std::string>& src_paths,
     
     auto dialog = current_progress_dialog;
     
-    std::thread([this, src_paths, dest_dir, action, dialog]() {
+    std::thread([this, jobs, resolved_action, dialog]() {
         try {
-            for (const auto& src : src_paths) {
+            for (const auto& job : jobs) {
                 if (this->operation_cancelled.load()) break;
-                if (access(src.c_str(), F_OK) != 0) continue;
+                if (!utils::location_exists(job.src)) continue;
                 
-                std::string name = utils::get_filename(src);
+                std::string name = utils::get_filename(job.src);
                 
                 struct MsgData {
                     std::shared_ptr<ProgressDialog> dlg;
@@ -1128,34 +1376,18 @@ void AppWindow::start_paste_operation(const std::vector<std::string>& src_paths,
                     delete m;
                     return FALSE;
                 }, md);
-                
-                if (dest_dir.rfind(src, 0) == 0) continue;
-                if (action == "cut" && utils::get_parent_directory(src) == dest_dir) continue;
-                
-                std::string dest = dest_dir + "/" + name;
-                if (access(dest.c_str(), F_OK) == 0) {
-                    std::string base = name;
-                    std::string ext = "";
-                    size_t dot = name.find_last_of('.');
-                    if (dot != std::string::npos && dot > 0) {
-                        base = name.substr(0, dot);
-                        ext = name.substr(dot);
-                    }
-                    
-                    std::string copy_name = base + " copy" + ext;
-                    dest = dest_dir + "/" + copy_name;
-                    int counter = 2;
-                    while (access(dest.c_str(), F_OK) == 0) {
-                        copy_name = base + " copy " + std::to_string(counter++) + ext;
-                        dest = dest_dir + "/" + copy_name;
+
+                if (job.replace && utils::location_exists(job.dest) && !utils::same_location(job.src, job.dest)) {
+                    if (!utils::delete_path_recursive(job.dest)) {
+                        throw std::runtime_error("Could not replace " + job.dest);
                     }
                 }
                 
-                if (action == "copy") {
-                    utils::copy_path_recursive(src, dest);
-                } else if (action == "cut") {
-                    if (!utils::move_path(src, dest)) {
-                        throw std::runtime_error("Could not move " + src + " to " + dest);
+                if (resolved_action == "copy") {
+                    utils::copy_path_recursive(job.src, job.dest);
+                } else if (resolved_action == "cut") {
+                    if (!utils::move_path(job.src, job.dest)) {
+                        throw std::runtime_error("Could not move " + job.src + " to " + job.dest);
                     }
                 }
             }
@@ -1166,8 +1398,9 @@ void AppWindow::start_paste_operation(const std::vector<std::string>& src_paths,
                 return FALSE;
             }, this);
             
-            if (action == "cut" && !this->operation_cancelled.load()) {
+            if (resolved_action == "cut" && !this->operation_cancelled.load()) {
                 this->clipboard_files.clear();
+                this->clipboard_action.clear();
             }
         } catch (const std::exception& e) {
             if (!this->operation_cancelled.load()) {
@@ -1379,43 +1612,7 @@ void AppWindow::mount_network_share(const std::string& uri) {
             g_idle_add([](gpointer ud) -> gboolean {
                 NavData* n = static_cast<NavData*>(ud);
                 n->self->reload_sidebar();
-
-                GMount* mount = g_file_find_enclosing_mount(n->gfile, NULL, NULL);
-                if (mount) {
-                    GFile* root = g_mount_get_root(mount);
-                    char* path = g_file_get_path(root);
-                    if (path) {
-                        n->self->load_directory(path);
-                        g_free(path);
-                    }
-                    g_object_unref(root);
-                    g_object_unref(mount);
-                } else {
-                    std::string gvfs_base = "/run/user/" + std::to_string(getuid()) + "/gvfs";
-                    GFile* gvfs_dir = g_file_new_for_path(gvfs_base.c_str());
-                    GFileEnumerator* enumerator = g_file_enumerate_children(
-                        gvfs_dir,
-                        "standard::name,standard::type",
-                        G_FILE_QUERY_INFO_NONE,
-                        NULL,
-                        NULL
-                    );
-                    if (enumerator) {
-                        GFileInfo* info;
-                        std::string latest;
-                        while ((info = g_file_enumerator_next_file(enumerator, NULL, NULL)) != NULL) {
-                            if (g_file_info_get_file_type(info) == G_FILE_TYPE_DIRECTORY) {
-                                latest = gvfs_base + "/" + g_file_info_get_name(info);
-                            }
-                            g_object_unref(info);
-                        }
-                        g_object_unref(enumerator);
-                        if (!latest.empty()) {
-                            n->self->load_directory(latest);
-                        }
-                    }
-                    g_object_unref(gvfs_dir);
-                }
+                n->self->load_directory(utils::location_from_gfile(n->gfile));
 
                 g_object_unref(n->gfile);
                 delete n;
