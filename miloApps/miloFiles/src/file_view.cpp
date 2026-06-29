@@ -43,6 +43,29 @@ static std::string strip_archive_extension(const std::string& filename) {
     return filename;
 }
 
+static void set_uri_selection_data(FileView* self, GtkSelectionData* data) {
+    std::vector<std::string> paths = self->get_selected_paths();
+    gchar** uris = g_new0(gchar*, paths.size() + 1);
+    for (size_t i = 0; i < paths.size(); ++i) {
+        uris[i] = g_strdup(utils::location_to_uri(paths[i]).c_str());
+    }
+    gtk_selection_data_set_uris(data, uris);
+    g_strfreev(uris);
+}
+
+static std::string summarize_locations(const std::vector<std::string>& paths) {
+    std::string message;
+    const size_t limit = 6;
+    for (size_t i = 0; i < paths.size() && i < limit; ++i) {
+        std::string name = utils::get_filename(paths[i]);
+        message += "\n- " + (name.empty() ? paths[i] : name);
+    }
+    if (paths.size() > limit) {
+        message += "\n- ...";
+    }
+    return message;
+}
+
 static GdkPixbuf* get_icon_pixbuf(const std::string& icon_name, int size) {
     std::lock_guard<std::recursive_mutex> lock(_icon_cache_mutex);
     std::string key = icon_name + "_" + std::to_string(size);
@@ -236,6 +259,8 @@ void FileView::setup_icon_view() {
     gtk_icon_view_set_pixbuf_column(GTK_ICON_VIEW(icon_view), 0);
     gtk_icon_view_set_text_column(GTK_ICON_VIEW(icon_view), 1);
     gtk_icon_view_set_item_width(GTK_ICON_VIEW(icon_view), 85);
+    gtk_icon_view_set_column_spacing(GTK_ICON_VIEW(icon_view), 10);
+    gtk_icon_view_set_row_spacing(GTK_ICON_VIEW(icon_view), 10);
     gtk_icon_view_set_selection_mode(GTK_ICON_VIEW(icon_view), GTK_SELECTION_MULTIPLE);
     gtk_style_context_add_class(gtk_widget_get_style_context(icon_view), "file-view");
     
@@ -251,18 +276,18 @@ void FileView::setup_icon_view() {
         self->parent->handle_drag_data_received(w, context, x, y, data, info, time);
     }), this);
 
-    gtk_drag_source_set(icon_view, GDK_BUTTON1_MASK, NULL, 0, (GdkDragAction)(GDK_ACTION_COPY | GDK_ACTION_MOVE));
-    gtk_drag_source_add_uri_targets(icon_view);
+    GtkTargetEntry source_targets[] = {
+        {const_cast<gchar*>("text/uri-list"), 0, 0},
+    };
+    gtk_icon_view_enable_model_drag_source(GTK_ICON_VIEW(icon_view),
+                                           GDK_BUTTON1_MASK,
+                                           source_targets,
+                                           G_N_ELEMENTS(source_targets),
+                                           (GdkDragAction)(GDK_ACTION_COPY | GDK_ACTION_MOVE));
     g_signal_connect(icon_view, "drag-data-get", G_CALLBACK(+[](GtkWidget*, GdkDragContext*, GtkSelectionData* data,
                                                                   guint, guint, gpointer user_data) {
         FileView* self = static_cast<FileView*>(user_data);
-        std::vector<std::string> paths = self->get_selected_paths();
-        gchar** uris = g_new0(gchar*, paths.size() + 1);
-        for (size_t i = 0; i < paths.size(); ++i) {
-            uris[i] = g_strdup(utils::location_to_uri(paths[i]).c_str());
-        }
-        gtk_selection_data_set_uris(data, uris);
-        g_strfreev(uris);
+        set_uri_selection_data(self, data);
     }), this);
 }
 
@@ -285,6 +310,7 @@ void FileView::setup_tree_view() {
     gtk_style_context_add_class(gtk_widget_get_style_context(tree_view), "file-view");
     GtkTreeSelection* select = gtk_tree_view_get_selection(GTK_TREE_VIEW(tree_view));
     gtk_tree_selection_set_mode(select, GTK_SELECTION_MULTIPLE);
+    gtk_tree_view_set_rubber_banding(GTK_TREE_VIEW(tree_view), TRUE);
     
     // Column Name
     GtkTreeViewColumn* col_name = gtk_tree_view_column_new();
@@ -344,18 +370,18 @@ void FileView::setup_tree_view() {
         self->parent->handle_drag_data_received(w, context, x, y, data, info, time);
     }), this);
 
-    gtk_drag_source_set(tree_view, GDK_BUTTON1_MASK, NULL, 0, (GdkDragAction)(GDK_ACTION_COPY | GDK_ACTION_MOVE));
-    gtk_drag_source_add_uri_targets(tree_view);
+    GtkTargetEntry source_targets[] = {
+        {const_cast<gchar*>("text/uri-list"), 0, 0},
+    };
+    gtk_tree_view_enable_model_drag_source(GTK_TREE_VIEW(tree_view),
+                                           GDK_BUTTON1_MASK,
+                                           source_targets,
+                                           G_N_ELEMENTS(source_targets),
+                                           (GdkDragAction)(GDK_ACTION_COPY | GDK_ACTION_MOVE));
     g_signal_connect(tree_view, "drag-data-get", G_CALLBACK(+[](GtkWidget*, GdkDragContext*, GtkSelectionData* data,
                                                                   guint, guint, gpointer user_data) {
         FileView* self = static_cast<FileView*>(user_data);
-        std::vector<std::string> paths = self->get_selected_paths();
-        gchar** uris = g_new0(gchar*, paths.size() + 1);
-        for (size_t i = 0; i < paths.size(); ++i) {
-            uris[i] = g_strdup(utils::location_to_uri(paths[i]).c_str());
-        }
-        gtk_selection_data_set_uris(data, uris);
-        g_strfreev(uris);
+        set_uri_selection_data(self, data);
     }), this);
 }
 
@@ -992,6 +1018,14 @@ void FileView::show_context_menu(GdkEventButton* event, const std::vector<std::s
             self->handle_open_terminal();
         }), this);
         gtk_menu_shell_append(GTK_MENU_SHELL(menu), item_terminal);
+
+        if (utils::is_directory(current_dir)) {
+            GtkWidget* item_fav = gtk_menu_item_new_with_label(i18n::_("add_to_favorites").c_str());
+            g_signal_connect_swapped(item_fav, "activate", G_CALLBACK(+[](FileView* self) {
+                self->handle_add_favorites({self->current_dir});
+            }), this);
+            gtk_menu_shell_append(GTK_MENU_SHELL(menu), item_fav);
+        }
     }
     
     gtk_widget_show_all(menu);
@@ -1308,11 +1342,46 @@ void FileView::handle_rename(const std::vector<std::string>& paths) {
 void FileView::handle_trash(const std::vector<std::string>& paths) {
     if (paths.empty()) return;
     
+    std::vector<std::string> trash_failed;
     for (const auto& path : paths) {
         GFile* gfile = utils::new_gfile_for_location(path);
-        g_file_trash(gfile, NULL, NULL);
+        GError* error = NULL;
+        if (!g_file_trash(gfile, NULL, &error)) {
+            trash_failed.push_back(path);
+        }
+        if (error) {
+            g_error_free(error);
+        }
         g_object_unref(gfile);
     }
+
+    if (!trash_failed.empty()) {
+        GtkWidget* dialog = gtk_message_dialog_new(GTK_WINDOW(parent->get_window()),
+                                                   GTK_DIALOG_MODAL,
+                                                   GTK_MESSAGE_QUESTION,
+                                                   GTK_BUTTONS_YES_NO,
+                                                   "%s", i18n::_("trash_fallback_confirm").c_str());
+        gtk_window_set_title(GTK_WINDOW(dialog), i18n::_("delete_title").c_str());
+        gtk_message_dialog_format_secondary_text(GTK_MESSAGE_DIALOG(dialog),
+                                                 "%s", summarize_locations(trash_failed).c_str());
+        gint response = gtk_dialog_run(GTK_DIALOG(dialog));
+        gtk_widget_destroy(dialog);
+
+        if (response == GTK_RESPONSE_YES) {
+            std::vector<std::string> delete_failed;
+            for (const auto& path : trash_failed) {
+                if (!utils::delete_path_recursive(path)) {
+                    delete_failed.push_back(path);
+                }
+            }
+            if (!delete_failed.empty()) {
+                parent->show_error_dialog(i18n::_("delete_error"), summarize_locations(delete_failed));
+            }
+        } else if (trash_failed.size() == paths.size()) {
+            return;
+        }
+    }
+
     parent->load_directory(current_dir, false);
 }
 
@@ -1329,8 +1398,14 @@ void FileView::handle_delete(const std::vector<std::string>& paths) {
     gtk_widget_destroy(dialog);
     
     if (response == GTK_RESPONSE_YES) {
+        std::vector<std::string> failed;
         for (const auto& path : paths) {
-            utils::delete_path_recursive(path);
+            if (!utils::delete_path_recursive(path)) {
+                failed.push_back(path);
+            }
+        }
+        if (!failed.empty()) {
+            parent->show_error_dialog(i18n::_("delete_error"), summarize_locations(failed));
         }
         parent->load_directory(current_dir, false);
     }

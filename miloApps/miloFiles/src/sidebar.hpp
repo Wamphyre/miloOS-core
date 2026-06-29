@@ -40,6 +40,7 @@ private:
     void handle_empty_trash();
     void handle_rename_favorite(GtkListBoxRow* row, const std::string& name, const std::string& path);
     void handle_remove_favorite(const std::string& path);
+    void handle_add_favorite(const std::string& path, const std::string& name);
     void handle_mount_volume(GVolume* volume);
     void handle_unmount_volume(const std::string& path);
 };

@@ -127,15 +127,11 @@ void Sidebar::setup_sidebar() {
         GMount* mount = g_volume_get_mount(vol);
         if (mount) {
             GFile* loc = g_mount_get_default_location(mount);
-            char* path = g_file_get_path(loc);
-            if (path) {
-                std::string path_s(path);
-                if (path_s != g_get_home_dir() && path_s != "/") {
-                    devices.push_back({name, path_s});
-                    device_icons.push_back(icon_name);
-                    device_volumes.push_back(nullptr);
-                }
-                g_free(path);
+            std::string location = utils::location_from_gfile(loc);
+            if (!location.empty() && location != g_get_home_dir() && location != "/") {
+                devices.push_back({name, location});
+                device_icons.push_back(icon_name);
+                device_volumes.push_back(nullptr);
             }
             g_object_unref(loc);
             g_object_unref(mount);
@@ -160,19 +156,15 @@ void Sidebar::setup_sidebar() {
         }
         
         GFile* loc = g_mount_get_default_location(mount);
-        char* path = g_file_get_path(loc);
-        if (!path) {
-            path = g_file_get_uri(loc);
-            if (!path) {
-                GFile* root = g_mount_get_root(mount);
-                path = g_file_get_uri(root);
-                g_object_unref(root);
-            }
+        std::string location = utils::location_from_gfile(loc);
+        if (location.empty()) {
+            GFile* root = g_mount_get_root(mount);
+            location = utils::location_from_gfile(root);
+            g_object_unref(root);
         }
         
-        if (path) {
-            std::string path_s(path);
-            if (path_s != g_get_home_dir() && path_s != "/") {
+        if (!location.empty()) {
+            if (location != g_get_home_dir() && location != "/") {
                 char* name = g_mount_get_name(mount);
                 std::string icon_name = "folder-remote";
                 GIcon* icon = g_mount_get_icon(mount);
@@ -190,12 +182,11 @@ void Sidebar::setup_sidebar() {
                     }
                     g_object_unref(icon);
                 }
-                devices.push_back({name ? name : "Remote Mount", path_s});
+                devices.push_back({name ? name : "Remote Mount", location});
                 device_icons.push_back(icon_name);
                 device_volumes.push_back(nullptr);
                 if (name) g_free(name);
             }
-            g_free(path);
         }
         g_object_unref(loc);
     }
@@ -435,6 +426,19 @@ gboolean Sidebar::on_button_press(GtkWidget* widget, GdkEventButton* event, gpoi
             gtk_menu_shell_append(GTK_MENU_SHELL(menu), item_mount);
         } 
         else if (path && std::string(path) != g_get_home_dir() && std::string(path) != "/") {
+            GtkWidget* item_fav = gtk_menu_item_new_with_label(i18n::_("add_to_favorites").c_str());
+            struct FavoriteData {
+                Sidebar* self;
+                std::string path;
+                std::string name;
+            };
+            FavoriteData* fav_data = new FavoriteData{self, path, name};
+            g_signal_connect_data(item_fav, "activate", G_CALLBACK(+[](GtkWidget*, gpointer d) {
+                FavoriteData* fd = static_cast<FavoriteData*>(d);
+                fd->self->handle_add_favorite(fd->path, fd->name);
+            }), fav_data, [](gpointer d, GClosure*) { delete static_cast<FavoriteData*>(d); }, G_CONNECT_AFTER);
+            gtk_menu_shell_append(GTK_MENU_SHELL(menu), item_fav);
+
             GtkWidget* item_unmount = gtk_menu_item_new_with_label(i18n::_("unmount_volume").c_str());
             g_object_set_data_full(G_OBJECT(item_unmount), "path", g_strdup(path), g_free);
             g_signal_connect(item_unmount, "activate", G_CALLBACK(+[](GtkWidget* item, gpointer data) {
@@ -525,6 +529,12 @@ void Sidebar::handle_remove_favorite(const std::string& path) {
         utils::remove_favorite(uri);
     }
     reload();
+}
+
+void Sidebar::handle_add_favorite(const std::string& path, const std::string& name) {
+    if (!path.empty() && utils::add_favorite(path, name)) {
+        reload();
+    }
 }
 
 void Sidebar::handle_mount_volume(GVolume* volume) {

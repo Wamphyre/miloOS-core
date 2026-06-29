@@ -65,14 +65,23 @@ static std::string location_from_file(GFile* file) {
         return "";
     }
 
+    char* uri = g_file_get_uri(file);
+    if (uri && !g_str_has_prefix(uri, "file://")) {
+        std::string result = uri;
+        g_free(uri);
+        return result;
+    }
+
     char* path = g_file_get_path(file);
     if (path) {
         std::string result = path;
         g_free(path);
+        if (uri) {
+            g_free(uri);
+        }
         return result;
     }
 
-    char* uri = g_file_get_uri(file);
     std::string result = uri ? uri : "";
     if (uri) {
         g_free(uri);
@@ -503,7 +512,7 @@ bool rename_favorite(const std::string& uri, const std::string& new_label) {
 std::string get_file_type_description(const std::string& path, bool is_dir) {
     if (is_dir) return i18n::_("folder");
     
-    GFile* gfile = g_file_new_for_path(path.c_str());
+    GFile* gfile = file_for_location(path);
     GFileInfo* info = g_file_query_info(gfile, G_FILE_ATTRIBUTE_STANDARD_CONTENT_TYPE, G_FILE_QUERY_INFO_NONE, NULL, NULL);
     std::string desc = i18n::_("file");
     if (info) {
@@ -653,6 +662,12 @@ bool delete_path_recursive(const std::string& path) {
             success = true;
         }
         g_object_unref(info);
+    } else {
+        if (error) {
+            g_error_free(error);
+            error = NULL;
+        }
+        success = true;
     }
 
     if (error) {
