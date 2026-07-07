@@ -366,6 +366,10 @@ xfconf-query -c xfwm4 -p /general/title_alignment -n -t string -s center 2>/dev/
 xfconf-query -c xfwm4 -p /general/button_layout -n -t string -s "CHM|" 2>/dev/null || \
     xfconf-query -c xfwm4 -p /general/button_layout -t string -s "CHM|"
 
+# Keep inactive windows visible. A stale value of 0 makes every unfocused window fully transparent.
+xfconf-query -c xfwm4 -p /general/inactive_opacity -n -t int -s 100 2>/dev/null || \
+    xfconf-query -c xfwm4 -p /general/inactive_opacity -t int -s 100
+
 # Icon theme (WhiteSur-light)
 xfconf-query -c xsettings -p /Net/IconThemeName -n -t string -s WhiteSur-light 2>/dev/null || \
     xfconf-query -c xsettings -p /Net/IconThemeName -t string -s WhiteSur-light

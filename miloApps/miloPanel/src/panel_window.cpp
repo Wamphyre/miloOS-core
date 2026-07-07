@@ -24,12 +24,12 @@ constexpr int PANEL_REALIZED_HEIGHT = 24;
 constexpr int LEADING_SEPARATOR_WIDTH = 6;
 constexpr int MENU_BUTTON_WIDTH = 24;
 constexpr int AFTER_MENU_SEPARATOR_WIDTH = 8;
-constexpr int GLOBAL_MENU_MIN_WIDTH = 720;
 constexpr int STATUS_SEPARATOR_WIDTH = 8;
 constexpr int SYSTRAY_WIDTH = 25;
 constexpr int STATUS_BUTTON_WIDTH = 24;
 constexpr int CLOCK_WIDTH = 117;
 constexpr int ACTIVE_WINDOW_FALLBACK_POLL_SECONDS = 1;
+constexpr int BATTERY_POLL_SECONDS = 30;
 constexpr int ACTIVE_WINDOW_REFRESH_DELAY_MS = 35;
 constexpr int MENU_MAX_RETRIES_PER_WINDOW = 2;
 constexpr int DBUSMENU_LAYOUT_DEPTH = 2;
@@ -53,7 +53,7 @@ std::string css_for_settings(const PanelSettings& settings) {
         << "  min-height: " << settings.height << "px;\n"
         << "}\n"
         << ".milopanel-tray-socket {\n"
-        << "  background-color: " << bg << ";\n"
+        << "  background-color: transparent;\n"
         << "  border: 0;\n"
         << "  padding: 0;\n"
         << "  margin: 0;\n"
@@ -149,8 +149,8 @@ std::string css_for_settings(const PanelSettings& settings) {
         << "  margin: 4px 10px;\n"
         << "}\n"
         << ".milopanel-tray {\n"
-        << "  background: " << bg << ";\n"
-        << "  background-color: " << bg << ";\n"
+        << "  background: transparent;\n"
+        << "  background-color: transparent;\n"
         << "  background-image: none;\n"
         << "  border: 0;\n"
         << "  box-shadow: none;\n"
@@ -159,8 +159,8 @@ std::string css_for_settings(const PanelSettings& settings) {
         << "  min-height: " << PANEL_REALIZED_HEIGHT << "px;\n"
         << "}\n"
         << ".milopanel-tray-socket {\n"
-        << "  background: " << bg << ";\n"
-        << "  background-color: " << bg << ";\n"
+        << "  background: transparent;\n"
+        << "  background-color: transparent;\n"
         << "  background-image: none;\n"
         << "  border: 0;\n"
         << "  box-shadow: none;\n"
@@ -237,6 +237,135 @@ std::string lowercase_ascii(std::string value) {
         return static_cast<char>(std::tolower(c));
     });
     return value;
+}
+
+std::string trim_ascii(std::string value) {
+    auto begin = std::find_if(value.begin(), value.end(), [](unsigned char c) {
+        return !std::isspace(c);
+    });
+    auto end = std::find_if(value.rbegin(), value.rend(), [](unsigned char c) {
+        return !std::isspace(c);
+    }).base();
+    if (begin >= end) {
+        return {};
+    }
+    return std::string(begin, end);
+}
+
+std::string read_text_file(const std::string& path) {
+    gchar* contents = nullptr;
+    gsize length = 0;
+    if (!g_file_get_contents(path.c_str(), &contents, &length, nullptr) || !contents) {
+        return {};
+    }
+    std::string value(contents, length);
+    g_free(contents);
+    return trim_ascii(value);
+}
+
+int read_int_file(const std::string& path, int fallback = -1) {
+    std::string value = read_text_file(path);
+    if (value.empty()) {
+        return fallback;
+    }
+    try {
+        return std::stoi(value);
+    } catch (...) {
+        return fallback;
+    }
+}
+
+struct BatteryInfo {
+    bool present = false;
+    int capacity = -1;
+    std::string status;
+};
+
+BatteryInfo current_battery_info() {
+    BatteryInfo info;
+    GDir* dir = g_dir_open("/sys/class/power_supply", 0, nullptr);
+    if (!dir) {
+        return info;
+    }
+
+    const gchar* name = nullptr;
+    while ((name = g_dir_read_name(dir)) != nullptr) {
+        const std::string base = std::string("/sys/class/power_supply/") + name;
+        if (lowercase_ascii(read_text_file(base + "/type")) != "battery") {
+            continue;
+        }
+
+        const int capacity = read_int_file(base + "/capacity", -1);
+        if (capacity < 0) {
+            continue;
+        }
+
+        info.present = true;
+        info.capacity = std::clamp(capacity, 0, 100);
+        info.status = read_text_file(base + "/status");
+        if (info.status.empty()) {
+            info.status = "Unknown";
+        }
+        break;
+    }
+
+    g_dir_close(dir);
+    return info;
+}
+
+std::string localized_battery_status(const std::string& status) {
+    const std::string lower = lowercase_ascii(status);
+    if (lower == "charging") {
+        return i18n::tr("battery_charging");
+    }
+    if (lower == "discharging") {
+        return i18n::tr("battery_discharging");
+    }
+    if (lower == "full") {
+        return i18n::tr("battery_charged");
+    }
+    if (lower == "not charging") {
+        return i18n::tr("battery_not_charging");
+    }
+    return i18n::tr("battery_unknown");
+}
+
+std::string first_available_icon(const std::vector<std::string>& candidates) {
+    GtkIconTheme* theme = gtk_icon_theme_get_default();
+    for (const std::string& candidate : candidates) {
+        if (!theme || gtk_icon_theme_has_icon(theme, candidate.c_str())) {
+            return candidate;
+        }
+    }
+    return candidates.empty() ? "battery-missing-symbolic" : candidates.back();
+}
+
+std::string battery_icon_name(int capacity, const std::string& status) {
+    const std::string lower_status = lowercase_ascii(status);
+    const bool charging = lower_status == "charging";
+    const bool full = lower_status == "full" || capacity >= 95;
+    std::string bucket = "full";
+    if (capacity <= 5) {
+        bucket = "empty";
+    } else if (capacity <= 15) {
+        bucket = "caution";
+    } else if (capacity <= 35) {
+        bucket = "low";
+    } else if (capacity <= 80) {
+        bucket = "good";
+    }
+
+    std::vector<std::string> candidates;
+    if (full) {
+        candidates.push_back("battery-full-charged-symbolic");
+    }
+    if (charging && !full) {
+        candidates.push_back("battery-" + bucket + "-charging-symbolic");
+    }
+    candidates.push_back("battery-" + bucket + "-symbolic");
+    candidates.push_back("battery-good-symbolic");
+    candidates.push_back("battery-missing-symbolic");
+    return first_available_icon(candidates);
 }
 
 void add_unique_candidate(std::vector<std::string>* candidates, const std::string& value) {
@@ -580,11 +709,14 @@ PanelWindow::PanelWindow(GtkApplication* app, bool reserve_space_override)
     startup_trace("css loaded");
     update_clock();
     startup_trace("clock updated");
+    update_battery();
+    startup_trace("battery updated");
     update_volume();
     startup_trace("volume updated");
     update_active_window();
     startup_trace("active window updated");
     clock_source_id_ = g_timeout_add_seconds(10, on_clock_timeout, this);
+    battery_source_id_ = g_timeout_add_seconds(BATTERY_POLL_SECONDS, on_battery_timeout, this);
     volume_source_id_ = g_timeout_add_seconds(15, on_volume_timeout, this);
     setup_active_window_tracking();
     setup_registrar_signals();
@@ -603,6 +735,9 @@ PanelWindow::PanelWindow(GtkApplication* app, bool reserve_space_override)
 PanelWindow::~PanelWindow() {
     if (clock_source_id_) {
         g_source_remove(clock_source_id_);
+    }
+    if (battery_source_id_) {
+        g_source_remove(battery_source_id_);
     }
     if (volume_source_id_) {
         g_source_remove(volume_source_id_);
@@ -699,16 +834,16 @@ void PanelWindow::build_ui() {
     native_appmenu_ = create_appmenu_widget();
     menu_bar_ = gtk_menu_bar_new();
     gtk_style_context_add_class(gtk_widget_get_style_context(menu_bar_), "milopanel-menubar");
-    gtk_widget_set_size_request(menu_bar_, GLOBAL_MENU_MIN_WIDTH, PANEL_REALIZED_HEIGHT);
+    gtk_widget_set_size_request(menu_bar_, 1, PANEL_REALIZED_HEIGHT);
     gtk_widget_set_hexpand(menu_bar_, TRUE);
     gtk_widget_set_halign(menu_bar_, GTK_ALIGN_FILL);
     gtk_widget_set_valign(menu_bar_, GTK_ALIGN_FILL);
     GtkWidget* menu_slot = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0);
-    gtk_widget_set_size_request(menu_slot, GLOBAL_MENU_MIN_WIDTH, PANEL_REALIZED_HEIGHT);
-    gtk_widget_set_hexpand(menu_slot, FALSE);
+    gtk_widget_set_size_request(menu_slot, 1, PANEL_REALIZED_HEIGHT);
+    gtk_widget_set_hexpand(menu_slot, TRUE);
     if (native_appmenu_) {
         gtk_style_context_add_class(gtk_widget_get_style_context(native_appmenu_), "milopanel-menubar");
-        gtk_widget_set_size_request(native_appmenu_, GLOBAL_MENU_MIN_WIDTH, PANEL_REALIZED_HEIGHT);
+        gtk_widget_set_size_request(native_appmenu_, 1, PANEL_REALIZED_HEIGHT);
         gtk_widget_set_hexpand(native_appmenu_, TRUE);
         gtk_widget_set_halign(native_appmenu_, GTK_ALIGN_FILL);
         gtk_widget_set_valign(native_appmenu_, GTK_ALIGN_FILL);
@@ -717,17 +852,25 @@ void PanelWindow::build_ui() {
         gtk_widget_hide(menu_bar_);
     }
     gtk_box_pack_start(GTK_BOX(menu_slot), menu_bar_, TRUE, TRUE, 0);
-    gtk_box_pack_start(GTK_BOX(bar_), menu_slot, FALSE, FALSE, 0);
-
-    GtkWidget* expand_spacer = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0);
-    gtk_widget_set_hexpand(expand_spacer, TRUE);
-    gtk_box_pack_start(GTK_BOX(bar_), expand_spacer, TRUE, TRUE, 0);
+    gtk_box_pack_start(GTK_BOX(bar_), menu_slot, TRUE, TRUE, 0);
 
     tray_box_ = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0);
     gtk_widget_set_valign(tray_box_, GTK_ALIGN_CENTER);
     gtk_widget_set_size_request(tray_box_, SYSTRAY_WIDTH, PANEL_REALIZED_HEIGHT);
     gtk_style_context_add_class(gtk_widget_get_style_context(tray_box_), "milopanel-tray");
     gtk_box_pack_start(GTK_BOX(bar_), tray_box_, FALSE, FALSE, 0);
+
+    battery_button_ = gtk_button_new();
+    gtk_button_set_relief(GTK_BUTTON(battery_button_), GTK_RELIEF_NONE);
+    gtk_widget_set_can_focus(battery_button_, FALSE);
+    gtk_widget_set_no_show_all(battery_button_, TRUE);
+    gtk_style_context_add_class(gtk_widget_get_style_context(battery_button_), "milopanel-button");
+    battery_image_ = gtk_image_new_from_icon_name("battery-good-symbolic", GTK_ICON_SIZE_MENU);
+    gtk_image_set_pixel_size(GTK_IMAGE(battery_image_), settings_.icon_size);
+    gtk_widget_set_size_request(battery_button_, STATUS_BUTTON_WIDTH, PANEL_REALIZED_HEIGHT);
+    gtk_container_add(GTK_CONTAINER(battery_button_), battery_image_);
+    gtk_widget_set_tooltip_text(battery_button_, i18n::tr("battery").c_str());
+    gtk_box_pack_start(GTK_BOX(bar_), battery_button_, FALSE, FALSE, 0);
 
     gtk_box_pack_start(GTK_BOX(bar_), fixed_spacer(STATUS_SEPARATOR_WIDTH), FALSE, FALSE, 0);
 
@@ -1004,6 +1147,7 @@ void PanelWindow::reload_settings() {
     gtk_widget_set_size_request(bar_, -1, settings_.height);
     update_menu_logo();
     update_clock();
+    update_battery();
     update_volume();
     reposition();
     reserve_screen_space();
@@ -1096,6 +1240,44 @@ void PanelWindow::update_clock() {
     if (last_clock_tooltip_ != tooltip.data()) {
         gtk_widget_set_tooltip_text(clock_label_, tooltip.data());
         last_clock_tooltip_ = tooltip.data();
+    }
+}
+
+void PanelWindow::update_battery() {
+    if (!battery_button_ || !battery_image_) {
+        return;
+    }
+
+    const BatteryInfo info = current_battery_info();
+    if (!info.present) {
+        if (last_battery_visible_) {
+            gtk_widget_hide(battery_button_);
+            last_battery_visible_ = false;
+        }
+        last_battery_label_.clear();
+        last_battery_icon_.clear();
+        return;
+    }
+
+    const std::string icon = battery_icon_name(info.capacity, info.status);
+    const std::string label =
+        i18n::tr("battery") + ": " +
+        std::to_string(info.capacity) + "% (" +
+        localized_battery_status(info.status) + ")";
+
+    if (last_battery_icon_ != icon) {
+        gtk_image_set_from_icon_name(GTK_IMAGE(battery_image_), icon.c_str(), GTK_ICON_SIZE_MENU);
+        gtk_image_set_pixel_size(GTK_IMAGE(battery_image_), settings_.icon_size);
+        last_battery_icon_ = icon;
+    }
+    if (last_battery_label_ != label) {
+        gtk_widget_set_tooltip_text(battery_button_, label.c_str());
+        last_battery_label_ = label;
+    }
+    if (!last_battery_visible_) {
+        gtk_widget_show(battery_image_);
+        gtk_widget_show(battery_button_);
+        last_battery_visible_ = true;
     }
 }
 
@@ -2933,6 +3115,11 @@ void PanelWindow::on_popover_pavucontrol_clicked(GtkButton*, gpointer user_data)
 
 gboolean PanelWindow::on_clock_timeout(gpointer user_data) {
     static_cast<PanelWindow*>(user_data)->update_clock();
+    return TRUE;
+}
+
+gboolean PanelWindow::on_battery_timeout(gpointer user_data) {
+    static_cast<PanelWindow*>(user_data)->update_battery();
     return TRUE;
 }
 

@@ -77,6 +77,21 @@ bool status_notifier_item_allowed(
     const std::string& title,
     const std::string& icon_name,
     const std::string& tooltip_title) {
+    const std::string combined = lowercase_ascii(
+        service + " " + id + " " + title + " " + icon_name + " " + tooltip_title);
+    const char* native_battery_tokens[] = {
+        "xfce4-power-manager",
+        "power-manager",
+        "upower",
+        "battery",
+        nullptr
+    };
+    for (const char** token = native_battery_tokens; *token; ++token) {
+        if (combined.find(*token) != std::string::npos) {
+            return false;
+        }
+    }
+
     const std::string lowered_category = lowercase_ascii(category);
     if (lowered_category == "systemservices" || lowered_category == "hardware") {
         return true;
@@ -85,18 +100,12 @@ bool status_notifier_item_allowed(
         return false;
     }
 
-    const std::string combined = lowercase_ascii(
-        service + " " + id + " " + title + " " + icon_name + " " + tooltip_title);
     const char* allowed_tokens[] = {
         "nm-applet",
         "networkmanager",
         "network-manager",
         "blueman",
         "bluetooth",
-        "xfce4-power-manager",
-        "power-manager",
-        "upower",
-        "battery",
         "udiskie",
         "removable",
         nullptr

@@ -13,6 +13,7 @@
 - Desktop fallback menu labeled as `Escritorio` when `xfdesktop` or the root desktop is active.
 - Filtered system-services tray host for XEmbed and StatusNotifier/AppIndicator icons.
 - App status icons such as media players are ignored; the tray is reserved for system-service/hardware indicators.
+- Native battery indicator shown only when `/sys/class/power_supply` exposes a real battery, placed between the tray and volume controls.
 - Legacy XEmbed tray sockets repaint their native X11 background when the panel theme changes.
 - PulseAudio/PipeWire output and input volume controls through `pactl`.
 - Clock using `%a %d, %R`, tooltip `%A %d %B %Y`, font `SF Pro Text Medium 10`.
@@ -24,7 +25,9 @@
 
 The tray intentionally does not behave like a generic notification area. `miloPanel`
 only accepts system-service and hardware indicators, including NetworkManager,
-Bluetooth, power, battery, removable-device, and similar status providers.
+Bluetooth, removable-device, and similar status providers. Battery state is
+handled by the native battery indicator instead of accepting external power
+manager tray icons.
 
 Both legacy XEmbed icons and StatusNotifier/AppIndicator items are filtered. SNI
 items in `ApplicationStatus` and `Communications` categories are rejected unless

@@ -7,6 +7,7 @@
 
 #include <algorithm>
 #include <cctype>
+#include <cmath>
 #include <cstring>
 #include <functional>
 #include <string>
@@ -106,6 +107,36 @@ unsigned long x11_pixel_for_color(Display* display, const GdkRGBA& color) {
     return fallback_pixel(display, color);
 }
 
+double color_delta(const GdkRGBA& first, const GdkRGBA& second) {
+    return std::max({
+        std::abs(first.red - second.red),
+        std::abs(first.green - second.green),
+        std::abs(first.blue - second.blue)
+    });
+}
+
+double clamp_channel(double value) {
+    return std::max(0.0, std::min(1.0, value));
+}
+
+GdkRGBA opaque_color(GdkRGBA color) {
+    color.red = clamp_channel(color.red);
+    color.green = clamp_channel(color.green);
+    color.blue = clamp_channel(color.blue);
+    color.alpha = 1.0;
+    return color;
+}
+
+GdkRGBA composite_over(const GdkRGBA& foreground, const GdkRGBA& background) {
+    const double alpha = clamp_channel(foreground.alpha);
+    GdkRGBA color;
+    color.red = clamp_channel((foreground.red * alpha) + (background.red * (1.0 - alpha)));
+    color.green = clamp_channel((foreground.green * alpha) + (background.green * (1.0 - alpha)));
+    color.blue = clamp_channel((foreground.blue * alpha) + (background.blue * (1.0 - alpha)));
+    color.alpha = 1.0;
+    return color;
+}
+
 GdkRGBA widget_background_color(GtkWidget* widget, GtkWidget* fallback) {
     GdkRGBA color{0.0, 0.0, 0.0, 1.0};
     GtkWidget* candidates[] = {widget, fallback};
@@ -126,12 +157,150 @@ GdkRGBA widget_background_color(GtkWidget* widget, GtkWidget* fallback) {
         #pragma GCC diagnostic pop
 
         if (color.alpha > 0.0) {
-            color.alpha = 1.0;
             return color;
         }
     }
 
-    return color;
+    return GdkRGBA{0.0, 0.0, 0.0, 1.0};
+}
+
+bool widget_screen_rect(GtkWidget* widget, int& x, int& y, int& width, int& height) {
+    if (!widget) {
+        return false;
+    }
+
+    GdkWindow* window = gtk_widget_get_window(widget);
+    if (!window) {
+        return false;
+    }
+
+    GtkAllocation allocation = {};
+    gtk_widget_get_allocation(widget, &allocation);
+    gdk_window_get_origin(window, &x, &y);
+    if (!gtk_widget_get_has_window(widget)) {
+        x += allocation.x;
+        y += allocation.y;
+    }
+    width = std::max(1, allocation.width);
+    height = std::max(1, allocation.height);
+    return true;
+}
+
+bool window_pixel_color(GtkWidget* widget, GdkWindow* source_window, int x, int y, GdkRGBA& color) {
+    GdkWindow* source = source_window;
+    if (!source) {
+        GdkScreen* screen = widget ? gtk_widget_get_screen(widget) : nullptr;
+        source = screen ? gdk_screen_get_root_window(screen) : nullptr;
+    }
+    if (!source) {
+        return false;
+    }
+
+    if (source_window) {
+        int origin_x = 0;
+        int origin_y = 0;
+        gdk_window_get_origin(source, &origin_x, &origin_y);
+        x -= origin_x;
+        y -= origin_y;
+    }
+
+    const int source_width = std::max(1, gdk_window_get_width(source));
+    const int source_height = std::max(1, gdk_window_get_height(source));
+    x = std::max(0, std::min(source_width - 1, x));
+    y = std::max(0, std::min(source_height - 1, y));
+
+    GdkPixbuf* pixbuf = gdk_pixbuf_get_from_window(source, x, y, 1, 1);
+    if (!pixbuf) {
+        return false;
+    }
+
+    const int channels = gdk_pixbuf_get_n_channels(pixbuf);
+    const guchar* pixels = gdk_pixbuf_get_pixels(pixbuf);
+    const bool valid = channels >= 3 && pixels != nullptr;
+    if (valid) {
+        color.red = pixels[0] / 255.0;
+        color.green = pixels[1] / 255.0;
+        color.blue = pixels[2] / 255.0;
+        color.alpha = 1.0;
+    }
+    g_object_unref(pixbuf);
+    return valid;
+}
+
+bool adjacent_screen_color(GtkWidget* widget, GdkWindow* source_window, GdkRGBA& color) {
+    int x = 0;
+    int y = 0;
+    int width = 1;
+    int height = 1;
+    if (!widget_screen_rect(widget, x, y, width, height)) {
+        return false;
+    }
+
+    GdkScreen* screen = gtk_widget_get_screen(widget);
+    GdkWindow* root = screen ? gdk_screen_get_root_window(screen) : nullptr;
+    const int root_width = root ? gdk_window_get_width(root) : 0;
+    if (x > 0 && window_pixel_color(widget, source_window, x - 1, y + (height / 2), color)) {
+        return true;
+    }
+    if (root_width <= 0 || x + width >= root_width) {
+        return false;
+    }
+    return window_pixel_color(widget, source_window, x + width, y + (height / 2), color);
+}
+
+bool widget_center_screen_color(GtkWidget* widget, GdkWindow* source_window, GdkRGBA& color) {
+    int x = 0;
+    int y = 0;
+    int width = 1;
+    int height = 1;
+    if (!widget_screen_rect(widget, x, y, width, height)) {
+        return false;
+    }
+    return window_pixel_color(widget, source_window, x + (width / 2), y + (height / 2), color);
+}
+
+GdkRGBA xembed_background_color(GtkWidget* socket, GtkWidget* sample_widget, GtkWidget* fallback, GdkWindow* panel_window) {
+    constexpr double visible_edge_delta = 0.04;
+    constexpr double panel_color_delta = 0.18;
+
+    const GdkRGBA panel_color = widget_background_color(socket, fallback);
+    const GdkRGBA solid_panel_color = opaque_color(panel_color);
+
+    GdkRGBA adjacent_color;
+    GdkRGBA center_color;
+    const bool have_panel_adjacent = adjacent_screen_color(sample_widget ? sample_widget : socket, panel_window, adjacent_color);
+    if (have_panel_adjacent) {
+        return adjacent_color;
+    }
+
+    const bool have_adjacent = adjacent_screen_color(sample_widget ? sample_widget : socket, nullptr, adjacent_color);
+    const bool have_center = widget_center_screen_color(socket, nullptr, center_color);
+
+    if (have_adjacent && have_center) {
+        if (color_delta(adjacent_color, center_color) > visible_edge_delta) {
+            return adjacent_color;
+        }
+        if (color_delta(adjacent_color, solid_panel_color) < panel_color_delta) {
+            return adjacent_color;
+        }
+        if (panel_color.alpha < 0.999) {
+            return composite_over(panel_color, center_color);
+        }
+        return adjacent_color;
+    }
+
+    if (have_adjacent) {
+        if (panel_color.alpha >= 0.999 || color_delta(adjacent_color, solid_panel_color) < panel_color_delta) {
+            return adjacent_color;
+        }
+        return composite_over(panel_color, adjacent_color);
+    }
+
+    if (have_center && panel_color.alpha < 0.999) {
+        return composite_over(panel_color, center_color);
+    }
+
+    return solid_panel_color;
 }
 
 void set_xembed_window_background(Display* display, Window window, unsigned long bg_pixel) {
@@ -242,15 +411,25 @@ bool legacy_tray_icon_allowed(const WindowIdentity& identity) {
     const std::string combined = lowercase_ascii(
         identity.res_name + " " + identity.res_class + " " + identity.title);
 
+    const char* native_battery_tokens[] = {
+        "xfce4-power-manager",
+        "power-manager",
+        "upower",
+        "battery",
+        nullptr
+    };
+    for (const char** token = native_battery_tokens; *token; ++token) {
+        if (combined.find(*token) != std::string::npos) {
+            return false;
+        }
+    }
+
     const char* allowed_tokens[] = {
         "nm-applet",
         "networkmanager",
         "network-manager",
         "blueman",
         "bluetooth",
-        "xfce4-power-manager",
-        "power-manager",
-        "upower",
         "udiskie",
         "removable",
         nullptr
@@ -362,7 +541,7 @@ void SystemTrayHost::apply_background(GtkWidget* socket, Window icon_window) {
     }
 
     GtkWidget* fallback = tray_box_ ? gtk_widget_get_parent(tray_box_) : nullptr;
-    GdkRGBA color = widget_background_color(socket, fallback);
+    GdkRGBA color = xembed_background_color(socket, tray_box_, fallback, filter_window_);
     bg_pixel_ = x11_pixel_for_color(display_, color);
 
     GdkWindow* gdk_window = gtk_widget_get_window(socket);
@@ -381,6 +560,20 @@ void SystemTrayHost::apply_background(GtkWidget* socket, Window icon_window) {
     set_xembed_window_tree_background(display_, plug_window, bg_pixel_);
     send_xembed_expose(socket, plug_window);
     gtk_widget_queue_draw(socket);
+}
+
+void SystemTrayHost::schedule_background_refresh(GtkWidget* socket, Window icon_window, guint delay_ms) {
+    if (!socket) {
+        return;
+    }
+
+    auto* refresh = new DeferredRefresh{this, socket, icon_window};
+    g_object_ref(socket);
+    if (delay_ms == 0) {
+        g_idle_add(on_deferred_background_refresh, refresh);
+    } else {
+        g_timeout_add(delay_ms, on_deferred_background_refresh, refresh);
+    }
 }
 
 void SystemTrayHost::dock_icon(Window icon_window) {
@@ -424,9 +617,12 @@ void SystemTrayHost::dock_icon(Window icon_window) {
     gtk_widget_set_size_request(socket, icon_size_, icon_size_);
 
     GdkScreen* screen = gtk_widget_get_screen(tray_box_);
-    GdkVisual* system_visual = screen ? gdk_screen_get_system_visual(screen) : nullptr;
-    if (system_visual) {
-        gtk_widget_set_visual(socket, system_visual);
+    GdkVisual* tray_visual = screen ? gdk_screen_get_system_visual(screen) : nullptr;
+    if (!tray_visual && screen) {
+        tray_visual = gdk_screen_get_rgba_visual(screen);
+    }
+    if (tray_visual) {
+        gtk_widget_set_visual(socket, tray_visual);
     }
 
     gtk_box_pack_start(GTK_BOX(tray_box_), socket, FALSE, FALSE, 0);
@@ -442,6 +638,8 @@ void SystemTrayHost::dock_icon(Window icon_window) {
     apply_background(socket, icon_window);
     gtk_socket_add_id(GTK_SOCKET(socket), icon_window);
     gtk_widget_show(socket);
+    schedule_background_refresh(socket, icon_window, 0);
+    schedule_background_refresh(socket, icon_window, 150);
     icons_.push_back({icon_window, socket});
     g_signal_connect(socket, "plug-added", G_CALLBACK(+[](GtkSocket* socket, gpointer data) {
         auto* host = static_cast<SystemTrayHost*>(data);
@@ -450,6 +648,8 @@ void SystemTrayHost::dock_icon(Window icon_window) {
             : 0;
         if (plug_window != 0) {
             host->apply_background(GTK_WIDGET(socket), plug_window);
+            host->schedule_background_refresh(GTK_WIDGET(socket), plug_window, 0);
+            host->schedule_background_refresh(GTK_WIDGET(socket), plug_window, 150);
         }
         if (tray_debug_enabled()) {
             g_printerr(
@@ -475,6 +675,16 @@ void SystemTrayHost::dock_icon(Window icon_window) {
         }, socket);
         return TRUE;
     }), nullptr);
+}
+
+gboolean SystemTrayHost::on_deferred_background_refresh(gpointer data) {
+    auto* refresh = static_cast<DeferredRefresh*>(data);
+    if (refresh && refresh->host && refresh->socket) {
+        refresh->host->apply_background(refresh->socket, refresh->window);
+        g_object_unref(refresh->socket);
+    }
+    delete refresh;
+    return G_SOURCE_REMOVE;
 }
 
 void SystemTrayHost::forget_socket(GtkWidget* socket) {

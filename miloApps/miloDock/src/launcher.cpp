@@ -238,10 +238,10 @@ std::string normalized_gtk_modules(const char* modules) {
     return result;
 }
 
-Launcher launcher_from_desktop_path(const std::string& desktop_path) {
+Launcher launcher_from_desktop_path(const std::string& desktop_path, bool include_hidden = false) {
     Launcher launcher;
     GDesktopAppInfo* app_info = g_desktop_app_info_new_from_filename(desktop_path.c_str());
-    if (!app_info || !g_app_info_should_show(G_APP_INFO(app_info))) {
+    if (!app_info || (!include_hidden && !g_app_info_should_show(G_APP_INFO(app_info)))) {
         if (app_info) {
             g_object_unref(app_info);
         }
@@ -406,7 +406,7 @@ std::vector<Launcher> load_launchers() {
             if (desktop_path.empty()) {
                 continue;
             }
-            Launcher launcher = launcher_from_desktop_path(desktop_path);
+            Launcher launcher = launcher_from_desktop_path(desktop_path, true);
             if (!launcher.app_info || seen.count(launcher.desktop_id)) {
                 continue;
             }
@@ -446,7 +446,7 @@ std::vector<Launcher> all_desktop_launchers() {
             if (!entry.is_regular_file() || entry.path().extension() != ".desktop") {
                 continue;
             }
-            Launcher launcher = launcher_from_desktop_path(entry.path().string());
+            Launcher launcher = launcher_from_desktop_path(entry.path().string(), true);
             if (!launcher.app_info || seen.count(launcher.desktop_id)) {
                 continue;
             }
@@ -470,7 +470,7 @@ std::vector<Launcher> launchers_from_uri_list(const std::vector<std::string>& ur
         if (desktop_path.empty()) {
             continue;
         }
-        Launcher launcher = launcher_from_desktop_path(desktop_path);
+        Launcher launcher = launcher_from_desktop_path(desktop_path, true);
         if (launcher.app_info) {
             launchers.push_back(std::move(launcher));
         }
@@ -480,7 +480,7 @@ std::vector<Launcher> launchers_from_uri_list(const std::vector<std::string>& ur
 
 Launcher launcher_from_text(const std::string& value) {
     std::string desktop_path = find_desktop_path(value);
-    return desktop_path.empty() ? Launcher() : launcher_from_desktop_path(desktop_path);
+    return desktop_path.empty() ? Launcher() : launcher_from_desktop_path(desktop_path, true);
 }
 
 void save_launcher_order(const std::vector<Launcher>& launchers) {

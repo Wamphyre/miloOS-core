@@ -16,6 +16,7 @@
 - Launches apps through `GDesktopAppInfo`.
 - Uses X11/EWMH to detect running windows, show indicators, activate existing windows, and close windows from the context menu.
 - Shows running applications even when they are not pinned to the dock, when their `.desktop` launcher can be matched.
+- Shows a temporary running-window item when an unpinned app cannot be matched to a `.desktop` launcher, so unknown apps are still visible and activatable.
 - Left-click activates an existing window or launches the app; middle-click opens a new app instance.
 - Drag launchers inside the dock to reorder them.
 - Drop `.desktop` launchers onto the dock to add them.

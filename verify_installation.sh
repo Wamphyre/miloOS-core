@@ -207,11 +207,16 @@ if [ "$EUID" -ne 0 ] && [ -n "$HOME" ]; then
     else
         check_warn "miloDock configuration not found"
     fi
+
+    SESSION_CLIENTS=""
+    if command -v xfconf-query &> /dev/null && [ -n "$DISPLAY" ]; then
+        SESSION_CLIENTS=$(xfconf-query -c xfce4-session -lv 2>/dev/null || true)
+    fi
     
-    if [ -f "$HOME/.config/autostart/Dock.desktop" ] && grep -q "Exec=milodock" "$HOME/.config/autostart/Dock.desktop"; then
-        check_pass "miloDock autostart configured"
+    if echo "$SESSION_CLIENTS" | grep -Eq "/sessions/Failsafe/Client[0-9]_Command.*milodock.*--replace"; then
+        check_pass "miloDock session client configured"
     else
-        check_warn "miloDock autostart not configured"
+        check_warn "miloDock session client not configured"
     fi
 
     if [ -f "$HOME/.config/miloPanel/settings.ini" ]; then
@@ -220,24 +225,31 @@ if [ "$EUID" -ne 0 ] && [ -n "$HOME" ]; then
         check_warn "miloPanel settings not found"
     fi
 
-    if [ -f "$HOME/.config/autostart/Panel.desktop" ] && grep -q "Exec=milopanel --replace" "$HOME/.config/autostart/Panel.desktop"; then
-        check_pass "miloPanel autostart configured"
+    if echo "$SESSION_CLIENTS" | grep -Eq "/sessions/Failsafe/Client[0-9]_Command.*milopanel.*--replace"; then
+        check_pass "miloPanel session client configured"
     else
-        check_warn "miloPanel autostart not configured"
+        check_warn "miloPanel session client not configured"
     fi
     
     # Check xfconf settings
     if command -v xfconf-query &> /dev/null && [ -n "$DISPLAY" ]; then
         THEME=$(xfconf-query -c xfwm4 -p /general/theme 2>/dev/null)
-        if [ "$THEME" = "miloOS" ]; then
-            check_pass "Window manager theme set to miloOS"
+        if [ "$THEME" = "miloOS" ] || [ "$THEME" = "miloOS-Dark" ]; then
+            check_pass "Window manager theme set to $THEME"
         else
             check_warn "Window manager theme not set (current: $THEME)"
         fi
+
+        INACTIVE_OPACITY=$(xfconf-query -c xfwm4 -p /general/inactive_opacity 2>/dev/null)
+        if [ "$INACTIVE_OPACITY" = "100" ]; then
+            check_pass "Inactive windows remain visible"
+        else
+            check_fail "Inactive window opacity is unsafe (current: ${INACTIVE_OPACITY:-unset}; expected: 100)"
+        fi
         
         ICONS=$(xfconf-query -c xsettings -p /Net/IconThemeName 2>/dev/null)
-        if [ "$ICONS" = "Cocoa" ]; then
-            check_pass "Icon theme set to Cocoa"
+        if [ "$ICONS" = "WhiteSur-light" ] || [ "$ICONS" = "WhiteSur-dark" ]; then
+            check_pass "Icon theme set to $ICONS"
         else
             check_warn "Icon theme not set (current: $ICONS)"
         fi

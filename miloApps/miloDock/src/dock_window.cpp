@@ -3,6 +3,7 @@
 #include <glib/gstdio.h>
 
 #include <algorithm>
+#include <cctype>
 #include <cmath>
 #include <sstream>
 
@@ -130,6 +131,51 @@ std::string short_window_label(const TrackedWindow& window, int index) {
         stream << " (minimizada)";
     }
     return stream.str();
+}
+
+std::string first_nonempty_window_value(const TrackedWindow& window) {
+    const std::string values[] = {
+        window.desktop_file,
+        window.gtk_application_id,
+        window.wm_class,
+        window.wm_instance,
+        window.name
+    };
+    for (const std::string& value : values) {
+        if (!value.empty()) {
+            return value;
+        }
+    }
+    return "window-" + std::to_string(window.xid);
+}
+
+std::string sanitized_launcher_id(std::string value) {
+    std::transform(value.begin(), value.end(), value.begin(), [](unsigned char c) {
+        return static_cast<char>(std::tolower(c));
+    });
+    for (char& c : value) {
+        if (!std::isalnum(static_cast<unsigned char>(c)) && c != '_' && c != '-' && c != '.') {
+            c = '-';
+        }
+    }
+    while (value.find("--") != std::string::npos) {
+        value.replace(value.find("--"), 2, "-");
+    }
+    if (value.empty()) {
+        value = "window";
+    }
+    return value;
+}
+
+Launcher fallback_launcher_for_window(const TrackedWindow& window) {
+    Launcher launcher;
+    launcher.desktop_id = "running-" + sanitized_launcher_id(first_nonempty_window_value(window));
+    launcher.name = !window.wm_class.empty() ? window.wm_class : first_nonempty_window_value(window);
+    launcher.match_tokens = !window.identity_tokens.empty() ? window.identity_tokens : window.tokens;
+    if (launcher.match_tokens.empty()) {
+        launcher.match_tokens.insert(sanitized_launcher_id(first_nonempty_window_value(window)));
+    }
+    return launcher;
 }
 
 } // namespace
@@ -527,7 +573,7 @@ Launcher DockWindow::launcher_for_window(const TrackedWindow& window) {
             return launcher;
         }
     }
-    return Launcher();
+    return fallback_launcher_for_window(window);
 }
 
 std::vector<Launcher> DockWindow::launchers_with_running_apps() {
@@ -561,7 +607,7 @@ std::vector<Launcher> DockWindow::launchers_with_running_apps(
         }
 
         Launcher launcher = launcher_for_window(window);
-        if (!launcher.app_info || seen.count(launcher.desktop_id)) {
+        if (launcher.desktop_id.empty() || seen.count(launcher.desktop_id)) {
             continue;
         }
         seen.insert(launcher.desktop_id);
@@ -727,6 +773,7 @@ void DockWindow::show_context_menu(ItemData* item, GdkEventButton* event) {
     gtk_menu_shell_append(GTK_MENU_SHELL(menu), open);
 
     GtkWidget* new_window = gtk_menu_item_new_with_label("Abrir nueva ventana");
+    gtk_widget_set_sensitive(new_window, item->launcher.app_info != nullptr);
     g_signal_connect_data(new_window, "activate", G_CALLBACK(+[](GtkMenuItem*, gpointer raw) {
         auto* action = static_cast<MenuAction*>(raw);
         action->dock->activate_or_launch(action->launcher, true);
@@ -781,7 +828,11 @@ void DockWindow::show_context_menu(ItemData* item, GdkEventButton* event) {
     gtk_menu_shell_append(GTK_MENU_SHELL(menu), gtk_separator_menu_item_new());
 
     GtkWidget* add = gtk_menu_item_new_with_label("Anadir al lanzador");
-    gtk_widget_set_sensitive(add, !launcher_is_persisted(item->launcher));
+    gtk_widget_set_sensitive(
+        add,
+        item->launcher.app_info != nullptr &&
+            !item->launcher.desktop_path.empty() &&
+            !launcher_is_persisted(item->launcher));
     g_signal_connect_data(add, "activate", G_CALLBACK(+[](GtkMenuItem*, gpointer raw) {
         auto* action = static_cast<MenuAction*>(raw);
         action->dock->add_launcher_to_user_config(action->launcher);

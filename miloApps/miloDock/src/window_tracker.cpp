@@ -195,6 +195,8 @@ std::vector<TrackedWindow> WindowTracker::windows() const {
     const Atom fullscreen_atom = atom("_NET_WM_STATE_FULLSCREEN");
     const Atom desktop_atom = atom("_NET_WM_DESKTOP");
     const Atom wm_name_atom = atom("_NET_WM_NAME");
+    const Atom wm_desktop_file_atom = atom("_NET_WM_DESKTOP_FILE");
+    const Atom gtk_application_id_atom = atom("_GTK_APPLICATION_ID");
 
     for (Window xid : window_list(root_, atom("_NET_CLIENT_LIST"))) {
         XWindowAttributes attrs;
@@ -239,6 +241,8 @@ std::vector<TrackedWindow> WindowTracker::windows() const {
                 XFree(class_hint.res_name);
             }
         }
+        window.desktop_file = text(xid, wm_desktop_file_atom);
+        window.gtk_application_id = text(xid, gtk_application_id_atom);
 
         auto states = atom_list(xid, state_atom);
         window.skip_tasklist = atom_in(states, skip_tasklist_atom);
@@ -246,8 +250,19 @@ std::vector<TrackedWindow> WindowTracker::windows() const {
         window.maximized = atom_in(states, max_horz_atom) && atom_in(states, max_vert_atom);
         window.fullscreen = atom_in(states, fullscreen_atom);
         window.desktop = cardinal(xid, desktop_atom, -1);
-        window.identity_tokens = tokens_for_values({window.wm_class, window.wm_instance});
-        window.tokens = tokens_for_values({window.wm_class, window.wm_instance, window.name});
+        window.identity_tokens = tokens_for_values({
+            window.wm_class,
+            window.wm_instance,
+            window.desktop_file,
+            window.gtk_application_id
+        });
+        window.tokens = tokens_for_values({
+            window.wm_class,
+            window.wm_instance,
+            window.desktop_file,
+            window.gtk_application_id,
+            window.name
+        });
         result.push_back(std::move(window));
     }
 

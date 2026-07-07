@@ -37,6 +37,8 @@ private:
     GtkWidget* menu_image_ = nullptr;
     GtkWidget* active_label_ = nullptr;
     GtkWidget* tray_box_ = nullptr;
+    GtkWidget* battery_button_ = nullptr;
+    GtkWidget* battery_image_ = nullptr;
     GtkWidget* volume_button_ = nullptr;
     GtkWidget* volume_image_ = nullptr;
     GtkWidget* volume_label_ = nullptr;
@@ -54,6 +56,7 @@ private:
     GtkWidget* notification_button_ = nullptr;
     GtkCssProvider* css_provider_ = nullptr;
     guint clock_source_id_ = 0;
+    guint battery_source_id_ = 0;
     guint volume_source_id_ = 0;
     guint active_source_id_ = 0;
     guint active_refresh_source_id_ = 0;
@@ -78,6 +81,9 @@ private:
     int last_strut_height_ = 0;
     std::string last_clock_text_;
     std::string last_clock_tooltip_;
+    std::string last_battery_label_;
+    std::string last_battery_icon_;
+    bool last_battery_visible_ = false;
     std::string last_volume_label_;
     std::string last_volume_icon_;
     std::string last_active_text_;
@@ -125,6 +131,7 @@ private:
     void build_menu_button();
     void update_menu_logo();
     void update_clock();
+    void update_battery();
     void update_volume();
     void update_active_window();
     void update_fullscreen_state();
@@ -203,6 +210,7 @@ private:
     static gboolean on_popup_unmap(GtkWidget* widget, gpointer user_data);
     static gboolean on_popup_button_press(GtkWidget* widget, GdkEventButton* event, gpointer user_data);
     static gboolean on_clock_timeout(gpointer user_data);
+    static gboolean on_battery_timeout(gpointer user_data);
     static gboolean on_volume_timeout(gpointer user_data);
     static gboolean on_active_timeout(gpointer user_data);
     static void on_screen_size_changed(GdkScreen* screen, gpointer user_data);

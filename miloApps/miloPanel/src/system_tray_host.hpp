@@ -20,6 +20,12 @@ private:
         GtkWidget* socket = nullptr;
     };
 
+    struct DeferredRefresh {
+        SystemTrayHost* host = nullptr;
+        GtkWidget* socket = nullptr;
+        Window window = 0;
+    };
+
     GtkWidget* tray_box_ = nullptr;
     GdkWindow* filter_window_ = nullptr;
     Display* display_ = nullptr;
@@ -33,7 +39,9 @@ private:
     std::vector<TrayIcon> icons_;
 
     void apply_background(GtkWidget* socket, Window icon_window);
+    void schedule_background_refresh(GtkWidget* socket, Window icon_window, guint delay_ms);
     void dock_icon(Window icon_window);
     void forget_socket(GtkWidget* socket);
     static GdkFilterReturn event_filter(GdkXEvent* xevent, GdkEvent* event, gpointer data);
+    static gboolean on_deferred_background_refresh(gpointer data);
 };
