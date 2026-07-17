@@ -29,6 +29,8 @@ public:
     void start_paste_operation(const std::vector<std::string>& src_paths, const std::string& dest_dir, const std::string& action);
     void start_compress_operation(const std::vector<std::string>& src_paths, const std::string& archive_path, const std::string& format);
     void start_extract_operation(const std::string& archive_path, const std::string& dest_dir);
+    void start_delete_operation(const std::vector<std::string>& paths, const std::string& view_dir);
+    void start_trash_operation(const std::vector<std::string>& paths, const std::string& view_dir);
     
     void select_sidebar_path(const std::string& path);
     void update_breadcrumbs();
@@ -79,7 +81,9 @@ private:
     bool show_hidden;
 
     // Operation tracking
-    std::atomic<bool> operation_cancelled;
+    struct OperationControl;
+    std::shared_ptr<OperationControl> operation_control;
+    std::shared_ptr<std::atomic<bool>> window_alive;
     bool delete_on_destroy;
     std::shared_ptr<ProgressDialog> current_progress_dialog;
 

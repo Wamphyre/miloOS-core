@@ -8,6 +8,7 @@
 #include <functional>
 #include <mutex>
 #include <atomic>
+#include <memory>
 
 class AppWindow;
 
@@ -22,6 +23,7 @@ public:
     void load_directory(const std::string& path, bool show_hidden, const std::string& search_query = "");
     std::string get_current_dir() const;
     std::vector<std::string> get_selected_paths() const;
+    std::string get_drop_destination(GtkWidget* source_widget, gint x, gint y) const;
     void set_view_mode(const std::string& mode); // "icon" or "list"
     void select_all();
     void unselect_all();
@@ -56,11 +58,11 @@ private:
     std::function<void(const std::string&)> on_status_update;
 
     std::string view_mode;
+    std::vector<std::string> drag_source_paths;
 
     // Thumbnail Loading & Cache
-    std::unordered_map<std::string, std::pair<GdkPixbuf*, GdkPixbuf*>> thumbnail_cache;
-    std::atomic<int> current_thumbnail_load_id;
-    std::mutex cache_mutex;
+    struct ThumbnailState;
+    std::shared_ptr<ThumbnailState> thumbnail_state;
 
     GFileMonitor* directory_monitor;
     guint directory_reload_timeout_id;
@@ -72,7 +74,12 @@ private:
     void schedule_directory_reload();
 
     void start_thumbnail_loading(const std::string& dir_path, const std::vector<std::string>& files_to_process);
-    void update_item_thumbnail(const std::string& file_path, GdkPixbuf* icon_pb, GdkPixbuf* list_icon_pb, int load_id);
+    static void update_item_thumbnail(FileView* self,
+                                      const std::shared_ptr<ThumbnailState>& state,
+                                      const std::string& file_path,
+                                      GdkPixbuf* icon_pb,
+                                      GdkPixbuf* list_icon_pb,
+                                      int load_id);
 
     // Callbacks
     static void on_item_activated_icon(GtkIconView* icon_view, GtkTreePath* path, gpointer user_data);

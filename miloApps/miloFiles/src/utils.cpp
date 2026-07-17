@@ -614,14 +614,16 @@ std::string get_filename(const std::string& path) {
     return filename;
 }
 
-bool delete_path_recursive(const std::string& path) {
+bool delete_path_recursive(const std::string& path, GCancellable* cancellable) {
+    if (cancellable && g_cancellable_is_cancelled(cancellable)) return false;
+
     GFile* gfile = file_for_location(path);
     GError* error = NULL;
     GFileInfo* info = g_file_query_info(
         gfile,
         G_FILE_ATTRIBUTE_STANDARD_TYPE,
         G_FILE_QUERY_INFO_NONE,
-        NULL,
+        cancellable,
         &error);
 
     bool success = false;
@@ -631,17 +633,17 @@ bool delete_path_recursive(const std::string& path) {
                 gfile,
                 G_FILE_ATTRIBUTE_STANDARD_NAME "," G_FILE_ATTRIBUTE_STANDARD_TYPE,
                 G_FILE_QUERY_INFO_NOFOLLOW_SYMLINKS,
-                NULL,
+                cancellable,
                 &error);
             success = true;
             if (enumerator) {
                 GFileInfo* child_info = NULL;
-                while ((child_info = g_file_enumerator_next_file(enumerator, NULL, &error)) != NULL) {
+                while ((child_info = g_file_enumerator_next_file(enumerator, cancellable, &error)) != NULL) {
                     const char* child_name = g_file_info_get_name(child_info);
                     GFile* child = child_name ? g_file_get_child(gfile, child_name) : NULL;
                     if (child) {
                         std::string child_location_str = location_from_file(child);
-                        if (!delete_path_recursive(child_location_str)) {
+                        if (!delete_path_recursive(child_location_str, cancellable)) {
                             success = false;
                         }
                         g_object_unref(child);
@@ -676,7 +678,7 @@ bool delete_path_recursive(const std::string& path) {
     }
 
     if (success) {
-        success = g_file_delete(gfile, NULL, &error);
+        success = g_file_delete(gfile, cancellable, &error);
         if (error) {
             g_error_free(error);
         }
@@ -729,7 +731,11 @@ std::string normalize_path(const std::string& path) {
     }
 }
 
-void copy_path_recursive(const std::string& src, const std::string& dest) {
+void copy_path_recursive(const std::string& src, const std::string& dest, GCancellable* cancellable) {
+    if (cancellable && g_cancellable_is_cancelled(cancellable)) {
+        throw std::runtime_error("Operation cancelled.");
+    }
+
     GFile* src_file = file_for_location(src);
     GFile* dest_file = file_for_location(dest);
     GError* error = NULL;
@@ -737,7 +743,7 @@ void copy_path_recursive(const std::string& src, const std::string& dest) {
         src_file,
         G_FILE_ATTRIBUTE_STANDARD_TYPE,
         G_FILE_QUERY_INFO_NOFOLLOW_SYMLINKS,
-        NULL,
+        cancellable,
         &error);
 
     if (!info) {
@@ -749,8 +755,8 @@ void copy_path_recursive(const std::string& src, const std::string& dest) {
     }
 
     if (g_file_info_get_file_type(info) == G_FILE_TYPE_DIRECTORY) {
-        if (!g_file_query_exists(dest_file, NULL)) {
-            if (!g_file_make_directory(dest_file, NULL, &error)) {
+        if (!g_file_query_exists(dest_file, cancellable)) {
+            if (!g_file_make_directory(dest_file, cancellable, &error)) {
                 std::string message = error ? error->message : "Could not create destination folder.";
                 if (error) g_error_free(error);
                 g_object_unref(info);
@@ -764,7 +770,7 @@ void copy_path_recursive(const std::string& src, const std::string& dest) {
             src_file,
             G_FILE_ATTRIBUTE_STANDARD_NAME "," G_FILE_ATTRIBUTE_STANDARD_TYPE,
             G_FILE_QUERY_INFO_NOFOLLOW_SYMLINKS,
-            NULL,
+            cancellable,
             &error);
         if (!enumerator) {
             std::string message = error ? error->message : "Could not enumerate source folder.";
@@ -776,18 +782,20 @@ void copy_path_recursive(const std::string& src, const std::string& dest) {
         }
 
         GFileInfo* child_info = NULL;
-        while ((child_info = g_file_enumerator_next_file(enumerator, NULL, &error)) != NULL) {
+        while ((child_info = g_file_enumerator_next_file(enumerator, cancellable, &error)) != NULL) {
             const char* child_name = g_file_info_get_name(child_info);
             if (child_name) {
                 GFile* child_src = g_file_get_child(src_file, child_name);
                 GFile* child_dest = g_file_get_child(dest_file, child_name);
                 std::string child_src_location = location_from_file(child_src);
                 std::string child_dest_location = location_from_file(child_dest);
-                copy_path_recursive(child_src_location, child_dest_location);
                 g_object_unref(child_src);
                 g_object_unref(child_dest);
+                g_object_unref(child_info);
+                child_info = NULL;
+                copy_path_recursive(child_src_location, child_dest_location, cancellable);
             }
-            g_object_unref(child_info);
+            if (child_info) g_object_unref(child_info);
         }
         if (error) {
             std::string message = error->message;
@@ -801,8 +809,8 @@ void copy_path_recursive(const std::string& src, const std::string& dest) {
         g_object_unref(enumerator);
     } else {
         if (!g_file_copy(src_file, dest_file,
-                         (GFileCopyFlags)(G_FILE_COPY_OVERWRITE | G_FILE_COPY_ALL_METADATA),
-                         NULL, NULL, NULL, &error)) {
+                         G_FILE_COPY_OVERWRITE,
+                         cancellable, NULL, NULL, &error)) {
             std::string message = error ? error->message : "Could not copy file.";
             if (error) g_error_free(error);
             g_object_unref(info);
@@ -817,11 +825,13 @@ void copy_path_recursive(const std::string& src, const std::string& dest) {
     g_object_unref(dest_file);
 }
 
-bool move_path(const std::string& src, const std::string& dest) {
+bool move_path(const std::string& src, const std::string& dest, GCancellable* cancellable) {
+    if (cancellable && g_cancellable_is_cancelled(cancellable)) return false;
+
     GFile* src_file = file_for_location(src);
     GFile* dest_file = file_for_location(dest);
     GError* error = NULL;
-    if (g_file_move(src_file, dest_file, G_FILE_COPY_NONE, NULL, NULL, NULL, &error)) {
+    if (g_file_move(src_file, dest_file, G_FILE_COPY_NONE, cancellable, NULL, NULL, &error)) {
         g_object_unref(src_file);
         g_object_unref(dest_file);
         return true;
@@ -834,8 +844,8 @@ bool move_path(const std::string& src, const std::string& dest) {
     g_object_unref(dest_file);
 
     try {
-        copy_path_recursive(src, dest);
-        return delete_path_recursive(src);
+        copy_path_recursive(src, dest, cancellable);
+        return delete_path_recursive(src, cancellable);
     } catch (...) {
         return false;
     }

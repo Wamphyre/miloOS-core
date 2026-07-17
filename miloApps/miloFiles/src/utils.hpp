@@ -39,11 +39,11 @@ bool make_directory(const std::string& path);
 bool create_empty_file(const std::string& path);
 std::string get_parent_directory(const std::string& path);
 std::string get_filename(const std::string& path);
-bool delete_path_recursive(const std::string& path);
+bool delete_path_recursive(const std::string& path, GCancellable* cancellable = nullptr);
 std::string get_free_space_description(const std::string& path);
 std::string normalize_path(const std::string& path);
-void copy_path_recursive(const std::string& src, const std::string& dest);
-bool move_path(const std::string& src, const std::string& dest);
+void copy_path_recursive(const std::string& src, const std::string& dest, GCancellable* cancellable = nullptr);
+bool move_path(const std::string& src, const std::string& dest, GCancellable* cancellable = nullptr);
 std::string unique_child_location(const std::string& dest_dir, const std::string& name);
 
 } // namespace utils

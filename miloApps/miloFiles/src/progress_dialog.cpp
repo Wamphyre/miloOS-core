@@ -1,11 +1,6 @@
 #include "progress_dialog.hpp"
 #include "i18n.hpp"
 
-struct UpdateMsgData {
-    ProgressDialog* dialog;
-    std::string message;
-};
-
 ProgressDialog::ProgressDialog(GtkWindow* parent, const std::string& title, const std::string& message, std::function<void()> cancel_cb)
     : window(nullptr), lbl_msg(nullptr), pbar(nullptr), pulse_timeout_id(0), cancel_callback(cancel_cb) {
     window = gtk_window_new(GTK_WINDOW_TOPLEVEL);
@@ -18,6 +13,7 @@ ProgressDialog::ProgressDialog(GtkWindow* parent, const std::string& title, cons
     gtk_window_set_default_size(GTK_WINDOW(window), 350, 110);
     gtk_window_set_resizable(GTK_WINDOW(window), FALSE);
     gtk_window_set_position(GTK_WINDOW(window), GTK_WIN_POS_CENTER_ON_PARENT);
+    g_signal_connect(window, "destroy", G_CALLBACK(on_window_destroyed), this);
 
     GtkWidget* vbox = gtk_box_new(GTK_ORIENTATION_VERTICAL, 10);
     gtk_container_set_border_width(GTK_CONTAINER(vbox), 14);
@@ -52,25 +48,18 @@ ProgressDialog::~ProgressDialog() {
 
 gboolean ProgressDialog::pulse_progressbar_callback(gpointer data) {
     ProgressDialog* self = static_cast<ProgressDialog*>(data);
-    if (self->pbar) {
-        gtk_progress_bar_pulse(GTK_PROGRESS_BAR(self->pbar));
-    }
+    if (!self->pbar) return FALSE;
+    gtk_progress_bar_pulse(GTK_PROGRESS_BAR(self->pbar));
     return TRUE;
 }
 
 void ProgressDialog::update_message(const std::string& message) {
-    UpdateMsgData* data = new UpdateMsgData{this, message};
-    g_idle_add([](gpointer user_data) -> gboolean {
-        UpdateMsgData* d = static_cast<UpdateMsgData*>(user_data);
-        if (d->dialog && d->dialog->window && d->dialog->lbl_msg) {
-            gtk_label_set_text(GTK_LABEL(d->dialog->lbl_msg), d->message.c_str());
-        }
-        delete d;
-        return FALSE;
-    }, data);
+    if (window && lbl_msg) {
+        gtk_label_set_text(GTK_LABEL(lbl_msg), message.c_str());
+    }
 }
 
-void ProgressDialog::on_cancel_clicked(GtkWidget* button, gpointer data) {
+void ProgressDialog::on_cancel_clicked(GtkWidget*, gpointer data) {
     ProgressDialog* self = static_cast<ProgressDialog*>(data);
     if (self->cancel_callback) {
         self->cancel_callback();
@@ -78,21 +67,29 @@ void ProgressDialog::on_cancel_clicked(GtkWidget* button, gpointer data) {
     self->close_dialog();
 }
 
+void ProgressDialog::on_window_destroyed(GtkWidget*, gpointer data) {
+    ProgressDialog* self = static_cast<ProgressDialog*>(data);
+    if (self->pulse_timeout_id != 0) {
+        g_source_remove(self->pulse_timeout_id);
+        self->pulse_timeout_id = 0;
+    }
+    self->window = nullptr;
+    self->lbl_msg = nullptr;
+    self->pbar = nullptr;
+}
+
 void ProgressDialog::close_dialog() {
-    g_idle_add([](gpointer user_data) -> gboolean {
-        ProgressDialog* self = static_cast<ProgressDialog*>(user_data);
-        if (self->pulse_timeout_id != 0) {
-            g_source_remove(self->pulse_timeout_id);
-            self->pulse_timeout_id = 0;
-        }
-        if (self->window) {
-            gtk_widget_destroy(self->window);
-            self->window = nullptr;
-            self->lbl_msg = nullptr;
-            self->pbar = nullptr;
-        }
-        return FALSE;
-    }, this);
+    if (pulse_timeout_id != 0) {
+        g_source_remove(pulse_timeout_id);
+        pulse_timeout_id = 0;
+    }
+    if (window) {
+        GtkWidget* dialog_window = window;
+        window = nullptr;
+        lbl_msg = nullptr;
+        pbar = nullptr;
+        gtk_widget_destroy(dialog_window);
+    }
 }
 
 GtkWindow* ProgressDialog::get_widget() {

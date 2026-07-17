@@ -5,6 +5,8 @@
 #include <string>
 #include <vector>
 #include <functional>
+#include <memory>
+#include <atomic>
 
 class Sidebar {
 public:
@@ -23,6 +25,7 @@ private:
     GVolumeMonitor* volume_monitor;
     std::function<void(const std::string&)> on_dir_changed;
     std::vector<GtkWidget*> listboxes;
+    std::shared_ptr<std::atomic<bool>> alive;
 
     void setup_sidebar();
     void add_sidebar_section(const std::string& section_title, 

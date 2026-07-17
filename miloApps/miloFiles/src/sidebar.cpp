@@ -30,7 +30,8 @@ static std::string sidebar_icon_for_path(const std::string& path) {
 }
 
 Sidebar::Sidebar(GtkWindow* parent_window, std::function<void(const std::string&)> on_dir_changed_cb)
-    : parent(parent_window), on_dir_changed(on_dir_changed_cb) {
+    : parent(parent_window), on_dir_changed(on_dir_changed_cb),
+      alive(std::make_shared<std::atomic<bool>>(true)) {
     
     scrolled_window = gtk_scrolled_window_new(NULL, NULL);
     gtk_scrolled_window_set_shadow_type(GTK_SCROLLED_WINDOW(scrolled_window), GTK_SHADOW_NONE);
@@ -58,6 +59,7 @@ Sidebar::Sidebar(GtkWindow* parent_window, std::function<void(const std::string&
 }
 
 Sidebar::~Sidebar() {
+    alive->store(false);
     g_signal_handlers_disconnect_by_data(volume_monitor, this);
     g_object_unref(volume_monitor);
     g_object_unref(icon_group);
@@ -545,8 +547,9 @@ void Sidebar::handle_mount_volume(GVolume* volume) {
     g_free(dev_path);
     
     g_object_ref(volume);
+    std::weak_ptr<std::atomic<bool>> sidebar_alive = alive;
     
-    std::thread([this, dev_str, volume]() {
+    std::thread([this, sidebar_alive, dev_str, volume]() {
         std::string cmd = "udisksctl mount -b " + dev_str;
         FILE* pipe = popen(cmd.c_str(), "r");
         if (pipe) {
@@ -568,13 +571,17 @@ void Sidebar::handle_mount_volume(GVolume* volume) {
                 
                 struct NavigateData {
                     Sidebar* self;
+                    std::weak_ptr<std::atomic<bool>> alive;
                     std::string path;
                 };
-                NavigateData* data = new NavigateData{this, mount_path};
+                NavigateData* data = new NavigateData{this, sidebar_alive, mount_path};
                 g_idle_add([](gpointer user_data) -> gboolean {
                     NavigateData* d = static_cast<NavigateData*>(user_data);
-                    d->self->on_dir_changed(d->path);
-                    d->self->reload();
+                    auto alive_ref = d->alive.lock();
+                    if (alive_ref && alive_ref->load()) {
+                        d->self->on_dir_changed(d->path);
+                        d->self->reload();
+                    }
                     delete d;
                     return FALSE;
                 }, data);
@@ -585,7 +592,8 @@ void Sidebar::handle_mount_volume(GVolume* volume) {
 }
 
 void Sidebar::handle_unmount_volume(const std::string& path) {
-    std::thread([this, path]() {
+    std::weak_ptr<std::atomic<bool>> sidebar_alive = alive;
+    std::thread([this, sidebar_alive, path]() {
         std::vector<std::string> argv = {"gio", "mount", "-u", path};
         gchar** spawn_argv = g_new0(gchar*, argv.size() + 1);
         for (size_t i = 0; i < argv.size(); ++i) {
@@ -597,11 +605,17 @@ void Sidebar::handle_unmount_volume(const std::string& path) {
         }
         g_free(spawn_argv);
         
+        struct ReloadData {
+            Sidebar* self;
+            std::weak_ptr<std::atomic<bool>> alive;
+        };
         g_idle_add([](gpointer user_data) -> gboolean {
-            Sidebar* self = static_cast<Sidebar*>(user_data);
-            self->reload();
+            auto* data = static_cast<ReloadData*>(user_data);
+            auto alive_ref = data->alive.lock();
+            if (alive_ref && alive_ref->load()) data->self->reload();
+            delete data;
             return FALSE;
-        }, this);
+        }, new ReloadData{this, sidebar_alive});
     }).detach();
 }
 

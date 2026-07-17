@@ -15,8 +15,59 @@
 #include <cstring>
 #include <cctype>
 #include <stdexcept>
+#include <filesystem>
 
 static std::atomic<int> open_window_count{0};
+
+struct AppWindow::OperationControl {
+    std::atomic<bool> cancelled{false};
+    GCancellable* cancellable = g_cancellable_new();
+
+    ~OperationControl() {
+        g_object_unref(cancellable);
+    }
+
+    void cancel() {
+        cancelled.store(true);
+        g_cancellable_cancel(cancellable);
+    }
+};
+
+class ScopedTempDirectory {
+public:
+    explicit ScopedTempDirectory(const char* pattern) {
+        GError* error = nullptr;
+        char* created = g_dir_make_tmp(pattern, &error);
+        if (!created) {
+            std::string message = error ? error->message : "Could not create a temporary directory.";
+            if (error) g_error_free(error);
+            throw std::runtime_error(message);
+        }
+        path_ = created;
+        g_free(created);
+    }
+
+    ~ScopedTempDirectory() {
+        std::error_code error;
+        std::filesystem::remove_all(path_, error);
+    }
+
+    const std::string& path() const { return path_; }
+
+private:
+    std::string path_;
+};
+
+static std::string summarize_operation_locations(const std::vector<std::string>& paths) {
+    std::string message;
+    const size_t limit = 6;
+    for (size_t i = 0; i < paths.size() && i < limit; ++i) {
+        const std::string name = utils::get_filename(paths[i]);
+        message += "\n- " + (name.empty() ? paths[i] : name);
+    }
+    if (paths.size() > limit) message += "\n- ...";
+    return message;
+}
 
 static bool run_process_with_cancellation(const std::vector<std::string>& args, 
                                           const std::string& working_dir, 
@@ -89,7 +140,8 @@ static bool run_process_with_cancellation(const std::vector<std::string>& args,
 }
 
 AppWindow::AppWindow(const std::string& initial_dir, bool delete_on_destroy)
-    : history_index(-1), show_hidden(false), operation_cancelled(false),
+    : history_index(-1), show_hidden(false),
+      window_alive(std::make_shared<std::atomic<bool>>(true)),
       delete_on_destroy(delete_on_destroy),
       path_stack(nullptr), path_entry(nullptr), path_completion_model(nullptr), hidden_mitem(nullptr) {
     open_window_count.fetch_add(1);
@@ -151,6 +203,8 @@ AppWindow::AppWindow(const std::string& initial_dir, bool delete_on_destroy)
 }
 
 AppWindow::~AppWindow() {
+    window_alive->store(false);
+    if (operation_control) operation_control->cancel();
     if (path_completion_model) {
         g_object_unref(path_completion_model);
         path_completion_model = nullptr;
@@ -977,7 +1031,8 @@ void AppWindow::on_window_destroy(GtkWidget* widget, gpointer data) {
     (void)widget;
     AppWindow* self = static_cast<AppWindow*>(data);
     if (self) {
-        self->operation_cancelled.store(true);
+        self->window_alive->store(false);
+        if (self->operation_control) self->operation_control->cancel();
     }
     int remaining = open_window_count.fetch_sub(1) - 1;
     if (remaining <= 0) {
@@ -1096,7 +1151,7 @@ void AppWindow::handle_drag_data_received(GtkWidget* widget, GdkDragContext* con
         return;
     }
 
-    std::string dest_dir = file_view->get_current_dir();
+    std::string dest_dir = file_view->get_drop_destination(widget, x, y);
     bool all_sources_already_here = true;
     for (const auto& src : src_paths) {
         std::string parent = utils::get_parent_directory(src);
@@ -1184,6 +1239,7 @@ void AppWindow::set_clipboard_files(const std::vector<std::string>& locations, c
         clipboard_get_func,
         clipboard_clear_func,
         data);
+    gtk_clipboard_set_can_store(clipboard, targets, G_N_ELEMENTS(targets));
 }
 
 bool AppWindow::load_clipboard_files() {
@@ -1344,21 +1400,26 @@ void AppWindow::start_paste_operation(const std::vector<std::string>& src_paths,
 
     if (jobs.empty()) return;
 
-    operation_cancelled = false;
-    
+    if (operation_control) operation_control->cancel();
+    auto control = std::make_shared<OperationControl>();
+    operation_control = control;
+
     current_progress_dialog = std::make_shared<ProgressDialog>(
         GTK_WINDOW(window), 
         i18n::_("paste"), 
         i18n::_("pasting"), 
-        [this]() { this->operation_cancelled = true; }
+        [control]() { control->cancel(); }
     );
     
     auto dialog = current_progress_dialog;
+    std::weak_ptr<std::atomic<bool>> alive = window_alive;
     
-    std::thread([this, jobs, resolved_action, dialog]() {
+    std::thread([this, jobs, resolved_action, dialog, control, alive]() {
+        std::string error_message;
+        bool completed = false;
         try {
             for (const auto& job : jobs) {
-                if (this->operation_cancelled.load()) break;
+                if (control->cancelled.load()) break;
                 if (!utils::location_exists(job.src)) continue;
                 
                 std::string name = utils::get_filename(job.src);
@@ -1378,187 +1439,441 @@ void AppWindow::start_paste_operation(const std::vector<std::string>& src_paths,
                 }, md);
 
                 if (job.replace && utils::location_exists(job.dest) && !utils::same_location(job.src, job.dest)) {
-                    if (!utils::delete_path_recursive(job.dest)) {
+                    if (!utils::delete_path_recursive(job.dest, control->cancellable)) {
                         throw std::runtime_error("Could not replace " + job.dest);
                     }
                 }
                 
                 if (resolved_action == "copy") {
-                    utils::copy_path_recursive(job.src, job.dest);
+                    utils::copy_path_recursive(job.src, job.dest, control->cancellable);
                 } else if (resolved_action == "cut") {
-                    if (!utils::move_path(job.src, job.dest)) {
+                    if (!utils::move_path(job.src, job.dest, control->cancellable)) {
                         throw std::runtime_error("Could not move " + job.src + " to " + job.dest);
                     }
                 }
             }
-            
-            g_idle_add([](gpointer ud) -> gboolean {
-                AppWindow* self = static_cast<AppWindow*>(ud);
-                self->load_directory(self->file_view->get_current_dir(), false);
-                return FALSE;
-            }, this);
-            
-            if (resolved_action == "cut" && !this->operation_cancelled.load()) {
-                this->clipboard_files.clear();
-                this->clipboard_action.clear();
-            }
+            completed = !control->cancelled.load();
         } catch (const std::exception& e) {
-            if (!this->operation_cancelled.load()) {
-                struct ErrData {
-                    AppWindow* self;
-                    std::string err;
-                };
-                ErrData* ed = new ErrData{this, e.what()};
-                g_idle_add([](gpointer ud) -> gboolean {
-                    ErrData* e_d = static_cast<ErrData*>(ud);
-                    e_d->self->show_error_dialog(i18n::_("paste_error"), e_d->err);
-                    delete e_d;
-                    return FALSE;
-                }, ed);
-            }
+            if (!control->cancelled.load()) error_message = e.what();
         }
-        
+
+        struct CompletionData {
+            AppWindow* self;
+            std::weak_ptr<std::atomic<bool>> alive;
+            std::shared_ptr<OperationControl> control;
+            std::shared_ptr<ProgressDialog> dialog;
+            std::string action;
+            std::string error;
+            bool completed;
+        };
         g_idle_add([](gpointer ud) -> gboolean {
-            auto d = static_cast<std::shared_ptr<ProgressDialog>*>(ud);
-            (*d)->close_dialog();
+            auto* d = static_cast<CompletionData*>(ud);
+            d->dialog->close_dialog();
+            auto alive_ref = d->alive.lock();
+            if (alive_ref && alive_ref->load()) {
+                if (d->self->current_progress_dialog == d->dialog) {
+                    d->self->current_progress_dialog.reset();
+                }
+                if (d->self->operation_control == d->control) {
+                    d->self->operation_control.reset();
+                }
+                if (!d->error.empty()) {
+                    d->self->show_error_dialog(i18n::_("paste_error"), d->error);
+                } else if (d->completed) {
+                    if (d->action == "cut") {
+                        d->self->clipboard_files.clear();
+                        d->self->clipboard_action.clear();
+                    }
+                    d->self->load_directory(d->self->file_view->get_current_dir(), false);
+                }
+            }
             delete d;
             return FALSE;
-        }, new std::shared_ptr<ProgressDialog>(dialog));
+        }, new CompletionData{this, alive, control, dialog, resolved_action, error_message, completed});
     }).detach();
 }
 
 void AppWindow::start_compress_operation(const std::vector<std::string>& src_paths, const std::string& archive_path, const std::string& format) {
     if (src_paths.empty()) return;
-    operation_cancelled = false;
-    
+    if (operation_control) operation_control->cancel();
+    auto control = std::make_shared<OperationControl>();
+    operation_control = control;
+
     current_progress_dialog = std::make_shared<ProgressDialog>(
         GTK_WINDOW(window), 
         i18n::_("compress"), 
         i18n::_("compressing"), 
-        [this]() { this->operation_cancelled = true; }
+        [control]() { control->cancel(); }
     );
     
     auto dialog = current_progress_dialog;
-    
-    std::thread([this, src_paths, archive_path, format, dialog]() {
+    std::weak_ptr<std::atomic<bool>> alive = window_alive;
+    const std::string source_dir = file_view->get_current_dir();
+
+    std::thread([this, src_paths, archive_path, format, source_dir, dialog, control, alive]() {
         std::atomic<GPid> active_gpid{0};
         std::string process_error;
-        
-        std::vector<std::string> args;
-        if (format == "zip") {
-            args = {"7z", "a", "-tzip", archive_path};
-            args.insert(args.end(), src_paths.begin(), src_paths.end());
-        } else if (format == "7z") {
-            args = {"7z", "a", "-t7z", archive_path};
-            args.insert(args.end(), src_paths.begin(), src_paths.end());
-        } else {
-            args = {"tar", "-caf", archive_path};
-            std::string cur = file_view->get_current_dir();
-            for (const auto& p : src_paths) {
-                if (p.rfind(cur, 0) == 0 && p.size() > cur.size() + 1) {
-                    args.push_back(p.substr(cur.size() + 1));
-                } else {
-                    args.push_back(p);
+        std::string error_message;
+        bool completed = false;
+
+        try {
+            bool stage_sources = false;
+            for (const auto& source : src_paths) {
+                if (utils::location_to_path(source).empty()) {
+                    stage_sources = true;
+                    break;
                 }
             }
+
+            const std::string native_archive = utils::location_to_path(archive_path);
+            const bool upload_archive = native_archive.empty();
+            std::unique_ptr<ScopedTempDirectory> temporary;
+            if (stage_sources || upload_archive) {
+                temporary = std::make_unique<ScopedTempDirectory>("milofiles-compress-XXXXXX");
+            }
+
+            std::string command_working_dir = utils::location_to_path(source_dir);
+            std::vector<std::string> command_sources;
+            if (stage_sources) {
+                command_working_dir = temporary->path() + "/input";
+                std::filesystem::create_directories(command_working_dir);
+                for (const auto& source : src_paths) {
+                    if (control->cancelled.load()) throw std::runtime_error("Operation cancelled.");
+                    const std::string name = utils::get_filename(source);
+                    if (name.empty()) throw std::runtime_error("A selected item has no valid name.");
+                    const std::string staged = command_working_dir + "/" + name;
+                    utils::copy_path_recursive(source, staged, control->cancellable);
+                    command_sources.push_back(name);
+                }
+            } else {
+                if (command_working_dir.empty()) {
+                    command_working_dir = std::filesystem::current_path().string();
+                }
+                command_sources = src_paths;
+            }
+
+            std::string command_archive = native_archive;
+            if (upload_archive) {
+                std::string archive_name = utils::get_filename(archive_path);
+                if (archive_name.empty()) archive_name = "archive." + format;
+                command_archive = temporary->path() + "/" + archive_name;
+            }
+
+            std::vector<std::string> args;
+            if (format == "zip") {
+                args = {"7z", "a", "-tzip", command_archive};
+                args.insert(args.end(), command_sources.begin(), command_sources.end());
+            } else if (format == "7z") {
+                args = {"7z", "a", "-t7z", command_archive};
+                args.insert(args.end(), command_sources.begin(), command_sources.end());
+            } else {
+                args = {"tar", "-caf", command_archive};
+                for (const auto& source : command_sources) {
+                    if (!stage_sources && source.rfind(command_working_dir + "/", 0) == 0) {
+                        args.push_back(source.substr(command_working_dir.size() + 1));
+                    } else {
+                        args.push_back(source);
+                    }
+                }
+            }
+
+            bool ok = run_process_with_cancellation(
+                args, command_working_dir, active_gpid, control->cancelled, &process_error);
+            if (!ok) {
+                if (control->cancelled.load()) throw std::runtime_error("Operation cancelled.");
+                throw std::runtime_error(process_error.empty()
+                    ? "Failed to run compression command."
+                    : process_error);
+            }
+
+            if (upload_archive) {
+                utils::copy_path_recursive(command_archive, archive_path, control->cancellable);
+            }
+            completed = !control->cancelled.load();
+        } catch (const std::exception& error) {
+            if (!control->cancelled.load()) error_message = error.what();
         }
-        
-        bool ok = run_process_with_cancellation(args, file_view->get_current_dir(), active_gpid, operation_cancelled, &process_error);
-        
+
+        struct CompletionData {
+            AppWindow* self;
+            std::weak_ptr<std::atomic<bool>> alive;
+            std::shared_ptr<OperationControl> control;
+            std::shared_ptr<ProgressDialog> dialog;
+            std::string error;
+            bool completed;
+        };
         g_idle_add([](gpointer ud) -> gboolean {
-            AppWindow* self = static_cast<AppWindow*>(ud);
-            self->load_directory(self->file_view->get_current_dir(), false);
-            return FALSE;
-        }, this);
-        
-        if (!ok && !operation_cancelled.load()) {
-            struct ErrData {
-                AppWindow* self;
-                std::string err;
-            };
-            ErrData* ed = new ErrData{this, process_error.empty() ? "Failed to run compression command." : process_error};
-            g_idle_add([](gpointer ud) -> gboolean {
-                ErrData* e_d = static_cast<ErrData*>(ud);
-                e_d->self->show_error_dialog(i18n::_("compress_error"), e_d->err);
-                delete e_d;
-                return FALSE;
-            }, ed);
-        }
-        
-        g_idle_add([](gpointer ud) -> gboolean {
-            auto d = static_cast<std::shared_ptr<ProgressDialog>*>(ud);
-            (*d)->close_dialog();
+            auto* d = static_cast<CompletionData*>(ud);
+            d->dialog->close_dialog();
+            auto alive_ref = d->alive.lock();
+            if (alive_ref && alive_ref->load()) {
+                if (d->self->current_progress_dialog == d->dialog) {
+                    d->self->current_progress_dialog.reset();
+                }
+                if (d->self->operation_control == d->control) {
+                    d->self->operation_control.reset();
+                }
+                if (!d->error.empty()) {
+                    d->self->show_error_dialog(i18n::_("compress_error"), d->error);
+                } else if (d->completed) {
+                    d->self->load_directory(d->self->file_view->get_current_dir(), false);
+                }
+            }
             delete d;
             return FALSE;
-        }, new std::shared_ptr<ProgressDialog>(dialog));
+        }, new CompletionData{this, alive, control, dialog, error_message, completed});
     }).detach();
 }
 
 void AppWindow::start_extract_operation(const std::string& archive_path, const std::string& dest_dir) {
-    operation_cancelled = false;
-    
+    if (operation_control) operation_control->cancel();
+    auto control = std::make_shared<OperationControl>();
+    operation_control = control;
+
     current_progress_dialog = std::make_shared<ProgressDialog>(
         GTK_WINDOW(window), 
         i18n::_("extract_here"), 
         i18n::_("extracting"), 
-        [this]() { this->operation_cancelled = true; }
+        [control]() { control->cancel(); }
     );
     
     auto dialog = current_progress_dialog;
+    std::weak_ptr<std::atomic<bool>> alive = window_alive;
     
-    std::thread([this, archive_path, dest_dir, dialog]() {
+    std::thread([this, archive_path, dest_dir, dialog, control, alive]() {
         std::atomic<GPid> active_gpid{0};
         std::string process_error;
-        
-        std::string arch_lower = archive_path;
-        std::transform(arch_lower.begin(), arch_lower.end(), arch_lower.begin(), ::tolower);
-        
-        std::vector<std::string> args;
-        auto ends_with = [](const std::string& value, const std::string& suffix) {
-            return value.size() >= suffix.size() &&
-                   value.compare(value.size() - suffix.size(), suffix.size(), suffix) == 0;
-        };
-        bool is_tar_archive = ends_with(arch_lower, ".tar") ||
-                              ends_with(arch_lower, ".tar.gz") ||
-                              ends_with(arch_lower, ".tgz") ||
-                              ends_with(arch_lower, ".tar.bz2") ||
-                              ends_with(arch_lower, ".tbz2") ||
-                              ends_with(arch_lower, ".tar.xz") ||
-                              ends_with(arch_lower, ".txz");
-        if (is_tar_archive) {
-            args = {"tar", "-xf", archive_path, "-C", dest_dir};
-        } else {
-            args = {"7z", "x", "-y", archive_path, "-o" + dest_dir};
-        }
-        
-        bool ok = run_process_with_cancellation(args, dest_dir, active_gpid, operation_cancelled, &process_error);
-        
-        g_idle_add([](gpointer ud) -> gboolean {
-            AppWindow* self = static_cast<AppWindow*>(ud);
-            self->load_directory(self->file_view->get_current_dir(), false);
-            return FALSE;
-        }, this);
-        
-        if (!ok && !operation_cancelled.load()) {
-            struct ErrData {
-                AppWindow* self;
-                std::string err;
+        std::string error_message;
+        bool completed = false;
+
+        try {
+            const std::string native_archive = utils::location_to_path(archive_path);
+            const std::string native_dest = utils::location_to_path(dest_dir);
+            const bool stage_archive = native_archive.empty();
+            const bool upload_results = native_dest.empty();
+            std::unique_ptr<ScopedTempDirectory> temporary;
+            if (stage_archive || upload_results) {
+                temporary = std::make_unique<ScopedTempDirectory>("milofiles-extract-XXXXXX");
+            }
+
+            std::string command_archive = native_archive;
+            if (stage_archive) {
+                std::string archive_name = utils::get_filename(archive_path);
+                if (archive_name.empty()) archive_name = "archive";
+                command_archive = temporary->path() + "/" + archive_name;
+                utils::copy_path_recursive(archive_path, command_archive, control->cancellable);
+            }
+
+            std::string command_dest = native_dest;
+            if (upload_results) {
+                command_dest = temporary->path() + "/output";
+                std::filesystem::create_directories(command_dest);
+            }
+
+            std::string arch_lower = command_archive;
+            std::transform(arch_lower.begin(), arch_lower.end(), arch_lower.begin(), ::tolower);
+            auto has_suffix = [](const std::string& value, const std::string& suffix) {
+                return value.size() >= suffix.size() &&
+                       value.compare(value.size() - suffix.size(), suffix.size(), suffix) == 0;
             };
-            ErrData* ed = new ErrData{this, process_error.empty() ? "Failed to run extraction command." : process_error};
-            g_idle_add([](gpointer ud) -> gboolean {
-                ErrData* e_d = static_cast<ErrData*>(ud);
-                e_d->self->show_error_dialog(i18n::_("extract_error"), e_d->err);
-                delete e_d;
-                return FALSE;
-            }, ed);
+            bool is_tar_archive = has_suffix(arch_lower, ".tar") ||
+                                  has_suffix(arch_lower, ".tar.gz") ||
+                                  has_suffix(arch_lower, ".tgz") ||
+                                  has_suffix(arch_lower, ".tar.bz2") ||
+                                  has_suffix(arch_lower, ".tbz2") ||
+                                  has_suffix(arch_lower, ".tar.xz") ||
+                                  has_suffix(arch_lower, ".txz");
+
+            std::vector<std::string> args;
+            if (is_tar_archive) {
+                args = {"tar", "-xf", command_archive, "-C", command_dest};
+            } else {
+                args = {"7z", "x", "-y", command_archive, "-o" + command_dest};
+            }
+
+            bool ok = run_process_with_cancellation(
+                args, command_dest, active_gpid, control->cancelled, &process_error);
+            if (!ok) {
+                if (control->cancelled.load()) throw std::runtime_error("Operation cancelled.");
+                throw std::runtime_error(process_error.empty()
+                    ? "Failed to run extraction command."
+                    : process_error);
+            }
+
+            if (upload_results) {
+                for (const auto& entry : std::filesystem::directory_iterator(command_dest)) {
+                    if (control->cancelled.load()) throw std::runtime_error("Operation cancelled.");
+                    const std::string target = utils::child_location(dest_dir, entry.path().filename().string());
+                    utils::copy_path_recursive(entry.path().string(), target, control->cancellable);
+                }
+            }
+            completed = !control->cancelled.load();
+        } catch (const std::exception& error) {
+            if (!control->cancelled.load()) error_message = error.what();
         }
-        
+
+        struct CompletionData {
+            AppWindow* self;
+            std::weak_ptr<std::atomic<bool>> alive;
+            std::shared_ptr<OperationControl> control;
+            std::shared_ptr<ProgressDialog> dialog;
+            std::string error;
+            bool completed;
+        };
         g_idle_add([](gpointer ud) -> gboolean {
-            auto d = static_cast<std::shared_ptr<ProgressDialog>*>(ud);
-            (*d)->close_dialog();
+            auto* d = static_cast<CompletionData*>(ud);
+            d->dialog->close_dialog();
+            auto alive_ref = d->alive.lock();
+            if (alive_ref && alive_ref->load()) {
+                if (d->self->current_progress_dialog == d->dialog) {
+                    d->self->current_progress_dialog.reset();
+                }
+                if (d->self->operation_control == d->control) {
+                    d->self->operation_control.reset();
+                }
+                if (!d->error.empty()) {
+                    d->self->show_error_dialog(i18n::_("extract_error"), d->error);
+                } else if (d->completed) {
+                    d->self->load_directory(d->self->file_view->get_current_dir(), false);
+                }
+            }
             delete d;
             return FALSE;
-        }, new std::shared_ptr<ProgressDialog>(dialog));
+        }, new CompletionData{this, alive, control, dialog, error_message, completed});
+    }).detach();
+}
+
+void AppWindow::start_delete_operation(const std::vector<std::string>& paths, const std::string& view_dir) {
+    if (paths.empty()) return;
+    if (operation_control) operation_control->cancel();
+    auto control = std::make_shared<OperationControl>();
+    operation_control = control;
+
+    current_progress_dialog = std::make_shared<ProgressDialog>(
+        GTK_WINDOW(window),
+        i18n::_("delete"),
+        i18n::_("deleting"),
+        [control]() { control->cancel(); });
+
+    auto dialog = current_progress_dialog;
+    std::weak_ptr<std::atomic<bool>> alive = window_alive;
+
+    std::thread([this, paths, view_dir, dialog, control, alive]() {
+        std::vector<std::string> failed;
+        for (const auto& path : paths) {
+            if (control->cancelled.load()) break;
+            if (!utils::delete_path_recursive(path, control->cancellable)) {
+                if (!control->cancelled.load()) failed.push_back(path);
+            }
+        }
+
+        struct CompletionData {
+            AppWindow* self;
+            std::weak_ptr<std::atomic<bool>> alive;
+            std::shared_ptr<OperationControl> control;
+            std::shared_ptr<ProgressDialog> dialog;
+            std::vector<std::string> failed;
+            std::string view_dir;
+        };
+        g_idle_add([](gpointer ud) -> gboolean {
+            auto* d = static_cast<CompletionData*>(ud);
+            d->dialog->close_dialog();
+            auto alive_ref = d->alive.lock();
+            if (alive_ref && alive_ref->load()) {
+                if (d->self->current_progress_dialog == d->dialog) {
+                    d->self->current_progress_dialog.reset();
+                }
+                if (d->self->operation_control == d->control) {
+                    d->self->operation_control.reset();
+                }
+                if (!d->failed.empty()) {
+                    d->self->show_error_dialog(
+                        i18n::_("delete_error"), summarize_operation_locations(d->failed));
+                }
+                if (utils::same_location(d->self->file_view->get_current_dir(), d->view_dir)) {
+                    d->self->load_directory(d->view_dir, false);
+                }
+            }
+            delete d;
+            return FALSE;
+        }, new CompletionData{this, alive, control, dialog, std::move(failed), view_dir});
+    }).detach();
+}
+
+void AppWindow::start_trash_operation(const std::vector<std::string>& paths, const std::string& view_dir) {
+    if (paths.empty()) return;
+    if (operation_control) operation_control->cancel();
+    auto control = std::make_shared<OperationControl>();
+    operation_control = control;
+
+    current_progress_dialog = std::make_shared<ProgressDialog>(
+        GTK_WINDOW(window),
+        i18n::_("trash_action"),
+        i18n::_("trashing"),
+        [control]() { control->cancel(); });
+
+    auto dialog = current_progress_dialog;
+    std::weak_ptr<std::atomic<bool>> alive = window_alive;
+
+    std::thread([this, paths, view_dir, dialog, control, alive]() {
+        std::vector<std::string> failed;
+        for (const auto& path : paths) {
+            if (control->cancelled.load()) break;
+            GFile* file = utils::new_gfile_for_location(path);
+            GError* error = nullptr;
+            if (!g_file_trash(file, control->cancellable, &error) && !control->cancelled.load()) {
+                failed.push_back(path);
+            }
+            if (error) g_error_free(error);
+            g_object_unref(file);
+        }
+
+        struct CompletionData {
+            AppWindow* self;
+            std::weak_ptr<std::atomic<bool>> alive;
+            std::shared_ptr<OperationControl> control;
+            std::shared_ptr<ProgressDialog> dialog;
+            std::vector<std::string> failed;
+            std::string view_dir;
+        };
+        g_idle_add([](gpointer ud) -> gboolean {
+            auto* d = static_cast<CompletionData*>(ud);
+            d->dialog->close_dialog();
+            auto alive_ref = d->alive.lock();
+            if (alive_ref && alive_ref->load()) {
+                if (d->self->current_progress_dialog == d->dialog) {
+                    d->self->current_progress_dialog.reset();
+                }
+                if (d->self->operation_control == d->control) {
+                    d->self->operation_control.reset();
+                }
+
+                if (!d->failed.empty() && !d->control->cancelled.load()) {
+                    GtkWidget* confirm = gtk_message_dialog_new(
+                        d->self->get_window(),
+                        GTK_DIALOG_MODAL,
+                        GTK_MESSAGE_QUESTION,
+                        GTK_BUTTONS_YES_NO,
+                        "%s", i18n::_("trash_fallback_confirm").c_str());
+                    gtk_window_set_title(GTK_WINDOW(confirm), i18n::_("delete_title").c_str());
+                    gtk_message_dialog_format_secondary_text(
+                        GTK_MESSAGE_DIALOG(confirm),
+                        "%s", summarize_operation_locations(d->failed).c_str());
+                    const gint response = gtk_dialog_run(GTK_DIALOG(confirm));
+                    gtk_widget_destroy(confirm);
+                    if (response == GTK_RESPONSE_YES) {
+                        d->self->start_delete_operation(d->failed, d->view_dir);
+                        delete d;
+                        return FALSE;
+                    }
+                }
+                if (utils::same_location(d->self->file_view->get_current_dir(), d->view_dir)) {
+                    d->self->load_directory(d->view_dir, false);
+                }
+            }
+            delete d;
+            return FALSE;
+        }, new CompletionData{this, alive, control, dialog, std::move(failed), view_dir});
     }).detach();
 }
 
@@ -1570,10 +1885,11 @@ void AppWindow::mount_network_share(const std::string& uri) {
 
     struct MountData {
         AppWindow* self;
+        std::weak_ptr<std::atomic<bool>> alive;
         GFile* gfile;
         GMountOperation* mount_op;
     };
-    MountData* md = new MountData{this, gfile, mount_op};
+    MountData* md = new MountData{this, window_alive, gfile, mount_op};
 
     g_file_mount_enclosing_volume(gfile, G_MOUNT_MOUNT_NONE, G_MOUNT_OPERATION(mount_op),
                                   NULL,
@@ -1588,12 +1904,16 @@ void AppWindow::mount_network_share(const std::string& uri) {
                 mount_ok = false;
                 struct ErrInfo {
                     AppWindow* self;
+                    std::weak_ptr<std::atomic<bool>> alive;
                     std::string msg;
                 };
-                ErrInfo* ei = new ErrInfo{data->self, error->message};
+                ErrInfo* ei = new ErrInfo{data->self, data->alive, error->message};
                 g_idle_add([](gpointer ud) -> gboolean {
                     ErrInfo* e = static_cast<ErrInfo*>(ud);
-                    e->self->show_error_dialog(i18n::_("connection_error"), e->msg);
+                    auto alive_ref = e->alive.lock();
+                    if (alive_ref && alive_ref->load()) {
+                        e->self->show_error_dialog(i18n::_("connection_error"), e->msg);
+                    }
                     delete e;
                     return FALSE;
                 }, ei);
@@ -1604,15 +1924,19 @@ void AppWindow::mount_network_share(const std::string& uri) {
         if (mount_ok) {
             struct NavData {
                 AppWindow* self;
+                std::weak_ptr<std::atomic<bool>> alive;
                 GFile* gfile;
             };
-            NavData* nd = new NavData{data->self, data->gfile};
+            NavData* nd = new NavData{data->self, data->alive, data->gfile};
             g_object_ref(data->gfile);
 
             g_idle_add([](gpointer ud) -> gboolean {
                 NavData* n = static_cast<NavData*>(ud);
-                n->self->reload_sidebar();
-                n->self->load_directory(utils::location_from_gfile(n->gfile));
+                auto alive_ref = n->alive.lock();
+                if (alive_ref && alive_ref->load()) {
+                    n->self->reload_sidebar();
+                    n->self->load_directory(utils::location_from_gfile(n->gfile));
+                }
 
                 g_object_unref(n->gfile);
                 delete n;

@@ -23,6 +23,7 @@ private:
 
     static gboolean pulse_progressbar_callback(gpointer data);
     static void on_cancel_clicked(GtkWidget* button, gpointer data);
+    static void on_window_destroyed(GtkWidget* widget, gpointer data);
 };
 
 #endif // PROGRESS_DIALOG_HPP

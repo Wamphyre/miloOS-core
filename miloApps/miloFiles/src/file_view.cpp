@@ -20,6 +20,20 @@ static std::unordered_map<std::string, GdkPixbuf*> _icon_pixbuf_cache;
 static std::unordered_map<std::string, GdkPixbuf*> _icon_cache;
 static std::recursive_mutex _icon_cache_mutex;
 
+struct FileView::ThumbnailState {
+    std::unordered_map<std::string, std::pair<GdkPixbuf*, GdkPixbuf*>> cache;
+    std::atomic<int> load_id{0};
+    std::atomic<bool> alive{true};
+    std::mutex mutex;
+
+    ~ThumbnailState() {
+        for (auto& pair : cache) {
+            if (pair.second.first) g_object_unref(pair.second.first);
+            if (pair.second.second) g_object_unref(pair.second.second);
+        }
+    }
+};
+
 static std::string to_lower_copy(std::string value) {
     std::transform(value.begin(), value.end(), value.begin(), [](unsigned char ch) {
         return std::tolower(ch);
@@ -43,27 +57,13 @@ static std::string strip_archive_extension(const std::string& filename) {
     return filename;
 }
 
-static void set_uri_selection_data(FileView* self, GtkSelectionData* data) {
-    std::vector<std::string> paths = self->get_selected_paths();
+static void set_uri_selection_data(const std::vector<std::string>& paths, GtkSelectionData* data) {
     gchar** uris = g_new0(gchar*, paths.size() + 1);
     for (size_t i = 0; i < paths.size(); ++i) {
         uris[i] = g_strdup(utils::location_to_uri(paths[i]).c_str());
     }
     gtk_selection_data_set_uris(data, uris);
     g_strfreev(uris);
-}
-
-static std::string summarize_locations(const std::vector<std::string>& paths) {
-    std::string message;
-    const size_t limit = 6;
-    for (size_t i = 0; i < paths.size() && i < limit; ++i) {
-        std::string name = utils::get_filename(paths[i]);
-        message += "\n- " + (name.empty() ? paths[i] : name);
-    }
-    if (paths.size() > limit) {
-        message += "\n- ...";
-    }
-    return message;
 }
 
 static GdkPixbuf* get_icon_pixbuf(const std::string& icon_name, int size) {
@@ -165,7 +165,8 @@ FileView::FileView(AppWindow* parent_window,
                    std::function<void(const std::string&)> on_dir_activated_cb,
                    std::function<void(const std::string&)> on_status_update_cb)
     : parent(parent_window), on_dir_activated(on_dir_activated_cb), on_status_update(on_status_update_cb), 
-      view_mode("icon"), current_thumbnail_load_id(0), directory_monitor(nullptr), directory_reload_timeout_id(0) {
+      view_mode("icon"), thumbnail_state(std::make_shared<ThumbnailState>()),
+      directory_monitor(nullptr), directory_reload_timeout_id(0) {
     
     stack = gtk_stack_new();
     gtk_stack_set_transition_type(GTK_STACK(stack), GTK_STACK_TRANSITION_TYPE_CROSSFADE);
@@ -189,16 +190,12 @@ FileView::FileView(AppWindow* parent_window,
 }
 
 FileView::~FileView() {
+    thumbnail_state->alive.store(false);
+    ++thumbnail_state->load_id;
     clear_directory_monitor();
     if (directory_reload_timeout_id != 0) {
         g_source_remove(directory_reload_timeout_id);
         directory_reload_timeout_id = 0;
-    }
-
-    std::lock_guard<std::mutex> lock(cache_mutex);
-    for (auto& pair : thumbnail_cache) {
-        if (pair.second.first) g_object_unref(pair.second.first);
-        if (pair.second.second) g_object_unref(pair.second.second);
     }
 }
 
@@ -287,7 +284,17 @@ void FileView::setup_icon_view() {
     g_signal_connect(icon_view, "drag-data-get", G_CALLBACK(+[](GtkWidget*, GdkDragContext*, GtkSelectionData* data,
                                                                   guint, guint, gpointer user_data) {
         FileView* self = static_cast<FileView*>(user_data);
-        set_uri_selection_data(self, data);
+        const auto paths = self->drag_source_paths.empty()
+            ? self->get_selected_paths()
+            : self->drag_source_paths;
+        set_uri_selection_data(paths, data);
+    }), this);
+    g_signal_connect(icon_view, "drag-begin", G_CALLBACK(+[](GtkWidget*, GdkDragContext*, gpointer user_data) {
+        FileView* self = static_cast<FileView*>(user_data);
+        if (self->drag_source_paths.empty()) self->drag_source_paths = self->get_selected_paths();
+    }), this);
+    g_signal_connect(icon_view, "drag-end", G_CALLBACK(+[](GtkWidget*, GdkDragContext*, gpointer user_data) {
+        static_cast<FileView*>(user_data)->drag_source_paths.clear();
     }), this);
 }
 
@@ -381,7 +388,17 @@ void FileView::setup_tree_view() {
     g_signal_connect(tree_view, "drag-data-get", G_CALLBACK(+[](GtkWidget*, GdkDragContext*, GtkSelectionData* data,
                                                                   guint, guint, gpointer user_data) {
         FileView* self = static_cast<FileView*>(user_data);
-        set_uri_selection_data(self, data);
+        const auto paths = self->drag_source_paths.empty()
+            ? self->get_selected_paths()
+            : self->drag_source_paths;
+        set_uri_selection_data(paths, data);
+    }), this);
+    g_signal_connect(tree_view, "drag-begin", G_CALLBACK(+[](GtkWidget*, GdkDragContext*, gpointer user_data) {
+        FileView* self = static_cast<FileView*>(user_data);
+        if (self->drag_source_paths.empty()) self->drag_source_paths = self->get_selected_paths();
+    }), this);
+    g_signal_connect(tree_view, "drag-end", G_CALLBACK(+[](GtkWidget*, GdkDragContext*, gpointer user_data) {
+        static_cast<FileView*>(user_data)->drag_source_paths.clear();
     }), this);
 }
 
@@ -591,6 +608,46 @@ std::vector<std::string> FileView::get_selected_paths() const {
     return paths;
 }
 
+std::string FileView::get_drop_destination(GtkWidget* source_widget, gint x, gint y) const {
+    GtkTreePath* tree_path = nullptr;
+    GtkTreeModel* model = nullptr;
+    int location_column = -1;
+    int directory_column = -1;
+
+    if (source_widget == icon_view) {
+        tree_path = gtk_icon_view_get_path_at_pos(GTK_ICON_VIEW(icon_view), x, y);
+        model = GTK_TREE_MODEL(icon_store);
+        location_column = 2;
+        directory_column = 3;
+    } else if (source_widget == tree_view) {
+        if (!gtk_tree_view_get_path_at_pos(
+                GTK_TREE_VIEW(tree_view), x, y, &tree_path, nullptr, nullptr, nullptr)) {
+            tree_path = nullptr;
+        }
+        model = GTK_TREE_MODEL(list_store);
+        location_column = 5;
+        directory_column = 6;
+    }
+
+    std::string destination = current_dir;
+    if (tree_path && model) {
+        GtkTreeIter iter;
+        if (gtk_tree_model_get_iter(model, &iter, tree_path)) {
+            char* location = nullptr;
+            gboolean is_directory = FALSE;
+            gtk_tree_model_get(
+                model, &iter,
+                location_column, &location,
+                directory_column, &is_directory,
+                -1);
+            if (location && is_directory) destination = location;
+            g_free(location);
+        }
+        gtk_tree_path_free(tree_path);
+    }
+    return destination;
+}
+
 void FileView::set_view_mode(const std::string& mode) {
     view_mode = mode;
     gtk_stack_set_visible_child_name(GTK_STACK(stack), mode.c_str());
@@ -654,6 +711,17 @@ void FileView::on_row_activated_list(GtkTreeView* tree_view, GtkTreePath* path, 
 
 gboolean FileView::on_button_press_icon(GtkWidget* widget, GdkEventButton* event, gpointer user_data) {
     FileView* self = static_cast<FileView*>(user_data);
+    if (event->type == GDK_BUTTON_PRESS && event->button == 1) {
+        GtkTreePath* path = gtk_icon_view_get_path_at_pos(
+            GTK_ICON_VIEW(self->icon_view), event->x, event->y);
+        if (path && gtk_icon_view_path_is_selected(GTK_ICON_VIEW(self->icon_view), path)) {
+            const auto selected = self->get_selected_paths();
+            self->drag_source_paths = selected.size() > 1 ? selected : std::vector<std::string>{};
+        } else {
+            self->drag_source_paths.clear();
+        }
+        if (path) gtk_tree_path_free(path);
+    }
     if (event->type == GDK_BUTTON_PRESS && event->button == 3) {
         GtkTreePath* path = gtk_icon_view_get_path_at_pos(GTK_ICON_VIEW(self->icon_view), event->x, event->y);
         if (path) {
@@ -674,6 +742,23 @@ gboolean FileView::on_button_press_icon(GtkWidget* widget, GdkEventButton* event
 
 gboolean FileView::on_button_press_list(GtkWidget* widget, GdkEventButton* event, gpointer user_data) {
     FileView* self = static_cast<FileView*>(user_data);
+    if (event->type == GDK_BUTTON_PRESS && event->button == 1) {
+        GtkTreePath* path = nullptr;
+        if (gtk_tree_view_get_path_at_pos(
+                GTK_TREE_VIEW(self->tree_view), event->x, event->y,
+                &path, nullptr, nullptr, nullptr)) {
+            GtkTreeSelection* selection = gtk_tree_view_get_selection(GTK_TREE_VIEW(self->tree_view));
+            if (gtk_tree_selection_path_is_selected(selection, path)) {
+                const auto selected = self->get_selected_paths();
+                self->drag_source_paths = selected.size() > 1 ? selected : std::vector<std::string>{};
+            } else {
+                self->drag_source_paths.clear();
+            }
+            gtk_tree_path_free(path);
+        } else {
+            self->drag_source_paths.clear();
+        }
+    }
     if (event->type == GDK_BUTTON_PRESS && event->button == 3) {
         GtkTreePath* path;
         if (gtk_tree_view_get_path_at_pos(GTK_TREE_VIEW(self->tree_view), event->x, event->y, &path, NULL, NULL, NULL)) {
@@ -695,11 +780,12 @@ gboolean FileView::on_button_press_list(GtkWidget* widget, GdkEventButton* event
 }
 
 void FileView::start_thumbnail_loading(const std::string& dir_path, const std::vector<std::string>& files_to_process) {
-    int load_id = ++current_thumbnail_load_id;
+    auto state = thumbnail_state;
+    int load_id = ++state->load_id;
     
-    std::thread([this, dir_path, files_to_process, load_id]() {
+    std::thread([this, state, dir_path, files_to_process, load_id]() {
         for (const auto& file_path : files_to_process) {
-            if (this->current_thumbnail_load_id.load() != load_id) return;
+            if (!state->alive.load() || state->load_id.load() != load_id) return;
             
             std::this_thread::sleep_for(std::chrono::milliseconds(10));
             
@@ -719,17 +805,19 @@ void FileView::start_thumbnail_loading(const std::string& dir_path, const std::v
             
             GdkPixbuf* icon_pb = NULL;
             GdkPixbuf* list_icon_pb = NULL;
+            bool owns_loaded_pixbufs = false;
             
             {
-                std::lock_guard<std::mutex> lock(cache_mutex);
-                auto it = thumbnail_cache.find(file_path);
-                if (it != thumbnail_cache.end()) {
+                std::lock_guard<std::mutex> lock(state->mutex);
+                auto it = state->cache.find(file_path);
+                if (it != state->cache.end()) {
                     icon_pb = it->second.first;
                     list_icon_pb = it->second.second;
                 }
             }
             
             if (!icon_pb) {
+                owns_loaded_pixbufs = true;
                 GFile* gfile = utils::new_gfile_for_location(file_path);
                 GFileInfo* info = g_file_query_info(gfile, "thumbnail::path", G_FILE_QUERY_INFO_NONE, NULL, NULL);
                 if (info) {
@@ -751,40 +839,51 @@ void FileView::start_thumbnail_loading(const std::string& dir_path, const std::v
                 }
                 
                 if (icon_pb && list_icon_pb) {
-                    std::lock_guard<std::mutex> lock(cache_mutex);
-                    if (thumbnail_cache.size() >= 1000) {
-                        for (auto& pair : thumbnail_cache) {
+                    std::lock_guard<std::mutex> lock(state->mutex);
+                    if (state->cache.size() >= 1000) {
+                        for (auto& pair : state->cache) {
                             if (pair.second.first) g_object_unref(pair.second.first);
                             if (pair.second.second) g_object_unref(pair.second.second);
                         }
-                        thumbnail_cache.clear();
+                        state->cache.clear();
                     }
                     g_object_ref(icon_pb);
                     g_object_ref(list_icon_pb);
-                    thumbnail_cache[file_path] = {icon_pb, list_icon_pb};
+                    state->cache[file_path] = {icon_pb, list_icon_pb};
                 }
             }
             
-            if (icon_pb && list_icon_pb && this->current_thumbnail_load_id.load() == load_id) {
-                this->update_item_thumbnail(file_path, icon_pb, list_icon_pb, load_id);
+            if (icon_pb && list_icon_pb && state->alive.load() && state->load_id.load() == load_id) {
+                FileView::update_item_thumbnail(this, state, file_path, icon_pb, list_icon_pb, load_id);
+            }
+            if (owns_loaded_pixbufs) {
+                if (icon_pb) g_object_unref(icon_pb);
+                if (list_icon_pb) g_object_unref(list_icon_pb);
             }
         }
     }).detach();
 }
 
-struct ThumbUpdateData {
-    FileView* self;
-    std::string file_path;
-    GdkPixbuf* icon_pb;
-    GdkPixbuf* list_icon_pb;
-    int load_id;
-};
-
-void FileView::update_item_thumbnail(const std::string& file_path, GdkPixbuf* icon_pb, GdkPixbuf* list_icon_pb, int load_id) {
-    ThumbUpdateData* data = new ThumbUpdateData{this, file_path, icon_pb, list_icon_pb, load_id};
+void FileView::update_item_thumbnail(FileView* self,
+                                     const std::shared_ptr<ThumbnailState>& state,
+                                     const std::string& file_path,
+                                     GdkPixbuf* icon_pb,
+                                     GdkPixbuf* list_icon_pb,
+                                     int load_id) {
+    struct ThumbUpdateData {
+        FileView* self;
+        std::shared_ptr<ThumbnailState> state;
+        std::string file_path;
+        GdkPixbuf* icon_pb;
+        GdkPixbuf* list_icon_pb;
+        int load_id;
+    };
+    g_object_ref(icon_pb);
+    g_object_ref(list_icon_pb);
+    ThumbUpdateData* data = new ThumbUpdateData{self, state, file_path, icon_pb, list_icon_pb, load_id};
     g_idle_add([](gpointer user_data) -> gboolean {
         ThumbUpdateData* d = static_cast<ThumbUpdateData*>(user_data);
-        if (d->self->current_thumbnail_load_id.load() == d->load_id) {
+        if (d->state->alive.load() && d->state->load_id.load() == d->load_id) {
             GtkTreeIter iter;
             gboolean valid = gtk_tree_model_get_iter_first(GTK_TREE_MODEL(d->self->icon_store), &iter);
             while (valid) {
@@ -816,6 +915,8 @@ void FileView::update_item_thumbnail(const std::string& file_path, GdkPixbuf* ic
                 valid = gtk_tree_model_iter_next(GTK_TREE_MODEL(d->self->list_store), &iter);
             }
         }
+        g_object_unref(d->icon_pb);
+        g_object_unref(d->list_icon_pb);
         delete d;
         return FALSE;
     }, data);
@@ -1287,7 +1388,7 @@ void FileView::handle_copy(const std::vector<std::string>& paths) {
 }
 
 void FileView::handle_paste() {
-    if (!parent->load_clipboard_files() && parent->clipboard_files.empty()) return;
+    if (!parent->load_clipboard_files()) return;
     std::string action = parent->clipboard_action == "cut" ? "cut" : "copy";
     parent->start_paste_operation(parent->clipboard_files, current_dir, action);
 }
@@ -1341,48 +1442,7 @@ void FileView::handle_rename(const std::vector<std::string>& paths) {
 
 void FileView::handle_trash(const std::vector<std::string>& paths) {
     if (paths.empty()) return;
-    
-    std::vector<std::string> trash_failed;
-    for (const auto& path : paths) {
-        GFile* gfile = utils::new_gfile_for_location(path);
-        GError* error = NULL;
-        if (!g_file_trash(gfile, NULL, &error)) {
-            trash_failed.push_back(path);
-        }
-        if (error) {
-            g_error_free(error);
-        }
-        g_object_unref(gfile);
-    }
-
-    if (!trash_failed.empty()) {
-        GtkWidget* dialog = gtk_message_dialog_new(GTK_WINDOW(parent->get_window()),
-                                                   GTK_DIALOG_MODAL,
-                                                   GTK_MESSAGE_QUESTION,
-                                                   GTK_BUTTONS_YES_NO,
-                                                   "%s", i18n::_("trash_fallback_confirm").c_str());
-        gtk_window_set_title(GTK_WINDOW(dialog), i18n::_("delete_title").c_str());
-        gtk_message_dialog_format_secondary_text(GTK_MESSAGE_DIALOG(dialog),
-                                                 "%s", summarize_locations(trash_failed).c_str());
-        gint response = gtk_dialog_run(GTK_DIALOG(dialog));
-        gtk_widget_destroy(dialog);
-
-        if (response == GTK_RESPONSE_YES) {
-            std::vector<std::string> delete_failed;
-            for (const auto& path : trash_failed) {
-                if (!utils::delete_path_recursive(path)) {
-                    delete_failed.push_back(path);
-                }
-            }
-            if (!delete_failed.empty()) {
-                parent->show_error_dialog(i18n::_("delete_error"), summarize_locations(delete_failed));
-            }
-        } else if (trash_failed.size() == paths.size()) {
-            return;
-        }
-    }
-
-    parent->load_directory(current_dir, false);
+    parent->start_trash_operation(paths, current_dir);
 }
 
 void FileView::handle_delete(const std::vector<std::string>& paths) {
@@ -1398,16 +1458,7 @@ void FileView::handle_delete(const std::vector<std::string>& paths) {
     gtk_widget_destroy(dialog);
     
     if (response == GTK_RESPONSE_YES) {
-        std::vector<std::string> failed;
-        for (const auto& path : paths) {
-            if (!utils::delete_path_recursive(path)) {
-                failed.push_back(path);
-            }
-        }
-        if (!failed.empty()) {
-            parent->show_error_dialog(i18n::_("delete_error"), summarize_locations(failed));
-        }
-        parent->load_directory(current_dir, false);
+        parent->start_delete_operation(paths, current_dir);
     }
 }
 
@@ -1491,7 +1542,8 @@ void FileView::handle_compress(const std::vector<std::string>& paths) {
         std::string format = format_sel ? format_sel : "zip";
         
         if (!archive_name.empty()) {
-            parent->start_compress_operation(paths, current_dir + "/" + archive_name, format);
+            parent->start_compress_operation(
+                paths, utils::child_location(current_dir, archive_name), format);
         }
     }
     gtk_widget_destroy(dialog);
