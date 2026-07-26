@@ -166,7 +166,9 @@ AppWindow::AppWindow(const std::string& initial_dir, bool delete_on_destroy)
     // Sidebar
     sidebar = std::make_unique<Sidebar>(
         GTK_WINDOW(window),
-        [this](const std::string& path) { this->load_directory(path); }
+        [this](const std::string& path) {
+            this->navigate_from_location_text(path);
+        }
     );
     
     gtk_paned_pack1(GTK_PANED(body_paned), sidebar->get_widget(), FALSE, FALSE);
@@ -1922,7 +1924,7 @@ void AppWindow::mount_network_share(const std::string& uri) {
 
         bool mount_ok = true;
         if (error) {
-            if (error->code != G_IO_ERROR_ALREADY_MOUNTED) {
+            if (!g_error_matches(error, G_IO_ERROR, G_IO_ERROR_ALREADY_MOUNTED)) {
                 mount_ok = false;
                 struct ErrInfo {
                     AppWindow* self;
