@@ -25,6 +25,7 @@ bool is_directory(const std::string& location);
 bool same_location(const std::string& a, const std::string& b);
 std::string get_mime_type(const std::string& path);
 std::string get_custom_default_command(const std::string& path);
+bool open_files(const std::vector<std::string>& paths);
 bool open_file(const std::string& path);
 bool is_dangerous_archive_path(const std::string& path);
 bool empty_trash();

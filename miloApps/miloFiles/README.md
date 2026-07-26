@@ -51,6 +51,9 @@ The native application is organized as a modular C++17 codebase:
    - Copy, cut, paste, rename, delete, and folder/file creation use GIO locations, so they work with local paths and connected GVfs/SMB shares.
    - Clipboard data is exported as `x-special/gnome-copied-files` and `text/uri-list`, allowing copy/cut/paste between separate miloFiles windows.
    - Drag and drop works both as a source and a destination using URI lists, including between different miloFiles instances.
+   - Single and multi-item selections survive icon/list view switches and same-directory refreshes; `Ctrl+A` selects all and `Esc` clears the selection.
+   - Drag payloads are frozen from the item where the gesture starts, so dragging one selected item or a multi-selection remains reliable even if GTK updates the visual selection during the gesture.
+   - Folder drop targets are highlighted. Internal drags move by default, `Ctrl` forces copy, `Shift` forces move, and copying within the same folder creates smart duplicate names.
    - Smart duplicate-name handling when pasting into the same folder.
    - Directory size calculation in the properties dialog runs asynchronously.
    - Context menu action to open the current folder in `xfce4-terminal` when available.
@@ -63,8 +66,10 @@ The native application is organized as a modular C++17 codebase:
 
 7. **Default app handling and Open With**
    - Uses optimized default handlers for common media and document types when available.
+   - Sends a multi-file selection to each handler as one launch request instead of starting one process per file.
+   - VLC launches use file-manager activation plus explicit single-instance mode, so an existing player window is reused for later files and multi-file selections become one playlist handoff.
    - Falls back to registered system handlers through GIO/GTK when custom defaults are unavailable.
-   - Single-file context menus expose registered MIME apps plus a native `GtkAppChooserDialog`.
+   - Context menus expose applications shared by all selected MIME types and launch the complete selection together; a native `GtkAppChooserDialog` remains available for choosing another app.
 
 8. **Localization and theme integration**
    - English and Spanish UI strings are selected from the process locale.

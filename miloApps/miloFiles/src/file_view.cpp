@@ -15,6 +15,7 @@
 #include <cstring>
 #include <cctype>
 #include <ctime>
+#include <unordered_set>
 
 static std::unordered_map<std::string, GdkPixbuf*> _icon_pixbuf_cache;
 static std::unordered_map<std::string, GdkPixbuf*> _icon_cache;
@@ -64,6 +65,72 @@ static void set_uri_selection_data(const std::vector<std::string>& paths, GtkSel
     }
     gtk_selection_data_set_uris(data, uris);
     g_strfreev(uris);
+}
+
+static bool app_list_contains(GList* apps, GAppInfo* candidate) {
+    for (GList* item = apps; item != nullptr; item = item->next) {
+        if (g_app_info_equal(G_APP_INFO(item->data), candidate)) return true;
+    }
+    return false;
+}
+
+static std::vector<GAppInfo*> get_common_applications(const std::vector<std::string>& paths) {
+    std::vector<GAppInfo*> common;
+    if (paths.empty()) return common;
+
+    GList* apps = g_app_info_get_all_for_type(utils::get_mime_type(paths.front()).c_str());
+    for (GList* item = apps; item != nullptr; item = item->next) {
+        GAppInfo* app = G_APP_INFO(item->data);
+        if (!g_app_info_supports_files(app) && !g_app_info_supports_uris(app)) continue;
+
+        const bool duplicate = std::any_of(
+            common.begin(), common.end(),
+            [app](GAppInfo* existing) { return g_app_info_equal(existing, app); });
+        if (!duplicate) common.push_back(G_APP_INFO(g_object_ref(app)));
+    }
+    g_list_free_full(apps, g_object_unref);
+
+    for (size_t i = 1; i < paths.size() && !common.empty(); ++i) {
+        apps = g_app_info_get_all_for_type(utils::get_mime_type(paths[i]).c_str());
+        auto next = std::remove_if(
+            common.begin(), common.end(),
+            [apps](GAppInfo* app) {
+                if (app_list_contains(apps, app)) return false;
+                g_object_unref(app);
+                return true;
+            });
+        common.erase(next, common.end());
+        g_list_free_full(apps, g_object_unref);
+    }
+
+    return common;
+}
+
+static GdkDragAction choose_drop_action(GdkDragContext* context) {
+    const GdkDragAction allowed = gdk_drag_context_get_actions(context);
+    GdkModifierType state = static_cast<GdkModifierType>(0);
+    gtk_get_current_event_state(&state);
+
+    if ((state & GDK_CONTROL_MASK) && (allowed & GDK_ACTION_COPY)) {
+        return GDK_ACTION_COPY;
+    }
+    if ((state & GDK_SHIFT_MASK) && (allowed & GDK_ACTION_MOVE)) {
+        return GDK_ACTION_MOVE;
+    }
+
+    GtkWidget* source = gtk_drag_get_source_widget(context);
+    const bool is_milofiles_source =
+        source &&
+        gtk_style_context_has_class(
+            gtk_widget_get_style_context(source), "file-view");
+    if (is_milofiles_source && (allowed & GDK_ACTION_MOVE)) {
+        return GDK_ACTION_MOVE;
+    }
+
+    const GdkDragAction suggested = gdk_drag_context_get_suggested_action(context);
+    if (allowed & suggested) return suggested;
+    if (allowed & GDK_ACTION_COPY) return GDK_ACTION_COPY;
+    return GDK_ACTION_MOVE;
 }
 
 static GdkPixbuf* get_icon_pixbuf(const std::string& icon_name, int size) {
@@ -165,7 +232,8 @@ FileView::FileView(AppWindow* parent_window,
                    std::function<void(const std::string&)> on_dir_activated_cb,
                    std::function<void(const std::string&)> on_status_update_cb)
     : parent(parent_window), on_dir_activated(on_dir_activated_cb), on_status_update(on_status_update_cb), 
-      view_mode("icon"), thumbnail_state(std::make_shared<ThumbnailState>()),
+      view_mode("icon"), drag_source_snapshot_valid(false), drag_in_progress(false),
+      thumbnail_state(std::make_shared<ThumbnailState>()),
       directory_monitor(nullptr), directory_reload_timeout_id(0) {
     
     stack = gtk_stack_new();
@@ -270,7 +338,20 @@ void FileView::setup_icon_view() {
     g_signal_connect(icon_view, "drag-data-received", G_CALLBACK(+[](GtkWidget* w, GdkDragContext* context, gint x, gint y,
                                                                       GtkSelectionData* data, guint info, guint time, gpointer user_data) {
         FileView* self = static_cast<FileView*>(user_data);
+        self->clear_drop_highlight(w);
         self->parent->handle_drag_data_received(w, context, x, y, data, info, time);
+    }), this);
+    g_signal_connect(icon_view, "drag-motion", G_CALLBACK(+[](GtkWidget* w, GdkDragContext* context, gint x, gint y,
+                                                               guint time, gpointer user_data) -> gboolean {
+        FileView* self = static_cast<FileView*>(user_data);
+        self->update_drop_highlight(w, x, y);
+
+        const GdkDragAction action = choose_drop_action(context);
+        gdk_drag_status(context, action, time);
+        return TRUE;
+    }), this);
+    g_signal_connect(icon_view, "drag-leave", G_CALLBACK(+[](GtkWidget* w, GdkDragContext*, guint, gpointer user_data) {
+        static_cast<FileView*>(user_data)->clear_drop_highlight(w);
     }), this);
 
     GtkTargetEntry source_targets[] = {
@@ -284,17 +365,33 @@ void FileView::setup_icon_view() {
     g_signal_connect(icon_view, "drag-data-get", G_CALLBACK(+[](GtkWidget*, GdkDragContext*, GtkSelectionData* data,
                                                                   guint, guint, gpointer user_data) {
         FileView* self = static_cast<FileView*>(user_data);
-        const auto paths = self->drag_source_paths.empty()
-            ? self->get_selected_paths()
-            : self->drag_source_paths;
+        const auto paths = self->drag_source_snapshot_valid
+            ? self->drag_source_paths
+            : self->get_selected_paths();
         set_uri_selection_data(paths, data);
     }), this);
     g_signal_connect(icon_view, "drag-begin", G_CALLBACK(+[](GtkWidget*, GdkDragContext*, gpointer user_data) {
         FileView* self = static_cast<FileView*>(user_data);
-        if (self->drag_source_paths.empty()) self->drag_source_paths = self->get_selected_paths();
+        self->drag_in_progress = true;
+        if (!self->drag_source_snapshot_valid) {
+            self->drag_source_paths = self->get_selected_paths();
+            self->drag_source_snapshot_valid = true;
+        }
     }), this);
     g_signal_connect(icon_view, "drag-end", G_CALLBACK(+[](GtkWidget*, GdkDragContext*, gpointer user_data) {
-        static_cast<FileView*>(user_data)->drag_source_paths.clear();
+        FileView* self = static_cast<FileView*>(user_data);
+        self->drag_in_progress = false;
+        self->drag_source_snapshot_valid = false;
+        self->drag_source_paths.clear();
+    }), this);
+    g_signal_connect(icon_view, "button-release-event", G_CALLBACK(+[](GtkWidget*, GdkEventButton* event,
+                                                                        gpointer user_data) -> gboolean {
+        FileView* self = static_cast<FileView*>(user_data);
+        if (event->button == 1 && !self->drag_in_progress) {
+            self->drag_source_snapshot_valid = false;
+            self->drag_source_paths.clear();
+        }
+        return FALSE;
     }), this);
 }
 
@@ -374,7 +471,20 @@ void FileView::setup_tree_view() {
     g_signal_connect(tree_view, "drag-data-received", G_CALLBACK(+[](GtkWidget* w, GdkDragContext* context, gint x, gint y,
                                                                       GtkSelectionData* data, guint info, guint time, gpointer user_data) {
         FileView* self = static_cast<FileView*>(user_data);
+        self->clear_drop_highlight(w);
         self->parent->handle_drag_data_received(w, context, x, y, data, info, time);
+    }), this);
+    g_signal_connect(tree_view, "drag-motion", G_CALLBACK(+[](GtkWidget* w, GdkDragContext* context, gint x, gint y,
+                                                               guint time, gpointer user_data) -> gboolean {
+        FileView* self = static_cast<FileView*>(user_data);
+        self->update_drop_highlight(w, x, y);
+
+        const GdkDragAction action = choose_drop_action(context);
+        gdk_drag_status(context, action, time);
+        return TRUE;
+    }), this);
+    g_signal_connect(tree_view, "drag-leave", G_CALLBACK(+[](GtkWidget* w, GdkDragContext*, guint, gpointer user_data) {
+        static_cast<FileView*>(user_data)->clear_drop_highlight(w);
     }), this);
 
     GtkTargetEntry source_targets[] = {
@@ -388,25 +498,49 @@ void FileView::setup_tree_view() {
     g_signal_connect(tree_view, "drag-data-get", G_CALLBACK(+[](GtkWidget*, GdkDragContext*, GtkSelectionData* data,
                                                                   guint, guint, gpointer user_data) {
         FileView* self = static_cast<FileView*>(user_data);
-        const auto paths = self->drag_source_paths.empty()
-            ? self->get_selected_paths()
-            : self->drag_source_paths;
+        const auto paths = self->drag_source_snapshot_valid
+            ? self->drag_source_paths
+            : self->get_selected_paths();
         set_uri_selection_data(paths, data);
     }), this);
     g_signal_connect(tree_view, "drag-begin", G_CALLBACK(+[](GtkWidget*, GdkDragContext*, gpointer user_data) {
         FileView* self = static_cast<FileView*>(user_data);
-        if (self->drag_source_paths.empty()) self->drag_source_paths = self->get_selected_paths();
+        self->drag_in_progress = true;
+        if (!self->drag_source_snapshot_valid) {
+            self->drag_source_paths = self->get_selected_paths();
+            self->drag_source_snapshot_valid = true;
+        }
     }), this);
     g_signal_connect(tree_view, "drag-end", G_CALLBACK(+[](GtkWidget*, GdkDragContext*, gpointer user_data) {
-        static_cast<FileView*>(user_data)->drag_source_paths.clear();
+        FileView* self = static_cast<FileView*>(user_data);
+        self->drag_in_progress = false;
+        self->drag_source_snapshot_valid = false;
+        self->drag_source_paths.clear();
+    }), this);
+    g_signal_connect(tree_view, "button-release-event", G_CALLBACK(+[](GtkWidget*, GdkEventButton* event,
+                                                                        gpointer user_data) -> gboolean {
+        FileView* self = static_cast<FileView*>(user_data);
+        if (event->button == 1 && !self->drag_in_progress) {
+            self->drag_source_snapshot_valid = false;
+            self->drag_source_paths.clear();
+        }
+        return FALSE;
     }), this);
 }
 
 void FileView::load_directory(const std::string& path, bool show_hidden, const std::string& search_query) {
-    current_dir = utils::normalize_path(path);
-    if (current_dir.empty()) {
-        current_dir = g_get_home_dir();
-    }
+    std::string next_dir = utils::normalize_path(path);
+    if (next_dir.empty()) next_dir = g_get_home_dir();
+
+    const bool preserve_selection =
+        !current_dir.empty() && utils::same_location(current_dir, next_dir);
+    const std::vector<std::string> selected_before =
+        preserve_selection ? get_selected_paths() : std::vector<std::string>{};
+
+    current_dir = next_dir;
+    drag_source_paths.clear();
+    drag_source_snapshot_valid = false;
+    drag_in_progress = false;
 
     GFile* dir_file = utils::new_gfile_for_location(current_dir);
     GError* error = NULL;
@@ -559,6 +693,8 @@ void FileView::load_directory(const std::string& path, bool show_hidden, const s
     
     for (const auto& d : dir_list) process_item(d);
     for (const auto& f : file_list) process_item(f);
+
+    if (preserve_selection) set_selected_paths(selected_before);
     
     start_thumbnail_loading(current_dir, files_to_process);
     
@@ -608,6 +744,88 @@ std::vector<std::string> FileView::get_selected_paths() const {
     return paths;
 }
 
+void FileView::set_selected_paths(const std::vector<std::string>& paths) {
+    const std::unordered_set<std::string> wanted(paths.begin(), paths.end());
+
+    gtk_icon_view_unselect_all(GTK_ICON_VIEW(icon_view));
+    GtkTreeIter iter;
+    gboolean valid = gtk_tree_model_get_iter_first(GTK_TREE_MODEL(icon_store), &iter);
+    while (valid) {
+        char* location = nullptr;
+        gtk_tree_model_get(GTK_TREE_MODEL(icon_store), &iter, 2, &location, -1);
+        if (location && wanted.find(location) != wanted.end()) {
+            GtkTreePath* tree_path = gtk_tree_model_get_path(GTK_TREE_MODEL(icon_store), &iter);
+            gtk_icon_view_select_path(GTK_ICON_VIEW(icon_view), tree_path);
+            gtk_tree_path_free(tree_path);
+        }
+        g_free(location);
+        valid = gtk_tree_model_iter_next(GTK_TREE_MODEL(icon_store), &iter);
+    }
+
+    GtkTreeSelection* selection = gtk_tree_view_get_selection(GTK_TREE_VIEW(tree_view));
+    gtk_tree_selection_unselect_all(selection);
+    valid = gtk_tree_model_get_iter_first(GTK_TREE_MODEL(list_store), &iter);
+    while (valid) {
+        char* location = nullptr;
+        gtk_tree_model_get(GTK_TREE_MODEL(list_store), &iter, 5, &location, -1);
+        if (location && wanted.find(location) != wanted.end()) {
+            GtkTreePath* tree_path = gtk_tree_model_get_path(GTK_TREE_MODEL(list_store), &iter);
+            gtk_tree_selection_select_path(selection, tree_path);
+            gtk_tree_path_free(tree_path);
+        }
+        g_free(location);
+        valid = gtk_tree_model_iter_next(GTK_TREE_MODEL(list_store), &iter);
+    }
+}
+
+void FileView::update_drop_highlight(GtkWidget* widget, gint x, gint y) {
+    if (widget == icon_view) {
+        GtkTreePath* tree_path =
+            gtk_icon_view_get_path_at_pos(GTK_ICON_VIEW(icon_view), x, y);
+        gboolean is_directory = FALSE;
+        if (tree_path) {
+            GtkTreeIter iter;
+            if (gtk_tree_model_get_iter(GTK_TREE_MODEL(icon_store), &iter, tree_path)) {
+                gtk_tree_model_get(GTK_TREE_MODEL(icon_store), &iter, 3, &is_directory, -1);
+            }
+        }
+        gtk_icon_view_set_drag_dest_item(
+            GTK_ICON_VIEW(icon_view),
+            is_directory ? tree_path : nullptr,
+            GTK_ICON_VIEW_DROP_INTO);
+        if (tree_path) gtk_tree_path_free(tree_path);
+        return;
+    }
+
+    if (widget == tree_view) {
+        GtkTreePath* tree_path = nullptr;
+        gboolean is_directory = FALSE;
+        if (gtk_tree_view_get_path_at_pos(
+                GTK_TREE_VIEW(tree_view), x, y,
+                &tree_path, nullptr, nullptr, nullptr)) {
+            GtkTreeIter iter;
+            if (gtk_tree_model_get_iter(GTK_TREE_MODEL(list_store), &iter, tree_path)) {
+                gtk_tree_model_get(GTK_TREE_MODEL(list_store), &iter, 6, &is_directory, -1);
+            }
+        }
+        gtk_tree_view_set_drag_dest_row(
+            GTK_TREE_VIEW(tree_view),
+            is_directory ? tree_path : nullptr,
+            GTK_TREE_VIEW_DROP_INTO_OR_AFTER);
+        if (tree_path) gtk_tree_path_free(tree_path);
+    }
+}
+
+void FileView::clear_drop_highlight(GtkWidget* widget) {
+    if (widget == icon_view) {
+        gtk_icon_view_set_drag_dest_item(
+            GTK_ICON_VIEW(icon_view), nullptr, GTK_ICON_VIEW_DROP_INTO);
+    } else if (widget == tree_view) {
+        gtk_tree_view_set_drag_dest_row(
+            GTK_TREE_VIEW(tree_view), nullptr, GTK_TREE_VIEW_DROP_BEFORE);
+    }
+}
+
 std::string FileView::get_drop_destination(GtkWidget* source_widget, gint x, gint y) const {
     GtkTreePath* tree_path = nullptr;
     GtkTreeModel* model = nullptr;
@@ -649,26 +867,25 @@ std::string FileView::get_drop_destination(GtkWidget* source_widget, gint x, gin
 }
 
 void FileView::set_view_mode(const std::string& mode) {
+    if (mode != "icon" && mode != "list") return;
+    if (mode == view_mode) return;
+
+    const std::vector<std::string> selected = get_selected_paths();
     view_mode = mode;
     gtk_stack_set_visible_child_name(GTK_STACK(stack), mode.c_str());
+    set_selected_paths(selected);
 }
 
 void FileView::select_all() {
-    if (view_mode == "icon") {
-        gtk_icon_view_select_all(GTK_ICON_VIEW(icon_view));
-    } else {
-        GtkTreeSelection* select = gtk_tree_view_get_selection(GTK_TREE_VIEW(tree_view));
-        gtk_tree_selection_select_all(select);
-    }
+    gtk_icon_view_select_all(GTK_ICON_VIEW(icon_view));
+    GtkTreeSelection* select = gtk_tree_view_get_selection(GTK_TREE_VIEW(tree_view));
+    gtk_tree_selection_select_all(select);
 }
 
 void FileView::unselect_all() {
-    if (view_mode == "icon") {
-        gtk_icon_view_unselect_all(GTK_ICON_VIEW(icon_view));
-    } else {
-        GtkTreeSelection* select = gtk_tree_view_get_selection(GTK_TREE_VIEW(tree_view));
-        gtk_tree_selection_unselect_all(select);
-    }
+    gtk_icon_view_unselect_all(GTK_ICON_VIEW(icon_view));
+    GtkTreeSelection* select = gtk_tree_view_get_selection(GTK_TREE_VIEW(tree_view));
+    gtk_tree_selection_unselect_all(select);
 }
 
 void FileView::on_item_activated_icon(GtkIconView* icon_view, GtkTreePath* path, gpointer user_data) {
@@ -712,13 +929,28 @@ void FileView::on_row_activated_list(GtkTreeView* tree_view, GtkTreePath* path, 
 gboolean FileView::on_button_press_icon(GtkWidget* widget, GdkEventButton* event, gpointer user_data) {
     FileView* self = static_cast<FileView*>(user_data);
     if (event->type == GDK_BUTTON_PRESS && event->button == 1) {
+        self->drag_source_paths.clear();
+        self->drag_source_snapshot_valid = false;
         GtkTreePath* path = gtk_icon_view_get_path_at_pos(
             GTK_ICON_VIEW(self->icon_view), event->x, event->y);
-        if (path && gtk_icon_view_path_is_selected(GTK_ICON_VIEW(self->icon_view), path)) {
-            const auto selected = self->get_selected_paths();
-            self->drag_source_paths = selected.size() > 1 ? selected : std::vector<std::string>{};
-        } else {
-            self->drag_source_paths.clear();
+        if (path) {
+            if (gtk_icon_view_path_is_selected(GTK_ICON_VIEW(self->icon_view), path)) {
+                self->drag_source_paths = self->get_selected_paths();
+                self->drag_source_snapshot_valid = true;
+            } else if (!(event->state & (GDK_CONTROL_MASK | GDK_SHIFT_MASK))) {
+                GtkTreeIter iter;
+                char* location = nullptr;
+                if (gtk_tree_model_get_iter(GTK_TREE_MODEL(self->icon_store), &iter, path)) {
+                    gtk_tree_model_get(GTK_TREE_MODEL(self->icon_store), &iter, 2, &location, -1);
+                }
+                if (location) {
+                    self->drag_source_paths = {location};
+                    self->drag_source_snapshot_valid = true;
+                }
+                g_free(location);
+            }
+        } else if (!(event->state & (GDK_CONTROL_MASK | GDK_SHIFT_MASK))) {
+            self->unselect_all();
         }
         if (path) gtk_tree_path_free(path);
     }
@@ -743,20 +975,31 @@ gboolean FileView::on_button_press_icon(GtkWidget* widget, GdkEventButton* event
 gboolean FileView::on_button_press_list(GtkWidget* widget, GdkEventButton* event, gpointer user_data) {
     FileView* self = static_cast<FileView*>(user_data);
     if (event->type == GDK_BUTTON_PRESS && event->button == 1) {
+        self->drag_source_paths.clear();
+        self->drag_source_snapshot_valid = false;
         GtkTreePath* path = nullptr;
         if (gtk_tree_view_get_path_at_pos(
                 GTK_TREE_VIEW(self->tree_view), event->x, event->y,
                 &path, nullptr, nullptr, nullptr)) {
             GtkTreeSelection* selection = gtk_tree_view_get_selection(GTK_TREE_VIEW(self->tree_view));
             if (gtk_tree_selection_path_is_selected(selection, path)) {
-                const auto selected = self->get_selected_paths();
-                self->drag_source_paths = selected.size() > 1 ? selected : std::vector<std::string>{};
-            } else {
-                self->drag_source_paths.clear();
+                self->drag_source_paths = self->get_selected_paths();
+                self->drag_source_snapshot_valid = true;
+            } else if (!(event->state & (GDK_CONTROL_MASK | GDK_SHIFT_MASK))) {
+                GtkTreeIter iter;
+                char* location = nullptr;
+                if (gtk_tree_model_get_iter(GTK_TREE_MODEL(self->list_store), &iter, path)) {
+                    gtk_tree_model_get(GTK_TREE_MODEL(self->list_store), &iter, 5, &location, -1);
+                }
+                if (location) {
+                    self->drag_source_paths = {location};
+                    self->drag_source_snapshot_valid = true;
+                }
+                g_free(location);
             }
             gtk_tree_path_free(path);
-        } else {
-            self->drag_source_paths.clear();
+        } else if (!(event->state & (GDK_CONTROL_MASK | GDK_SHIFT_MASK))) {
+            self->unselect_all();
         }
     }
     if (event->type == GDK_BUTTON_PRESS && event->button == 3) {
@@ -933,76 +1176,63 @@ void FileView::show_context_menu(GdkEventButton* event, const std::vector<std::s
         }), this);
         gtk_menu_shell_append(GTK_MENU_SHELL(menu), item_open);
         
-        if (selected_paths.size() == 1) {
-            std::string path = selected_paths[0];
-            if (!utils::is_directory(path)) {
-                GtkWidget* item_open_with = gtk_menu_item_new_with_label(i18n::_("open_with").c_str());
-                GtkWidget* open_with_menu = gtk_menu_new();
-                gtk_menu_item_set_submenu(GTK_MENU_ITEM(item_open_with), open_with_menu);
-                
-                std::string mime = utils::get_mime_type(path);
-                if (!mime.empty()) {
-                    GList* apps = g_app_info_get_all_for_type(mime.c_str());
-                    std::vector<std::string> seen_names;
-                    for (GList* l = apps; l != NULL; l = l->next) {
-                        GAppInfo* app = G_APP_INFO(l->data);
-                        const char* name = g_app_info_get_name(app);
-                        if (name) {
-                            std::string name_s(name);
-                            if (std::find(seen_names.begin(), seen_names.end(), name_s) == seen_names.end()) {
-                                seen_names.push_back(name_s);
-                                
-                                GtkWidget* app_item = gtk_menu_item_new_with_label(name);
-                                
-                                struct LaunchData {
-                                    GAppInfo* app;
-                                    std::string path;
-                                };
-                                g_object_ref(app);
-                                LaunchData* ld = new LaunchData{app, path};
-                                
-                                g_signal_connect_data(app_item, "activate", G_CALLBACK(+[](GtkWidget* w, gpointer d) {
-                                    LaunchData* ldata = static_cast<LaunchData*>(d);
-                                    GFile* gfile = utils::new_gfile_for_location(ldata->path);
-                                    GList* files = NULL;
-                                    files = g_list_append(files, gfile);
-                                    g_app_info_launch(ldata->app, files, NULL, NULL);
-                                    g_list_free(files);
-                                    g_object_unref(gfile);
-                                }), ld, [](gpointer d, GClosure*) {
-                                    LaunchData* ldata = static_cast<LaunchData*>(d);
-                                    g_object_unref(ldata->app);
-                                    delete ldata;
-                                }, G_CONNECT_AFTER);
-                                
-                                gtk_menu_shell_append(GTK_MENU_SHELL(open_with_menu), app_item);
-                            }
-                        }
-                    }
-                    g_list_free_full(apps, g_object_unref);
+        const bool only_files = std::all_of(
+            selected_paths.begin(), selected_paths.end(),
+            [](const std::string& path) { return !utils::is_directory(path); });
+        if (only_files) {
+            GtkWidget* item_open_with = gtk_menu_item_new_with_label(i18n::_("open_with").c_str());
+            GtkWidget* open_with_menu = gtk_menu_new();
+            gtk_menu_item_set_submenu(GTK_MENU_ITEM(item_open_with), open_with_menu);
+
+            std::vector<GAppInfo*> apps = get_common_applications(selected_paths);
+            for (GAppInfo* app : apps) {
+                const char* name = g_app_info_get_display_name(app);
+                if (!name) name = g_app_info_get_name(app);
+                if (!name) {
+                    g_object_unref(app);
+                    continue;
                 }
-                
-                GList* children = gtk_container_get_children(GTK_CONTAINER(open_with_menu));
-                if (children) {
-                    GtkWidget* sep = gtk_separator_menu_item_new();
-                    gtk_menu_shell_append(GTK_MENU_SHELL(open_with_menu), sep);
-                    g_list_free(children);
-                }
-                
-                GtkWidget* other_app_item = gtk_menu_item_new_with_label(i18n::_("other_application").c_str());
-                struct OtherAppData {
+
+                GtkWidget* app_item = gtk_menu_item_new_with_label(name);
+                struct LaunchData {
                     FileView* self;
-                    std::string path;
+                    GAppInfo* app;
+                    std::vector<std::string> paths;
                 };
-                OtherAppData* oad = new OtherAppData{this, path};
-                g_signal_connect_data(other_app_item, "activate", G_CALLBACK(+[](GtkWidget* w, gpointer d) {
-                    OtherAppData* odata = static_cast<OtherAppData*>(d);
-                    odata->self->handle_other_app({odata->path});
-                }), oad, [](gpointer d, GClosure*) { delete static_cast<OtherAppData*>(d); }, G_CONNECT_AFTER);
-                
-                gtk_menu_shell_append(GTK_MENU_SHELL(open_with_menu), other_app_item);
-                gtk_menu_shell_append(GTK_MENU_SHELL(menu), item_open_with);
+                LaunchData* data = new LaunchData{this, app, selected_paths};
+                g_signal_connect_data(app_item, "activate", G_CALLBACK(+[](GtkWidget*, gpointer user_data) {
+                    LaunchData* launch = static_cast<LaunchData*>(user_data);
+                    launch->self->handle_open_with_app(launch->paths, launch->app);
+                }), data, [](gpointer user_data, GClosure*) {
+                    LaunchData* launch = static_cast<LaunchData*>(user_data);
+                    g_object_unref(launch->app);
+                    delete launch;
+                }, G_CONNECT_AFTER);
+                gtk_menu_shell_append(GTK_MENU_SHELL(open_with_menu), app_item);
             }
+
+            if (!apps.empty()) {
+                gtk_menu_shell_append(
+                    GTK_MENU_SHELL(open_with_menu),
+                    gtk_separator_menu_item_new());
+            }
+
+            GtkWidget* other_app_item =
+                gtk_menu_item_new_with_label(i18n::_("other_application").c_str());
+            struct OtherAppData {
+                FileView* self;
+                std::vector<std::string> paths;
+            };
+            OtherAppData* data = new OtherAppData{this, selected_paths};
+            g_signal_connect_data(other_app_item, "activate", G_CALLBACK(+[](GtkWidget*, gpointer user_data) {
+                OtherAppData* other = static_cast<OtherAppData*>(user_data);
+                other->self->handle_other_app(other->paths);
+            }), data, [](gpointer user_data, GClosure*) {
+                delete static_cast<OtherAppData*>(user_data);
+            }, G_CONNECT_AFTER);
+
+            gtk_menu_shell_append(GTK_MENU_SHELL(open_with_menu), other_app_item);
+            gtk_menu_shell_append(GTK_MENU_SHELL(menu), item_open_with);
         }
         
         GtkWidget* sep1 = gtk_separator_menu_item_new();
@@ -1033,6 +1263,7 @@ void FileView::show_context_menu(GdkEventButton* event, const std::vector<std::s
         gtk_menu_shell_append(GTK_MENU_SHELL(menu), sep2);
         
         GtkWidget* item_rename = gtk_menu_item_new_with_label(i18n::_("rename").c_str());
+        gtk_widget_set_sensitive(item_rename, selected_paths.size() == 1);
         g_signal_connect_swapped(item_rename, "activate", G_CALLBACK(+[](FileView* self) {
             self->handle_rename(self->get_selected_paths());
         }), this);
@@ -1091,6 +1322,7 @@ void FileView::show_context_menu(GdkEventButton* event, const std::vector<std::s
         gtk_menu_shell_append(GTK_MENU_SHELL(menu), sep4);
         
         GtkWidget* item_props = gtk_menu_item_new_with_label(i18n::_("properties").c_str());
+        gtk_widget_set_sensitive(item_props, selected_paths.size() == 1);
         g_signal_connect_swapped(item_props, "activate", G_CALLBACK(+[](FileView* self) {
             self->handle_properties(self->get_selected_paths());
         }), this);
@@ -1130,17 +1362,62 @@ void FileView::show_context_menu(GdkEventButton* event, const std::vector<std::s
     }
     
     gtk_widget_show_all(menu);
+    g_signal_connect(menu, "selection-done", G_CALLBACK(+[](GtkMenu* finished_menu, gpointer) {
+        gtk_widget_destroy(GTK_WIDGET(finished_menu));
+    }), nullptr);
     gtk_menu_popup_at_pointer(GTK_MENU(menu), (GdkEvent*)event);
 }
 
 void FileView::handle_open(const std::vector<std::string>& paths) {
+    std::vector<std::string> files;
     for (const auto& path : paths) {
         if (utils::is_directory(path)) {
             on_dir_activated(path);
         } else if (utils::location_exists(path)) {
-            utils::open_file(path);
+            files.push_back(path);
         }
     }
+    if (!files.empty() && !utils::open_files(files)) {
+        parent->show_error_dialog(i18n::_("open_error"), i18n::_("open_error"));
+    }
+}
+
+void FileView::handle_open_with_app(const std::vector<std::string>& paths, GAppInfo* app_info) {
+    if (paths.empty() || !app_info) return;
+
+    const char* executable = g_app_info_get_executable(app_info);
+    char* executable_name = executable ? g_path_get_basename(executable) : nullptr;
+    const bool is_vlc = executable_name && g_ascii_strcasecmp(executable_name, "vlc") == 0;
+    g_free(executable_name);
+    if (is_vlc) {
+        std::vector<std::string> argv = {
+            executable,
+            "--one-instance",
+            "--started-from-file"
+        };
+        for (const auto& path : paths) {
+            const std::string local_path = utils::location_to_path(path);
+            argv.push_back(local_path.empty() ? utils::location_to_uri(path) : local_path);
+        }
+        if (!utils::run_command_async(argv)) {
+            parent->show_error_dialog(i18n::_("open_error"), i18n::_("open_error"));
+        }
+        return;
+    }
+
+    GList* files = nullptr;
+    for (auto path = paths.rbegin(); path != paths.rend(); ++path) {
+        files = g_list_prepend(files, utils::new_gfile_for_location(*path));
+    }
+
+    GError* error = nullptr;
+    if (!g_app_info_launch(app_info, files, nullptr, &error)) {
+        parent->show_error_dialog(
+            i18n::_("open_error"),
+            error ? error->message : i18n::_("open_error"));
+    }
+    if (error) g_error_free(error);
+    g_list_free_full(files, g_object_unref);
 }
 
 void FileView::handle_other_app(const std::vector<std::string>& paths) {
@@ -1153,10 +1430,7 @@ void FileView::handle_other_app(const std::vector<std::string>& paths) {
     if (response == GTK_RESPONSE_OK) {
         GAppInfo* app_info = gtk_app_chooser_get_app_info(GTK_APP_CHOOSER(dialog));
         if (app_info) {
-            GList* files = NULL;
-            files = g_list_append(files, gfile);
-            g_app_info_launch(app_info, files, NULL, NULL);
-            g_list_free(files);
+            handle_open_with_app(paths, app_info);
             g_object_unref(app_info);
         }
     }

@@ -59,6 +59,8 @@ private:
 
     std::string view_mode;
     std::vector<std::string> drag_source_paths;
+    bool drag_source_snapshot_valid;
+    bool drag_in_progress;
 
     // Thumbnail Loading & Cache
     struct ThumbnailState;
@@ -72,6 +74,9 @@ private:
     void update_directory_monitor();
     void clear_directory_monitor();
     void schedule_directory_reload();
+    void set_selected_paths(const std::vector<std::string>& paths);
+    void update_drop_highlight(GtkWidget* widget, gint x, gint y);
+    void clear_drop_highlight(GtkWidget* widget);
 
     void start_thumbnail_loading(const std::string& dir_path, const std::vector<std::string>& files_to_process);
     static void update_item_thumbnail(FileView* self,
@@ -93,7 +98,6 @@ private:
 
     // Context Menu Handlers
     void handle_open(const std::vector<std::string>& paths);
-    void handle_open_with(const std::vector<std::string>& paths, GdkEventButton* event);
     void handle_open_with_app(const std::vector<std::string>& paths, GAppInfo* app_info);
     void handle_other_app(const std::vector<std::string>& paths);
     void handle_properties(const std::vector<std::string>& paths);

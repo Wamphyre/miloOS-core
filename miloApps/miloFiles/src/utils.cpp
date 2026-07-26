@@ -329,27 +329,109 @@ std::string get_custom_default_command(const std::string& path) {
 }
 
 bool open_file(const std::string& path) {
-    std::string cmd = get_custom_default_command(path);
-    const std::string local_path = location_to_path(path);
-    if (!cmd.empty() && !local_path.empty()) {
-        std::vector<std::string> argv = {cmd, path};
-        return run_command_async(argv);
-    }
-    
-    // Fallback to GIO launcher
-    GFile* gfile = file_for_location(path);
-    char* uri = g_file_get_uri(gfile);
-    GError* error = NULL;
-    g_app_info_launch_default_for_uri(uri, NULL, &error);
-    bool success = (error == NULL);
-    if (error) {
-        g_error_free(error);
-    }
-    g_free(uri);
-    g_object_unref(gfile);
-    if (success) return true;
+    return open_files({path});
+}
 
-    return run_command_async({"xdg-open", local_path.empty() ? path : local_path});
+bool open_files(const std::vector<std::string>& paths) {
+    if (paths.empty()) return false;
+
+    struct CommandGroup {
+        std::string command;
+        std::vector<std::string> paths;
+    };
+    struct AppGroup {
+        GAppInfo* app = nullptr;
+        std::vector<std::string> locations;
+    };
+
+    std::vector<CommandGroup> command_groups;
+    std::vector<std::string> default_locations;
+
+    for (const auto& location : paths) {
+        const std::string local_path = location_to_path(location);
+        const std::string command = get_custom_default_command(location);
+        if (command.empty() || local_path.empty()) {
+            default_locations.push_back(location);
+            continue;
+        }
+
+        auto group = std::find_if(
+            command_groups.begin(), command_groups.end(),
+            [&command](const CommandGroup& candidate) {
+                return candidate.command == command;
+            });
+        if (group == command_groups.end()) {
+            command_groups.push_back({command, {local_path}});
+        } else {
+            group->paths.push_back(local_path);
+        }
+    }
+
+    bool success = true;
+    for (const auto& group : command_groups) {
+        std::vector<std::string> argv = {group.command};
+        if (group.command == "vlc") {
+            // Match file-manager activation semantics while making reuse
+            // independent from the user's current VLC preference.
+            argv.push_back("--one-instance");
+            argv.push_back("--started-from-file");
+        }
+        argv.insert(argv.end(), group.paths.begin(), group.paths.end());
+        if (!run_command_async(argv)) success = false;
+    }
+
+    std::vector<AppGroup> app_groups;
+    std::vector<std::string> fallback_locations;
+    for (const auto& location : default_locations) {
+        GFile* file = file_for_location(location);
+        GError* error = nullptr;
+        GAppInfo* app = g_file_query_default_handler(file, nullptr, &error);
+        g_object_unref(file);
+        if (error) g_error_free(error);
+
+        if (!app) {
+            fallback_locations.push_back(location);
+            continue;
+        }
+
+        auto group = std::find_if(
+            app_groups.begin(), app_groups.end(),
+            [app](const AppGroup& candidate) {
+                return g_app_info_equal(candidate.app, app);
+            });
+        if (group == app_groups.end()) {
+            app_groups.push_back({app, {location}});
+        } else {
+            group->locations.push_back(location);
+            g_object_unref(app);
+        }
+    }
+
+    for (auto& group : app_groups) {
+        GList* files = nullptr;
+        for (auto location = group.locations.rbegin(); location != group.locations.rend(); ++location) {
+            files = g_list_prepend(files, file_for_location(*location));
+        }
+
+        GError* error = nullptr;
+        if (!g_app_info_launch(group.app, files, nullptr, &error)) {
+            fallback_locations.insert(
+                fallback_locations.end(),
+                group.locations.begin(), group.locations.end());
+        }
+        if (error) g_error_free(error);
+        g_list_free_full(files, g_object_unref);
+        g_object_unref(group.app);
+    }
+
+    for (const auto& location : fallback_locations) {
+        const std::string local_path = location_to_path(location);
+        if (!run_command_async({"xdg-open", local_path.empty() ? location : local_path})) {
+            success = false;
+        }
+    }
+
+    return success;
 }
 
 bool is_dangerous_archive_path(const std::string& path) {

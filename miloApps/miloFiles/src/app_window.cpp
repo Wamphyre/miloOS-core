@@ -291,6 +291,12 @@ void AppWindow::setup_menu_bar() {
         self->file_view->handle_paste();
     }), this);
     gtk_menu_shell_append(GTK_MENU_SHELL(edit_menu), paste_mitem);
+
+    GtkWidget* select_all_mitem = gtk_menu_item_new_with_label(i18n::_("select_all").c_str());
+    g_signal_connect_swapped(select_all_mitem, "activate", G_CALLBACK(+[](AppWindow* self) {
+        self->file_view->select_all();
+    }), this);
+    gtk_menu_shell_append(GTK_MENU_SHELL(edit_menu), select_all_mitem);
     
     gtk_menu_shell_append(GTK_MENU_SHELL(edit_menu), gtk_separator_menu_item_new());
     
@@ -1054,6 +1060,9 @@ gboolean AppWindow::on_key_press(GtkWidget* widget, GdkEventKey* event, gpointer
             self->show_path_entry();
             return TRUE;
         }
+        if (event->keyval == GDK_KEY_Escape) {
+            return FALSE;
+        }
         if (event->keyval == GDK_KEY_BackSpace || event->keyval == GDK_KEY_Delete ||
             ((state & GDK_CONTROL_MASK) &&
              (key == GDK_KEY_c || key == GDK_KEY_x || key == GDK_KEY_v || key == GDK_KEY_a || key == GDK_KEY_z))) {
@@ -1102,6 +1111,15 @@ gboolean AppWindow::on_key_press(GtkWidget* widget, GdkEventKey* event, gpointer
             self->show_path_entry();
             return TRUE;
         }
+        if (key == GDK_KEY_a) {
+            self->file_view->select_all();
+            return TRUE;
+        }
+    }
+
+    if (event->keyval == GDK_KEY_Escape) {
+        self->file_view->unselect_all();
+        return TRUE;
     }
 
     if (event->keyval == GDK_KEY_Delete) {
@@ -1152,23 +1170,25 @@ void AppWindow::handle_drag_data_received(GtkWidget* widget, GdkDragContext* con
     }
 
     std::string dest_dir = file_view->get_drop_destination(widget, x, y);
-    bool all_sources_already_here = true;
-    for (const auto& src : src_paths) {
-        std::string parent = utils::get_parent_directory(src);
-        if (parent.empty() || !utils::same_location(parent, dest_dir)) {
-            all_sources_already_here = false;
-            break;
-        }
-    }
-    if (all_sources_already_here) {
-        gtk_drag_finish(context, TRUE, FALSE, time);
-        return;
-    }
-    
     GdkDragAction selected_action = gdk_drag_context_get_selected_action(context);
     std::string action = "copy";
     if (selected_action == GDK_ACTION_MOVE) {
         action = "cut";
+    }
+
+    if (action == "cut") {
+        bool all_sources_already_here = true;
+        for (const auto& src : src_paths) {
+            std::string source_parent = utils::get_parent_directory(src);
+            if (source_parent.empty() || !utils::same_location(source_parent, dest_dir)) {
+                all_sources_already_here = false;
+                break;
+            }
+        }
+        if (all_sources_already_here) {
+            gtk_drag_finish(context, TRUE, FALSE, time);
+            return;
+        }
     }
     
     gtk_drag_finish(context, TRUE, FALSE, time);

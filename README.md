@@ -117,11 +117,12 @@ miloOS is **not a distribution**—it's a transformation kit. Install vanilla De
 - Toggleable Grid/Icon and Details/List views with live search filtering
 - Interactive breadcrumb/location bar with `Ctrl+L`, local path support, and remote URI handling
 - Full file operations: cut, copy, paste, delete, trash, rename, drag and drop, and properties (Get Info)
+- Refined single/multi-selection across views, stable multi-item drag payloads, and folder-target drop highlighting
 - Smart duplicate-name handling when pasting files into the same directory
 - Background directory loading, thumbnail generation, folder-size calculation, copy/move jobs, and archive jobs
 - Thread-safe icon, MIME icon, and thumbnail caches for responsive native performance
 - Multi-format archive compression (`.zip`, `.7z`, `.tar.gz`, `.tar.xz`, `.tar.bz2`) and extraction (`.zip`, `.7z`, `.rar`, `.tar`, `.tar.gz`, etc.) through `7z` and `tar`
-- Custom default open actions plus registered "Open With..." application menus and native GtkAppChooserDialog integration
+- Batched media opening that reuses VLC's running instance, plus registered multi-file "Open With..." actions and native GtkAppChooserDialog integration
 - Dynamic light/dark GTK theme styling, including `miloOS-Dark`
 - Bilingual interface (English/Spanish)
 
