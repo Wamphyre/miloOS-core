@@ -30,7 +30,6 @@ constexpr int STATUS_BUTTON_WIDTH = 24;
 constexpr int CLOCK_WIDTH = 117;
 constexpr int ACTIVE_WINDOW_FALLBACK_POLL_SECONDS = 1;
 constexpr int BATTERY_POLL_SECONDS = 30;
-constexpr int ACTIVE_WINDOW_REFRESH_DELAY_MS = 35;
 constexpr int MENU_MAX_RETRIES_PER_WINDOW = 2;
 constexpr int DBUSMENU_LAYOUT_DEPTH = 2;
 
@@ -544,6 +543,11 @@ bool menu_debug_enabled() {
 bool appmenu_debug_enabled() {
     const char* value = g_getenv("MILO_PANEL_DEBUG_APPMENU");
     return value && *value;
+}
+
+bool external_appmenu_enabled() {
+    const char* value = g_getenv("MILO_PANEL_USE_EXTERNAL_APPMENU");
+    return value && *value && g_strcmp0(value, "0") != 0;
 }
 
 void startup_trace(const char* message) {
@@ -1123,7 +1127,11 @@ void PanelWindow::setup_registrar_signals() {
 
 void PanelWindow::schedule_active_window_refresh() {
     if (!active_refresh_source_id_) {
-        active_refresh_source_id_ = g_timeout_add(ACTIVE_WINDOW_REFRESH_DELAY_MS, on_active_refresh_timeout, this);
+        active_refresh_source_id_ = g_idle_add_full(
+            G_PRIORITY_HIGH_IDLE,
+            on_active_refresh_timeout,
+            this,
+            nullptr);
     }
 }
 
@@ -1429,6 +1437,13 @@ void PanelWindow::launch_command(const std::string& command) {
 }
 
 GtkWidget* PanelWindow::create_appmenu_widget() {
+    // The external widget intentionally delays model replacement to avoid
+    // flicker. Prefer miloPanel's direct importer so focus changes are visible
+    // on the next GTK cycle, while retaining the widget as an opt-in fallback.
+    if (!external_appmenu_enabled()) {
+        return nullptr;
+    }
+
     using AppmenuMenuWidgetNew = GtkWidget* (*)();
     const char* candidates[] = {
         "/usr/lib/x86_64-linux-gnu/vala-panel/applets/libappmenu.so",
@@ -1673,10 +1688,10 @@ void PanelWindow::update_active_window() {
     GlobalMenuKind next_kind = GlobalMenuKind::NoMenu;
     if (active_window_is_desktop_ || current_active_window_id_ == 0) {
         next_kind = GlobalMenuKind::DesktopMenu;
-    } else if (query_menu_for_window(current_active_window_id_, &service, &path)) {
-        next_kind = GlobalMenuKind::DBusMenu;
     } else if (query_gmenu_for_window(current_active_window_id_, &gmenu_bus, &gmenu_path, &gmenu_app_path, &gmenu_window_path)) {
         next_kind = GlobalMenuKind::GMenu;
+    } else if (query_menu_for_window(current_active_window_id_, &service, &path)) {
+        next_kind = GlobalMenuKind::DBusMenu;
     }
 
     if (next_kind != current_menu_kind_ ||
@@ -1762,37 +1777,6 @@ bool PanelWindow::ensure_session_bus() {
         g_error_free(error);
     }
     return session_bus_ != nullptr;
-}
-
-bool PanelWindow::session_bus_name_has_owner(const char* name) {
-    if (!ensure_session_bus() || !name || !*name) {
-        return false;
-    }
-
-    GError* error = nullptr;
-    GVariant* result = g_dbus_connection_call_sync(
-        session_bus_,
-        "org.freedesktop.DBus",
-        "/org/freedesktop/DBus",
-        "org.freedesktop.DBus",
-        "NameHasOwner",
-        g_variant_new("(s)", name),
-        G_VARIANT_TYPE("(b)"),
-        G_DBUS_CALL_FLAGS_NO_AUTO_START,
-        100,
-        nullptr,
-        &error);
-    if (!result) {
-        if (error) {
-            g_error_free(error);
-        }
-        return false;
-    }
-
-    gboolean has_owner = FALSE;
-    g_variant_get(result, "(b)", &has_owner);
-    g_variant_unref(result);
-    return has_owner;
 }
 
 std::vector<Window> PanelWindow::menu_candidate_windows(Window window) {
@@ -1907,9 +1891,6 @@ std::string PanelWindow::x11_window_string_property(Window window, const char* p
 
 bool PanelWindow::query_menu_for_window(Window window, std::string* service, std::string* path) {
     if (!ensure_session_bus() || window == 0) {
-        return false;
-    }
-    if (!session_bus_name_has_owner("com.canonical.AppMenu.Registrar")) {
         return false;
     }
 
@@ -2591,7 +2572,11 @@ void PanelWindow::install_gmenu_model() {
 
 void PanelWindow::schedule_menu_refresh() {
     if (!menu_refresh_source_id_) {
-        menu_refresh_source_id_ = g_timeout_add(80, on_menu_refresh_timeout, this);
+        menu_refresh_source_id_ = g_idle_add_full(
+            G_PRIORITY_HIGH_IDLE,
+            on_menu_refresh_timeout,
+            this,
+            nullptr);
     }
 }
 

@@ -147,7 +147,6 @@ private:
     std::vector<Window> menu_candidate_windows(Window window);
     std::string x11_window_string_property(Window window, const char* property_name);
     bool ensure_session_bus();
-    bool session_bus_name_has_owner(const char* name);
     bool query_menu_for_window(Window window, std::string* service, std::string* path);
     bool query_gmenu_for_window(Window window, std::string* bus, std::string* menu_path, std::string* app_path, std::string* window_path);
     GtkWidget* build_menu_item_from_layout(GVariant* node, bool top_level);
