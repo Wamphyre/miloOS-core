@@ -1186,7 +1186,9 @@ void AppWindow::handle_drag_data_received(GtkWidget* widget, GdkDragContext* con
             }
         }
         if (all_sources_already_here) {
-            gtk_drag_finish(context, TRUE, FALSE, time);
+            // This is a no-op, not a successful move. Reporting success can
+            // make GTK's model drag source remove the row until the next reload.
+            gtk_drag_finish(context, FALSE, FALSE, time);
             return;
         }
     }

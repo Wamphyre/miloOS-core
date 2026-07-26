@@ -67,6 +67,7 @@ private:
     std::shared_ptr<ThumbnailState> thumbnail_state;
 
     GFileMonitor* directory_monitor;
+    std::string monitored_directory;
     guint directory_reload_timeout_id;
 
     void setup_icon_view();

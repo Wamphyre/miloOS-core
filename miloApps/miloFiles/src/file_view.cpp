@@ -272,14 +272,24 @@ GtkWidget* FileView::get_widget() {
 }
 
 void FileView::clear_directory_monitor() {
-    if (!directory_monitor) return;
+    if (!directory_monitor) {
+        monitored_directory.clear();
+        return;
+    }
     g_signal_handlers_disconnect_by_data(directory_monitor, this);
     g_file_monitor_cancel(directory_monitor);
     g_object_unref(directory_monitor);
     directory_monitor = nullptr;
+    monitored_directory.clear();
 }
 
 void FileView::update_directory_monitor() {
+    if (directory_monitor &&
+        !monitored_directory.empty() &&
+        utils::same_location(monitored_directory, current_dir)) {
+        return;
+    }
+
     clear_directory_monitor();
     if (current_dir.empty()) return;
 
@@ -287,6 +297,8 @@ void FileView::update_directory_monitor() {
     GError* error = NULL;
     directory_monitor = g_file_monitor_directory(dir_file, G_FILE_MONITOR_NONE, NULL, &error);
     if (directory_monitor) {
+        monitored_directory = current_dir;
+        g_file_monitor_set_rate_limit(directory_monitor, 100);
         g_signal_connect(directory_monitor, "changed", G_CALLBACK(on_directory_changed), this);
     }
     if (error) {
@@ -537,10 +549,16 @@ void FileView::load_directory(const std::string& path, bool show_hidden, const s
     const std::vector<std::string> selected_before =
         preserve_selection ? get_selected_paths() : std::vector<std::string>{};
 
+    if (!preserve_selection && directory_reload_timeout_id != 0) {
+        g_source_remove(directory_reload_timeout_id);
+        directory_reload_timeout_id = 0;
+    }
+
     current_dir = next_dir;
     drag_source_paths.clear();
     drag_source_snapshot_valid = false;
     drag_in_progress = false;
+    update_directory_monitor();
 
     GFile* dir_file = utils::new_gfile_for_location(current_dir);
     GError* error = NULL;
@@ -628,8 +646,6 @@ void FileView::load_directory(const std::string& path, bool show_hidden, const s
     }
     g_object_unref(enumerator);
     g_object_unref(dir_file);
-
-    update_directory_monitor();
 
     auto cmp = [](const DirectoryItem& a, const DirectoryItem& b) {
         std::string a_l = a.display_name;
