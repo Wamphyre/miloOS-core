@@ -5,7 +5,7 @@ LDFLAGS = `pkg-config --libs $(PKGS)`
 
 TARGET = milopanel-bin
 
-SRCS = main.cpp panel_settings.cpp menu_model.cpp system_tray_host.cpp status_notifier_host.cpp panel_window.cpp
+SRCS = main.cpp panel_settings.cpp menu_model.cpp system_tray_host.cpp status_notifier_host.cpp appmenu_registrar.cpp panel_window.cpp
 OBJS = $(SRCS:.cpp=.o)
 DEPS = $(OBJS:.o=.d)
 

@@ -1,5 +1,6 @@
 #pragma once
 
+#include "appmenu_registrar.hpp"
 #include "menu_model.hpp"
 #include "panel_settings.hpp"
 #include "system_tray_host.hpp"
@@ -92,6 +93,7 @@ private:
     std::vector<MenuEntry> menu_entries_;
 
     // Global menu
+    AppMenuRegistrar appmenu_registrar_;
     GlobalMenuKind current_menu_kind_ = GlobalMenuKind::NoMenu;
     GtkWidget* menu_bar_ = nullptr;
     GtkWidget* native_appmenu_ = nullptr;

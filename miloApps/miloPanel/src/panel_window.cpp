@@ -1895,6 +1895,16 @@ bool PanelWindow::query_menu_for_window(Window window, std::string* service, std
     }
 
     for (Window candidate : menu_candidate_windows(window)) {
+        if (appmenu_registrar_.menu_for_window(
+                static_cast<guint32>(candidate),
+                service,
+                path)) {
+            return true;
+        }
+        if (appmenu_registrar_.owns_name()) {
+            continue;
+        }
+
         GError* error = nullptr;
         GVariant* result = g_dbus_connection_call_sync(
             session_bus_,

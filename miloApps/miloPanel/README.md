@@ -67,11 +67,13 @@ org.appmenu.gtk-module always-show-inner-menu = false
 
 `miloPanel` also normalizes `GTK_MODULES` for child applications so they inherit a single `appmenu-gtk-module` entry instead of duplicated module lists.
 
-The panel imports DBusMenu and GMenu models directly. Active-window and menu
-change notifications are coalesced into the next GTK main-loop cycle, so the
-global menu follows focus changes without a fixed delay. For compatibility
-testing, the external `vala-panel-appmenu` widget can still be selected with
-`MILO_PANEL_USE_EXTERNAL_APPMENU=1`.
+The panel owns the AppMenu registrar and imports DBusMenu and GMenu models
+directly. Owning the registrar also tells `appmenu-gtk-module` to hide each
+exported in-window menubar, avoiding a duplicate of the global menu.
+Active-window and menu change notifications are coalesced into the next GTK
+main-loop cycle, so the global menu follows focus changes without a fixed
+delay. For compatibility testing, the external `vala-panel-appmenu` widget can
+still be selected with `MILO_PANEL_USE_EXTERNAL_APPMENU=1`.
 
 ## Theme Integration
 
