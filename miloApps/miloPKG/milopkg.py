@@ -183,6 +183,66 @@ def localized(spanish: str, english: str) -> str:
     return spanish if language() == "es" else english
 
 
+def milopkg_settings_path() -> Path:
+    config_home = os.environ.get("XDG_CONFIG_HOME")
+    base = (
+        Path(config_home).expanduser()
+        if config_home
+        else Path.home() / ".config"
+    )
+    return base / "miloPKG" / "settings.ini"
+
+
+def load_output_directory(explicit: Optional[Path] = None) -> Path:
+    if explicit is not None:
+        return Path(explicit).expanduser().resolve()
+
+    fallback = Path.home()
+    parser = configparser.ConfigParser()
+    try:
+        parser.read(milopkg_settings_path(), encoding="utf-8")
+        saved = parser.get("General", "output_directory", fallback="")
+    except (configparser.Error, OSError):
+        return fallback
+
+    if not saved:
+        return fallback
+    candidate = Path(saved).expanduser()
+    if candidate.is_dir() and os.access(candidate, os.W_OK):
+        return candidate.resolve()
+    return fallback
+
+
+def save_output_directory(directory: Path) -> bool:
+    candidate = Path(directory).expanduser().resolve()
+    if not candidate.is_dir() or not os.access(candidate, os.W_OK):
+        return False
+
+    settings_path = milopkg_settings_path()
+    temporary_path: Optional[Path] = None
+    try:
+        settings_path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+        os.chmod(settings_path.parent, 0o700)
+        parser = configparser.ConfigParser()
+        parser["General"] = {"output_directory": str(candidate)}
+        descriptor, temporary_name = tempfile.mkstemp(
+            prefix=".settings-",
+            suffix=".tmp",
+            dir=settings_path.parent,
+        )
+        temporary_path = Path(temporary_name)
+        with os.fdopen(descriptor, "w", encoding="utf-8") as stream:
+            parser.write(stream)
+        os.chmod(temporary_path, 0o600)
+        os.replace(temporary_path, settings_path)
+        return True
+    except OSError:
+        return False
+    finally:
+        if temporary_path and temporary_path.exists():
+            temporary_path.unlink()
+
+
 class MiloPKGError(RuntimeError):
     """Expected packaging failure suitable for showing to the user."""
 
@@ -1658,7 +1718,7 @@ def run_gui(initial_query: str = "", output: Optional[Path] = None) -> int:
             self.connect("destroy", self.on_destroy)
             self.repository = AptRepository()
             self.selected: Optional[PackageInfo] = None
-            self.output_directory = Path(output or Path.home())
+            self.output_directory = load_output_directory(output)
             self.builder: Optional[AppImageBuilder] = None
             self.cancel_event: Optional[threading.Event] = None
             self.busy = False
@@ -1917,8 +1977,9 @@ def run_gui(initial_query: str = "", output: Optional[Path] = None) -> int:
             if dialog.run() == Gtk.ResponseType.OK:
                 selected = dialog.get_filename()
                 if selected:
-                    self.output_directory = Path(selected)
+                    self.output_directory = Path(selected).resolve()
                     self.output_label.set_text(selected)
+                    save_output_directory(self.output_directory)
             dialog.destroy()
 
         def append_log(self, message: str) -> bool:
@@ -1986,6 +2047,8 @@ def run_gui(initial_query: str = "", output: Optional[Path] = None) -> int:
                     self.show_error(str(error))
                 return False
             assert result is not None
+            self.output_directory = result.path.parent
+            save_output_directory(self.output_directory)
             self.progress.set_fraction(1.0)
             self.progress.set_text(result.path.name)
             dialog = Gtk.MessageDialog(

@@ -415,7 +415,15 @@ long x11_window_cardinal_property(
     unsigned long bytes_after = 0;
     unsigned char* data = nullptr;
     long result = fallback;
-    if (XGetWindowProperty(
+    GdkDisplay* gdk_display = gdk_display_get_default();
+    const bool trap_x_error =
+        gdk_display &&
+        GDK_IS_X11_DISPLAY(gdk_display) &&
+        GDK_DISPLAY_XDISPLAY(gdk_display) == display;
+    if (trap_x_error) {
+        gdk_x11_display_error_trap_push(gdk_display);
+    }
+    const int property_status = XGetWindowProperty(
             display,
             window,
             property,
@@ -427,7 +435,11 @@ long x11_window_cardinal_property(
             &actual_format,
             &nitems,
             &bytes_after,
-            &data) == Success &&
+            &data);
+    const int x_error =
+        trap_x_error ? gdk_x11_display_error_trap_pop(gdk_display) : 0;
+    if (x_error == 0 &&
+        property_status == Success &&
         data &&
         actual_format == 32 &&
         nitems > 0) {
@@ -1800,10 +1812,13 @@ void PanelWindow::update_active_window() {
     }
 
     if (xdisplay_ && current_active_window_id_ != 0 && !active_window_is_desktop_) {
+        GdkDisplay* gdk_display = gdk_display_get_default();
+        gdk_x11_display_error_trap_push(gdk_display);
         XWindowAttributes wattr;
         if (XGetWindowAttributes(xdisplay_, current_active_window_id_, &wattr)) {
             XSelectInput(xdisplay_, current_active_window_id_, wattr.your_event_mask | PropertyChangeMask);
         }
+        gdk_x11_display_error_trap_pop_ignored(gdk_display);
     }
 }
 
