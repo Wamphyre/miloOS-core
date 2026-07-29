@@ -46,6 +46,17 @@ void add_token_variants(std::set<std::string>& target, const std::string& value)
     }
 }
 
+bool tokens_overlap(
+    const std::set<std::string>& first,
+    const std::set<std::string>& second) {
+    for (const auto& token : first) {
+        if (second.count(token)) {
+            return true;
+        }
+    }
+    return false;
+}
+
 bool atom_in(const std::vector<Atom>& atoms, Atom needle) {
     return std::find(atoms.begin(), atoms.end(), needle) != atoms.end();
 }
@@ -286,16 +297,29 @@ std::vector<TrackedWindow> WindowTracker::windows() const {
         window.desktop_file = text(xid, wm_desktop_file_atom);
         window.gtk_application_id = text(xid, gtk_application_id_atom);
         window.pid = cardinal(xid, wm_pid_atom, 0);
-        if (window.desktop_file.empty()) {
-            window.desktop_file = path_basename(
-                process_environment_value(
-                    window.pid, "GIO_LAUNCHED_DESKTOP_FILE"));
-        }
         window.appimage_path =
             process_environment_value(window.pid, "APPIMAGE");
         if (window.appimage_path.empty()) {
             window.appimage_path =
                 process_environment_value(window.pid, "MILO_APPIMAGE_PATH");
+        }
+        if (window.desktop_file.empty()) {
+            const std::string launched_desktop_file = path_basename(
+                process_environment_value(
+                    window.pid, "GIO_LAUNCHED_DESKTOP_FILE"));
+            const auto native_tokens = tokens_for_values({
+                window.wm_class,
+                window.wm_instance,
+                window.gtk_application_id
+            });
+            const auto launched_tokens =
+                tokens_for_values({launched_desktop_file});
+            if (!launched_desktop_file.empty() &&
+                (!window.appimage_path.empty() ||
+                 native_tokens.empty() ||
+                 tokens_overlap(native_tokens, launched_tokens))) {
+                window.desktop_file = launched_desktop_file;
+            }
         }
 
         auto states = atom_list(xid, state_atom);

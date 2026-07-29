@@ -1898,27 +1898,9 @@ void FileView::handle_new_file() {
 
 void FileView::handle_open_terminal() {
     std::vector<std::string> args = {"xfce4-terminal", "--working-directory=" + current_dir};
-    gchar** spawn_argv = g_new0(gchar*, args.size() + 1);
-    for (size_t i = 0; i < args.size(); ++i) {
-        spawn_argv[i] = g_strdup(args[i].c_str());
+    if (!utils::run_command_async(args)) {
+        utils::run_command_async({"x-terminal-emulator"});
     }
-    GError* error = NULL;
-    g_spawn_async(NULL, spawn_argv, NULL, G_SPAWN_SEARCH_PATH, NULL, NULL, NULL, &error);
-    if (error) {
-        g_error_free(error);
-        error = NULL;
-        // fallback to x-terminal-emulator
-        std::vector<std::string> fallback_args = {"x-terminal-emulator"};
-        gchar** fallback_argv = g_new0(gchar*, fallback_args.size() + 1);
-        fallback_argv[0] = g_strdup("x-terminal-emulator");
-        g_spawn_async(NULL, fallback_argv, NULL, G_SPAWN_SEARCH_PATH, NULL, NULL, NULL, NULL);
-        g_free(fallback_argv[0]);
-        g_free(fallback_argv);
-    }
-    for (size_t i = 0; i < args.size(); ++i) {
-        g_free(spawn_argv[i]);
-    }
-    g_free(spawn_argv);
 }
 
 void FileView::handle_add_favorites(const std::vector<std::string>& paths) {

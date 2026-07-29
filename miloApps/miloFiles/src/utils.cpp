@@ -1235,18 +1235,40 @@ std::string get_file_modification_time(const std::string& path) {
 
 bool run_command_async(const std::vector<std::string>& argv) {
     if (argv.empty()) return false;
-    
+
     gchar** spawn_argv = g_new0(gchar*, argv.size() + 1);
     for (size_t i = 0; i < argv.size(); ++i) {
         spawn_argv[i] = g_strdup(argv[i].c_str());
     }
-    
+
+    gchar** spawn_environment = g_get_environ();
+    const char* inherited_identity_variables[] = {
+        "GIO_LAUNCHED_DESKTOP_FILE",
+        "GIO_LAUNCHED_DESKTOP_FILE_PID",
+        "DESKTOP_STARTUP_ID",
+        "MILO_APPIMAGE_PATH",
+        "APPIMAGE",
+        nullptr
+    };
+    for (const char** variable = inherited_identity_variables; *variable; ++variable) {
+        spawn_environment = g_environ_unsetenv(spawn_environment, *variable);
+    }
+
     GError* error = NULL;
-    bool success = g_spawn_async(NULL, spawn_argv, NULL, G_SPAWN_SEARCH_PATH, NULL, NULL, NULL, &error);
+    bool success = g_spawn_async(
+        NULL,
+        spawn_argv,
+        spawn_environment,
+        G_SPAWN_SEARCH_PATH,
+        NULL,
+        NULL,
+        NULL,
+        &error);
     if (error) {
         g_error_free(error);
     }
-    
+
+    g_strfreev(spawn_environment);
     for (size_t i = 0; i < argv.size(); ++i) {
         g_free(spawn_argv[i]);
     }

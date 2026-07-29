@@ -1,11 +1,13 @@
 #!/usr/bin/env python3
 
 import importlib.util
+import os
 import subprocess
 import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 
 MODULE_PATH = Path(__file__).resolve().parents[1] / "milopkg.py"
@@ -17,6 +19,46 @@ SPEC.loader.exec_module(milopkg)
 
 
 class MiloPKGTests(unittest.TestCase):
+    def test_output_directory_settings_round_trip(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            config_home = root / "config"
+            output_directory = root / "Applications"
+            output_directory.mkdir()
+            with patch.dict(
+                os.environ,
+                {"XDG_CONFIG_HOME": str(config_home)},
+            ):
+                self.assertTrue(
+                    milopkg.save_output_directory(output_directory)
+                )
+                self.assertEqual(
+                    milopkg.load_output_directory(),
+                    output_directory.resolve(),
+                )
+                settings = config_home / "miloPKG/settings.ini"
+                self.assertEqual(settings.stat().st_mode & 0o777, 0o600)
+
+    def test_invalid_saved_output_directory_uses_home(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            config_home = root / "config"
+            settings = config_home / "miloPKG/settings.ini"
+            settings.parent.mkdir(parents=True)
+            settings.write_text(
+                "[General]\n"
+                f"output_directory = {root / 'missing'}\n",
+                encoding="utf-8",
+            )
+            with patch.dict(
+                os.environ,
+                {"XDG_CONFIG_HOME": str(config_home)},
+            ):
+                self.assertEqual(
+                    milopkg.load_output_directory(),
+                    Path.home(),
+                )
+
     def test_parse_deb822_continuation_and_records(self):
         records = milopkg.parse_deb822(
             "Package: example\n"
