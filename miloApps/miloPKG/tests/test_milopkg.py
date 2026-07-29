@@ -209,11 +209,17 @@ class MiloPKGTests(unittest.TestCase):
             {
                 "Pre-Depends": "runtime (>= 1)",
                 "Depends": "first | fallback, data:any",
+                "Recommends": "recommended | optional",
             }
         )
         self.assertEqual(
             groups,
-            [["runtime (>= 1)"], ["first", "fallback"], ["data:any"]],
+            [
+                ["runtime (>= 1)"],
+                ["first", "fallback"],
+                ["data:any"],
+                ["recommended", "optional"],
+            ],
         )
         self.assertEqual(
             milopkg.AptRepository._relation_package_name("data:any (>= 2)"),
@@ -250,6 +256,8 @@ class MiloPKGTests(unittest.TestCase):
             script = apprun.read_text(encoding="utf-8")
             self.assertIn("appmenu-gtk-module", script)
             self.assertIn("UBUNTU_MENUPROXY=1", script)
+            self.assertIn('export MLT_REPOSITORY="', script)
+            self.assertIn('export MLT_DATA="', script)
             self.assertIn(
                 'GIO_LAUNCHED_DESKTOP_FILE="$APPDIR/example.desktop"',
                 script,
@@ -273,6 +281,76 @@ class MiloPKGTests(unittest.TestCase):
                 )
             )
             self.assertEqual(directories, ["usr/lib/example"])
+
+    def test_runtime_library_scan_includes_dependency_runpaths(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            appdir = Path(temporary) / "example.AppDir"
+            executable = appdir / "usr/bin/example"
+            private_library = (
+                appdir / "usr/lib/x86_64-linux-gnu/libexample.so.1"
+            )
+            executable.parent.mkdir(parents=True)
+            private_library.parent.mkdir(parents=True)
+            executable.write_bytes(b"\x7fELF")
+            private_library.write_bytes(b"\x7fELF")
+            dynamic_section = (
+                " 0x000000000000001d (RUNPATH) "
+                "Library runpath: [/usr/lib/example-private]\n"
+            )
+            (appdir / "usr/lib/example-private").mkdir(parents=True)
+            completed = subprocess.CompletedProcess(
+                args=[],
+                returncode=0,
+                stdout=dynamic_section,
+                stderr="",
+            )
+            with patch.object(
+                milopkg.shutil,
+                "which",
+                return_value="/usr/bin/readelf",
+            ), patch.object(
+                milopkg.subprocess,
+                "run",
+                return_value=completed,
+            ) as run:
+                directories = (
+                    milopkg.AppImageBuilder._runtime_library_dirs(
+                        appdir,
+                        executable,
+                    )
+                )
+            self.assertEqual(directories, ["usr/lib/example-private"])
+            scanned = run.call_args.args[0]
+            self.assertIn(str(executable), scanned)
+            self.assertIn(str(private_library), scanned)
+
+    def test_runtime_layout_links_packaged_application_data(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            appdir = Path(temporary) / "hydrogen.AppDir"
+            executable = appdir / "usr/bin/hydrogen"
+            packaged_data = appdir / "usr/share/hydrogen/data"
+            executable.parent.mkdir(parents=True)
+            executable.touch()
+            packaged_data.mkdir(parents=True)
+            milopkg.AppImageBuilder._prepare_runtime_layout(
+                appdir,
+                executable,
+            )
+            adjacent_data = executable.parent / "data"
+            self.assertTrue(adjacent_data.is_symlink())
+            self.assertEqual(adjacent_data.resolve(), packaged_data.resolve())
+            builder = milopkg.AppImageBuilder.__new__(
+                milopkg.AppImageBuilder
+            )
+            builder._write_apprun(
+                appdir,
+                [str(executable)],
+                executable=executable,
+            )
+            self.assertIn(
+                ' --data "$APPDIR/usr/share/hydrogen/data/" "$@"',
+                (appdir / "AppRun").read_text(encoding="utf-8"),
+            )
 
 
 if __name__ == "__main__":

@@ -652,7 +652,7 @@ class AptRepository:
     @staticmethod
     def _relation_alternatives(record: dict[str, str]) -> list[list[str]]:
         relations = []
-        for field in ("Pre-Depends", "Depends"):
+        for field in ("Pre-Depends", "Depends", "Recommends"):
             value = record.get(field, "").replace("\n", " ")
             if value:
                 relations.extend(value.split(","))
@@ -1542,32 +1542,85 @@ class AppImageBuilder:
                     directories.append(relative)
         return directories
 
+    @staticmethod
+    def _is_elf(path: Path) -> bool:
+        try:
+            with path.open("rb") as stream:
+                return stream.read(4) == b"\x7fELF"
+        except OSError:
+            return False
+
     @classmethod
     def _runtime_library_dirs(
         cls,
         appdir: Path,
         executable: Optional[Path],
     ) -> list[str]:
-        if executable is None or not executable.is_file():
-            return []
         readelf = shutil.which("readelf")
         if not readelf:
             return []
+
+        elf_files: list[Path] = []
+        if executable and executable.is_file() and cls._is_elf(executable):
+            elf_files.append(executable)
+        for root in (appdir / "usr/lib", appdir / "lib"):
+            if not root.is_dir():
+                continue
+            for candidate in root.rglob("*"):
+                if (
+                    candidate.is_symlink()
+                    or not candidate.is_file()
+                    or ".so" not in candidate.name
+                    or candidate in elf_files
+                    or not cls._is_elf(candidate)
+                ):
+                    continue
+                elf_files.append(candidate)
+
+        directories: list[str] = []
+        for index in range(0, len(elf_files), 80):
+            batch = elf_files[index : index + 80]
+            try:
+                result = subprocess.run(
+                    [readelf, "-d", *(str(path) for path in batch)],
+                    env={**os.environ, "LC_ALL": "C", "LANG": "C"},
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.DEVNULL,
+                    text=True,
+                    errors="replace",
+                    check=False,
+                )
+            except OSError:
+                continue
+            for directory in cls._internal_runtime_library_dirs(
+                appdir, result.stdout
+            ):
+                if directory not in directories:
+                    directories.append(directory)
+        return directories
+
+    @staticmethod
+    def _prepare_runtime_layout(
+        appdir: Path, executable: Optional[Path]
+    ) -> None:
+        if executable is None or not executable.is_file():
+            return
+        packaged_data = (
+            appdir / "usr/share" / executable.name / "data"
+        )
+        adjacent_data = executable.parent / "data"
+        if (
+            not packaged_data.is_dir()
+            or adjacent_data == packaged_data
+            or adjacent_data.exists()
+            or adjacent_data.is_symlink()
+        ):
+            return
         try:
-            result = subprocess.run(
-                [readelf, "-d", str(executable)],
-                env={**os.environ, "LC_ALL": "C", "LANG": "C"},
-                stdout=subprocess.PIPE,
-                stderr=subprocess.DEVNULL,
-                text=True,
-                errors="replace",
-                check=False,
-            )
+            relative = os.path.relpath(packaged_data, adjacent_data.parent)
+            adjacent_data.symlink_to(relative)
         except OSError:
-            return []
-        if result.returncode != 0:
-            return []
-        return cls._internal_runtime_library_dirs(appdir, result.stdout)
+            pass
 
     def _write_apprun(
         self,
@@ -1586,6 +1639,12 @@ class AppImageBuilder:
                 )
             )
         command = " ".join(rendered)
+        if (
+            executable is not None
+            and executable.name == "hydrogen"
+            and (appdir / "usr/share/hydrogen/data").is_dir()
+        ):
+            command += ' --data "$APPDIR/usr/share/hydrogen/data/"'
         bundled_library_dirs = [
             f"$APPDIR/usr/lib/{triplet}",
             f"$APPDIR/lib/{triplet}",
@@ -1614,6 +1673,22 @@ export GTK_PATH="$APPDIR/usr/lib/{triplet}/gtk-3.0:$APPDIR/usr/lib/gtk-3.0${{GTK
 export QT_PLUGIN_PATH="$APPDIR/usr/lib/{triplet}/qt5/plugins:$APPDIR/usr/lib/{triplet}/qt6/plugins${{QT_PLUGIN_PATH:+:$QT_PLUGIN_PATH}}"
 export QML2_IMPORT_PATH="$APPDIR/usr/lib/{triplet}/qt5/qml:$APPDIR/usr/lib/{triplet}/qt6/qml${{QML2_IMPORT_PATH:+:$QML2_IMPORT_PATH}}"
 export PYTHONPATH="$APPDIR/usr/lib/python3/dist-packages:$APPDIR/usr/local/lib/python3/dist-packages${{PYTHONPATH:+:$PYTHONPATH}}"
+MLT_REPOSITORY_DIR="$(find "$APPDIR/usr/lib/{triplet}" "$APPDIR/usr/lib" -maxdepth 1 -type d -name 'mlt-*' -print -quit 2>/dev/null || true)"
+MLT_DATA_DIR="$(find "$APPDIR/usr/share" -maxdepth 1 -type d -name 'mlt-*' -print -quit 2>/dev/null || true)"
+FREI0R_DIR="$(find "$APPDIR/usr/lib/{triplet}" "$APPDIR/usr/lib" -maxdepth 1 -type d -name 'frei0r-*' -print -quit 2>/dev/null || true)"
+LADSPA_DIR="$(find "$APPDIR/usr/lib/{triplet}" "$APPDIR/usr/lib" -maxdepth 1 -type d -name 'ladspa' -print -quit 2>/dev/null || true)"
+if [ -n "$MLT_REPOSITORY_DIR" ]; then
+    export MLT_REPOSITORY="$MLT_REPOSITORY_DIR"
+fi
+if [ -n "$MLT_DATA_DIR" ]; then
+    export MLT_DATA="$MLT_DATA_DIR"
+fi
+if [ -n "$FREI0R_DIR" ]; then
+    export FREI0R_PATH="$FREI0R_DIR"
+fi
+if [ -n "$LADSPA_DIR" ]; then
+    export LADSPA_PATH="$LADSPA_DIR${{LADSPA_PATH:+:$LADSPA_PATH}}"
+fi
 case ":${{GTK_MODULES:-}}:" in
     *:appmenu-gtk-module:*) ;;
     *) export GTK_MODULES="appmenu-gtk-module${{GTK_MODULES:+:$GTK_MODULES}}" ;;
@@ -1827,6 +1902,7 @@ exec {command} "$@"
             )
             icon_key = safe_icon_key(package_name)
             self._install_icon(appdir, desktop_entry, icon_key)
+            self._prepare_runtime_layout(appdir, executable)
             self._write_apprun(
                 appdir,
                 launcher_argv,
