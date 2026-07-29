@@ -7,6 +7,8 @@
 
 #include <algorithm>
 #include <cstring>
+#include <fstream>
+#include <sstream>
 
 namespace {
 
@@ -18,6 +20,9 @@ std::string normalize_token(std::string value) {
     std::transform(value.begin(), value.end(), value.begin(), [](unsigned char c) { return std::tolower(c); });
     if (has_suffix(value, ".desktop")) {
         value = value.substr(0, value.size() - 8);
+    }
+    if (has_suffix(value, ".appimage")) {
+        value = value.substr(0, value.size() - 9);
     }
     std::replace(value.begin(), value.end(), '_', '-');
     return value;
@@ -43,6 +48,42 @@ void add_token_variants(std::set<std::string>& target, const std::string& value)
 
 bool atom_in(const std::vector<Atom>& atoms, Atom needle) {
     return std::find(atoms.begin(), atoms.end(), needle) != atoms.end();
+}
+
+std::string path_basename(const std::string& path) {
+    const size_t slash = path.find_last_of('/');
+    return slash == std::string::npos ? path : path.substr(slash + 1);
+}
+
+std::string process_environment_value(long pid, const std::string& key) {
+    if (pid <= 0 || key.empty()) {
+        return "";
+    }
+    std::ifstream input(
+        "/proc/" + std::to_string(pid) + "/environ",
+        std::ios::binary);
+    if (!input.is_open()) {
+        return "";
+    }
+    std::ostringstream contents;
+    contents << input.rdbuf();
+    const std::string prefix = key + "=";
+    const std::string environment = contents.str();
+    size_t offset = 0;
+    while (offset < environment.size()) {
+        const size_t end = environment.find('\0', offset);
+        const size_t length =
+            end == std::string::npos ? environment.size() - offset : end - offset;
+        const std::string entry = environment.substr(offset, length);
+        if (entry.rfind(prefix, 0) == 0) {
+            return entry.substr(prefix.size());
+        }
+        if (end == std::string::npos) {
+            break;
+        }
+        offset = end + 1;
+    }
+    return "";
 }
 
 } // namespace
@@ -197,6 +238,7 @@ std::vector<TrackedWindow> WindowTracker::windows() const {
     const Atom wm_name_atom = atom("_NET_WM_NAME");
     const Atom wm_desktop_file_atom = atom("_NET_WM_DESKTOP_FILE");
     const Atom gtk_application_id_atom = atom("_GTK_APPLICATION_ID");
+    const Atom wm_pid_atom = atom("_NET_WM_PID");
 
     for (Window xid : window_list(root_, atom("_NET_CLIENT_LIST"))) {
         XWindowAttributes attrs;
@@ -243,6 +285,18 @@ std::vector<TrackedWindow> WindowTracker::windows() const {
         }
         window.desktop_file = text(xid, wm_desktop_file_atom);
         window.gtk_application_id = text(xid, gtk_application_id_atom);
+        window.pid = cardinal(xid, wm_pid_atom, 0);
+        if (window.desktop_file.empty()) {
+            window.desktop_file = path_basename(
+                process_environment_value(
+                    window.pid, "GIO_LAUNCHED_DESKTOP_FILE"));
+        }
+        window.appimage_path =
+            process_environment_value(window.pid, "APPIMAGE");
+        if (window.appimage_path.empty()) {
+            window.appimage_path =
+                process_environment_value(window.pid, "MILO_APPIMAGE_PATH");
+        }
 
         auto states = atom_list(xid, state_atom);
         window.skip_tasklist = atom_in(states, skip_tasklist_atom);
@@ -254,13 +308,15 @@ std::vector<TrackedWindow> WindowTracker::windows() const {
             window.wm_class,
             window.wm_instance,
             window.desktop_file,
-            window.gtk_application_id
+            window.gtk_application_id,
+            path_basename(window.appimage_path)
         });
         window.tokens = tokens_for_values({
             window.wm_class,
             window.wm_instance,
             window.desktop_file,
             window.gtk_application_id,
+            path_basename(window.appimage_path),
             window.name
         });
         result.push_back(std::move(window));

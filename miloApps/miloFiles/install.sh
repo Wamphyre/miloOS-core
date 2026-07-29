@@ -24,6 +24,7 @@ REQUIRED_PACKAGES=(
     desktop-file-utils
     gtk-update-icon-cache
     hicolor-icon-theme
+    squashfs-tools
     xdg-utils
     gvfs
     gvfs-backends

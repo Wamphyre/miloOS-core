@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg width="128" height="128" viewBox="0 0 128 128" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="background" x1="18" y1="16" x2="108" y2="114" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#7892FF"/>
+      <stop offset="1" stop-color="#4B61D1"/>
+    </linearGradient>
+    <linearGradient id="front" x1="31" y1="57" x2="66" y2="105" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#F4F6FF"/>
+      <stop offset="1" stop-color="#D9DFFF"/>
+    </linearGradient>
+  </defs>
+  <rect x="8" y="8" width="112" height="112" rx="29" fill="url(#background)"/>
+  <path d="M30 47.5L64 28l34 19.5L64 67 30 47.5Z" fill="#FFFFFF" fill-opacity=".97"/>
+  <path d="M30 47.5V85l34 20V67L30 47.5Z" fill="url(#front)"/>
+  <path d="M98 47.5V85l-34 20V67l34-19.5Z" fill="#C5CEFF"/>
+  <path d="M76.5 20.8 42.7 40.4l12.5 7.2L89 28l-12.5-7.2Z" fill="#A6B5FF"/>
+  <path d="M64 67v38" stroke="#FFFFFF" stroke-width="3.5" stroke-opacity=".62"/>
+  <path d="M90 77.5c0 9.6-7.7 17.3-17.3 17.3" fill="none" stroke="#5369D8" stroke-width="5" stroke-linecap="round"/>
+  <path d="m73.5 87.4-4.9 7.6 8.9.5" fill="none" stroke="#5369D8" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

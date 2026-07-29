@@ -41,6 +41,9 @@ std::string normalize_token(std::string value) {
     if (has_suffix(value, ".desktop")) {
         value = value.substr(0, value.size() - 8);
     }
+    if (has_suffix(value, ".appimage")) {
+        value = value.substr(0, value.size() - 9);
+    }
     std::replace(value.begin(), value.end(), '_', '-');
     return value;
 }
@@ -68,6 +71,11 @@ std::set<std::string> token_variants(const std::string& value) {
 void add_tokens(std::set<std::string>& target, const std::string& value) {
     for (const auto& token : token_variants(value)) {
         target.insert(token);
+    }
+    if (value.find('/') != std::string::npos) {
+        for (const auto& token : token_variants(basename(value))) {
+            target.insert(token);
+        }
     }
 }
 
@@ -99,7 +107,7 @@ std::string path_from_file_uri(const std::string& uri) {
 
 std::vector<fs::path> app_dirs() {
     std::vector<fs::path> dirs;
-    dirs.emplace_back(std::string(g_get_home_dir()) + "/.local/share/applications");
+    dirs.emplace_back(fs::path(g_get_user_data_dir()) / "applications");
 
     const char* xdg_data_dirs = g_getenv("XDG_DATA_DIRS");
     std::string raw_dirs = xdg_data_dirs ? xdg_data_dirs : "/usr/local/share:/usr/share";
@@ -264,8 +272,36 @@ Launcher launcher_from_desktop_path(const std::string& desktop_path, bool includ
     add_tokens(launcher.match_tokens, launcher.name);
     add_tokens(launcher.match_tokens, desktop_key(desktop_path, "StartupWMClass"));
     add_tokens(launcher.match_tokens, command_basename(g_app_info_get_commandline(G_APP_INFO(app_info))));
+    add_tokens(launcher.match_tokens, desktop_key(desktop_path, "X-miloOS-AppImage"));
 
     return launcher;
+}
+
+std::string canonical_path(const std::string& path) {
+    gchar* canonical = g_canonicalize_filename(path.c_str(), nullptr);
+    std::string result = canonical ? canonical : path;
+    g_free(canonical);
+    return result;
+}
+
+Launcher registered_launcher_for_appimage(const std::string& appimage_path) {
+    const std::string wanted = canonical_path(appimage_path);
+    for (const auto& directory : app_dirs()) {
+        if (!fs::exists(directory)) {
+            continue;
+        }
+        for (const auto& entry : fs::directory_iterator(directory)) {
+            if (!entry.is_regular_file() || entry.path().extension() != ".desktop") {
+                continue;
+            }
+            const std::string registered =
+                desktop_key(entry.path().string(), "X-miloOS-AppImage");
+            if (!registered.empty() && canonical_path(registered) == wanted) {
+                return launcher_from_desktop_path(entry.path().string(), true);
+            }
+        }
+    }
+    return {};
 }
 
 std::vector<fs::path> launcher_dirs() {
@@ -464,6 +500,19 @@ std::vector<Launcher> launchers_from_uri_list(const std::vector<std::string>& ur
         if (desktop_path.empty()) {
             continue;
         }
+        std::string lower_path = desktop_path;
+        std::transform(
+            lower_path.begin(),
+            lower_path.end(),
+            lower_path.begin(),
+            [](unsigned char c) { return std::tolower(c); });
+        if (has_suffix(lower_path, ".appimage")) {
+            Launcher launcher = launcher_for_appimage(desktop_path);
+            if (launcher.app_info) {
+                launchers.push_back(std::move(launcher));
+            }
+            continue;
+        }
         if (!has_suffix(desktop_path, ".desktop")) {
             desktop_path = find_desktop_path(basename(desktop_path));
         }
@@ -479,8 +528,60 @@ std::vector<Launcher> launchers_from_uri_list(const std::vector<std::string>& ur
 }
 
 Launcher launcher_from_text(const std::string& value) {
+    std::string lower = value;
+    std::transform(lower.begin(), lower.end(), lower.begin(), [](unsigned char c) {
+        return std::tolower(c);
+    });
+    if (has_suffix(lower, ".appimage") && fs::exists(value)) {
+        return launcher_for_appimage(value);
+    }
     std::string desktop_path = find_desktop_path(value);
     return desktop_path.empty() ? Launcher() : launcher_from_desktop_path(desktop_path, true);
+}
+
+Launcher launcher_for_appimage(const std::string& path) {
+    if (path.empty() || !fs::exists(path)) {
+        return {};
+    }
+    Launcher launcher = registered_launcher_for_appimage(path);
+    if (launcher.app_info) {
+        return launcher;
+    }
+
+    gchar* argv[] = {
+        const_cast<gchar*>("milofiles"),
+        const_cast<gchar*>("--register-appimage"),
+        const_cast<gchar*>(path.c_str()),
+        nullptr
+    };
+    gint wait_status = 0;
+    GError* error = nullptr;
+    const GSpawnFlags flags = static_cast<GSpawnFlags>(
+        G_SPAWN_SEARCH_PATH |
+        G_SPAWN_STDOUT_TO_DEV_NULL |
+        G_SPAWN_STDERR_TO_DEV_NULL);
+    const bool spawned = g_spawn_sync(
+        nullptr,
+        argv,
+        nullptr,
+        flags,
+        nullptr,
+        nullptr,
+        nullptr,
+        nullptr,
+        &wait_status,
+        &error);
+    if (error) {
+        g_error_free(error);
+        error = nullptr;
+    }
+    if (!spawned || !g_spawn_check_wait_status(wait_status, &error)) {
+        if (error) {
+            g_error_free(error);
+        }
+        return {};
+    }
+    return registered_launcher_for_appimage(path);
 }
 
 void save_launcher_order(const std::vector<Launcher>& launchers) {
@@ -522,6 +623,12 @@ void launch_app(const Launcher& launcher) {
     std::string gtk_modules = normalized_gtk_modules(g_getenv("GTK_MODULES"));
     g_app_launch_context_setenv(context, "GTK_MODULES", gtk_modules.c_str());
     g_app_launch_context_setenv(context, "UBUNTU_MENUPROXY", "1");
+    const std::string appimage_path =
+        desktop_key(launcher.desktop_path, "X-miloOS-AppImage");
+    if (!appimage_path.empty()) {
+        g_app_launch_context_setenv(
+            context, "MILO_APPIMAGE_PATH", appimage_path.c_str());
+    }
     g_app_info_launch(G_APP_INFO(launcher.app_info), nullptr, context, &error);
     if (error) {
         g_error_free(error);

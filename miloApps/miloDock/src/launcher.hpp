@@ -27,5 +27,6 @@ std::vector<Launcher> load_launchers();
 std::vector<Launcher> all_desktop_launchers();
 std::vector<Launcher> launchers_from_uri_list(const std::vector<std::string>& uris);
 Launcher launcher_from_text(const std::string& value);
+Launcher launcher_for_appimage(const std::string& path);
 void save_launcher_order(const std::vector<Launcher>& launchers);
 void launch_app(const Launcher& launcher);

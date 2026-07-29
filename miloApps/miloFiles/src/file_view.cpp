@@ -189,8 +189,19 @@ GdkPixbuf* FileView::get_file_icon(const std::string& path, int size, bool is_di
             pb = get_icon_pixbuf("folder", size);
         }
     } else {
+        if (utils::is_appimage(path)) {
+            const std::string icon_path = utils::appimage_icon_path(path);
+            if (!icon_path.empty()) {
+                GError* error = nullptr;
+                pb = gdk_pixbuf_new_from_file_at_scale(
+                    icon_path.c_str(), size, size, TRUE, &error);
+                if (error) {
+                    g_error_free(error);
+                }
+            }
+        }
         std::string mime = utils::get_mime_type(path);
-        if (!mime.empty()) {
+        if (!pb && !mime.empty()) {
             std::string icon_name = mime;
             std::replace(icon_name.begin(), icon_name.end(), '/', '-');
             pb = get_icon_pixbuf(icon_name, size);

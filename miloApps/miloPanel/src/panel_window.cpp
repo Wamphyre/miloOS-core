@@ -13,6 +13,7 @@
 #include <cctype>
 #include <cstdio>
 #include <ctime>
+#include <fstream>
 #include <functional>
 #include <map>
 #include <sstream>
@@ -30,7 +31,7 @@ constexpr int STATUS_BUTTON_WIDTH = 24;
 constexpr int CLOCK_WIDTH = 117;
 constexpr int ACTIVE_WINDOW_FALLBACK_POLL_SECONDS = 1;
 constexpr int BATTERY_POLL_SECONDS = 30;
-constexpr int MENU_MAX_RETRIES_PER_WINDOW = 2;
+constexpr int MENU_MAX_RETRIES_PER_WINDOW = 8;
 constexpr int DBUSMENU_LAYOUT_DEPTH = 2;
 
 std::string css_for_settings(const PanelSettings& settings) {
@@ -382,6 +383,10 @@ void add_desktop_id_candidates(std::vector<std::string>* candidates, const std::
     }
 
     std::string value = raw_value;
+    const size_t slash = value.find_last_of('/');
+    if (slash != std::string::npos) {
+        value = value.substr(slash + 1);
+    }
     std::replace(value.begin(), value.end(), ' ', '-');
     const std::string lower = lowercase_ascii(value);
 
@@ -393,6 +398,76 @@ void add_desktop_id_candidates(std::vector<std::string>* candidates, const std::
     if (lower.size() < 8 || lower.substr(lower.size() - 8) != ".desktop") {
         add_unique_candidate(candidates, lower + ".desktop");
     }
+}
+
+long x11_window_cardinal_property(
+    Display* display,
+    Window window,
+    const char* property_name,
+    long fallback = 0) {
+    if (!display || window == 0 || !property_name) {
+        return fallback;
+    }
+    Atom property = XInternAtom(display, property_name, False);
+    Atom actual_type = None;
+    int actual_format = 0;
+    unsigned long nitems = 0;
+    unsigned long bytes_after = 0;
+    unsigned char* data = nullptr;
+    long result = fallback;
+    if (XGetWindowProperty(
+            display,
+            window,
+            property,
+            0,
+            1,
+            False,
+            XA_CARDINAL,
+            &actual_type,
+            &actual_format,
+            &nitems,
+            &bytes_after,
+            &data) == Success &&
+        data &&
+        actual_format == 32 &&
+        nitems > 0) {
+        result = static_cast<long>(*reinterpret_cast<unsigned long*>(data));
+    }
+    if (data) {
+        XFree(data);
+    }
+    return result;
+}
+
+std::string process_environment_value(long pid, const std::string& key) {
+    if (pid <= 0 || key.empty()) {
+        return {};
+    }
+    std::ifstream input(
+        "/proc/" + std::to_string(pid) + "/environ",
+        std::ios::binary);
+    if (!input.is_open()) {
+        return {};
+    }
+    std::ostringstream contents;
+    contents << input.rdbuf();
+    const std::string environment = contents.str();
+    const std::string prefix = key + "=";
+    size_t offset = 0;
+    while (offset < environment.size()) {
+        const size_t end = environment.find('\0', offset);
+        const size_t length =
+            end == std::string::npos ? environment.size() - offset : end - offset;
+        const std::string entry = environment.substr(offset, length);
+        if (entry.rfind(prefix, 0) == 0) {
+            return entry.substr(prefix.size());
+        }
+        if (end == std::string::npos) {
+            break;
+        }
+        offset = end + 1;
+    }
+    return {};
 }
 
 std::string display_name_for_desktop_id(const std::string& desktop_id) {
@@ -1568,7 +1643,14 @@ std::string PanelWindow::active_window_title() {
         return i18n::tr("desktop");
     }
 
-    const std::string desktop_file = x11_window_string_property(active, "_NET_WM_DESKTOP_FILE");
+    std::string desktop_file =
+        x11_window_string_property(active, "_NET_WM_DESKTOP_FILE");
+    if (desktop_file.empty()) {
+        const long active_pid =
+            x11_window_cardinal_property(display, active, "_NET_WM_PID");
+        desktop_file = process_environment_value(
+            active_pid, "GIO_LAUNCHED_DESKTOP_FILE");
+    }
     const std::string gtk_app_id = x11_window_string_property(active, "_GTK_APPLICATION_ID");
     if (string_identity_is_desktop(desktop_file) || string_identity_is_desktop(gtk_app_id)) {
         active_window_is_desktop_ = true;

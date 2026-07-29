@@ -136,6 +136,7 @@ std::string short_window_label(const TrackedWindow& window, int index) {
 std::string first_nonempty_window_value(const TrackedWindow& window) {
     const std::string values[] = {
         window.desktop_file,
+        window.appimage_path,
         window.gtk_application_id,
         window.wm_class,
         window.wm_instance,
@@ -564,6 +565,14 @@ std::vector<TrackedWindow> DockWindow::running_windows_for(
 }
 
 Launcher DockWindow::launcher_for_window(const TrackedWindow& window) {
+    if (!window.appimage_path.empty()) {
+        Launcher appimage_launcher = launcher_for_appimage(window.appimage_path);
+        if (appimage_launcher.app_info) {
+            desktop_cache_loaded_ = false;
+            desktop_cache_.clear();
+            return appimage_launcher;
+        }
+    }
     if (!desktop_cache_loaded_) {
         desktop_cache_ = all_desktop_launchers();
         desktop_cache_loaded_ = true;

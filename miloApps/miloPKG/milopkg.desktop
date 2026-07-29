@@ -1,0 +1,16 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=miloPKG
+Name[es]=miloPKG
+GenericName=AppImage Creator
+GenericName[es]=Creador de AppImage
+Comment=Convert Debian repository packages into portable AppImages
+Comment[es]=Convierte paquetes de los repositorios Debian en AppImages portátiles
+Exec=milopkg
+Icon=milopkg
+Terminal=false
+Categories=System;GTK;
+Keywords=AppImage;Debian;Package;Portable;
+Keywords[es]=AppImage;Debian;Paquete;Portátil;
+StartupNotify=true

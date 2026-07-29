@@ -143,6 +143,21 @@ else
 fi
 echo ""
 
+# Check miloPKG
+echo -e "${BLUE}[5c] miloPKG${NC}"
+if command -v milopkg &> /dev/null; then
+    check_pass "miloPKG installed"
+else
+    check_warn "miloPKG not installed"
+fi
+
+if [ -f "/usr/share/applications/milopkg.desktop" ]; then
+    check_pass "miloPKG desktop entry installed"
+else
+    check_warn "miloPKG desktop entry not found"
+fi
+echo ""
+
 # Check packages
 echo -e "${BLUE}[6] Essential Packages${NC}"
 REQUIRED_PKGS=("dconf-cli" "appmenu-gtk3-module" "xfce4-appmenu-plugin" "catfish" "vala-panel-appmenu" "python3-gi" "gir1.2-gtk-3.0" "gir1.2-wnck-3.0")

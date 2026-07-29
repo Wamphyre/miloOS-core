@@ -2,6 +2,8 @@
 #include "i18n.hpp"
 #include <gtk/gtk.h>
 #include <gio/gio.h>
+#include <gio/gdesktopappinfo.h>
+#include <glib/gstdio.h>
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <sys/statvfs.h>
@@ -12,6 +14,8 @@
 #include <iostream>
 #include <fstream>
 #include <algorithm>
+#include <array>
+#include <cstdint>
 #include <cstring>
 #include <filesystem>
 #include <cerrno>
@@ -32,6 +36,13 @@ static std::string trim_copy(const std::string& value) {
         return !std::isspace(ch);
     }).base(), out.end());
     return out;
+}
+
+static std::string to_lower_copy(std::string value) {
+    std::transform(value.begin(), value.end(), value.begin(), [](unsigned char ch) {
+        return static_cast<char>(std::tolower(ch));
+    });
+    return value;
 }
 
 static void ensure_bookmarks_dir() {
@@ -231,6 +242,337 @@ static void save_favorites(const std::vector<FavoriteItem>& favorites) {
     }
 }
 
+struct AppImageMetadata {
+    std::string canonical_path;
+    std::string cache_key;
+    std::string icon_path;
+    std::string desktop_path;
+};
+
+static std::string sha256(const std::string& value) {
+    gchar* digest = g_compute_checksum_for_string(
+        G_CHECKSUM_SHA256,
+        value.c_str(),
+        static_cast<gssize>(value.size()));
+    std::string result = digest ? digest : "";
+    g_free(digest);
+    return result;
+}
+
+static std::string canonical_local_path(const std::string& location) {
+    std::string local_path = location_to_path(location);
+    if (local_path.empty()) {
+        return "";
+    }
+    gchar* canonical = g_canonicalize_filename(local_path.c_str(), nullptr);
+    std::string result = canonical ? canonical : local_path;
+    g_free(canonical);
+    return result;
+}
+
+static std::string appimage_cache_key(const std::string& path) {
+    struct stat st;
+    if (stat(path.c_str(), &st) != 0) {
+        return "";
+    }
+    std::ostringstream identity;
+    identity << path << '\n' << st.st_size << '\n' << st.st_mtime;
+    return sha256(identity.str());
+}
+
+static uint16_t little_endian_u16(const unsigned char* bytes) {
+    return static_cast<uint16_t>(bytes[0]) |
+        (static_cast<uint16_t>(bytes[1]) << 8);
+}
+
+static uint32_t little_endian_u32(const unsigned char* bytes) {
+    return static_cast<uint32_t>(bytes[0]) |
+        (static_cast<uint32_t>(bytes[1]) << 8) |
+        (static_cast<uint32_t>(bytes[2]) << 16) |
+        (static_cast<uint32_t>(bytes[3]) << 24);
+}
+
+static uint64_t little_endian_u64(const unsigned char* bytes) {
+    uint64_t value = 0;
+    for (int index = 7; index >= 0; --index) {
+        value = (value << 8) | bytes[index];
+    }
+    return value;
+}
+
+static uint64_t appimage_squashfs_offset(const std::string& path) {
+    std::ifstream input(path, std::ios::binary);
+    if (!input.is_open()) {
+        return 0;
+    }
+    input.seekg(0, std::ios::end);
+    const uint64_t file_size = static_cast<uint64_t>(input.tellg());
+    input.seekg(0, std::ios::beg);
+
+    constexpr size_t CHUNK_SIZE = 1024 * 1024;
+    std::array<unsigned char, CHUNK_SIZE + 3> buffer{};
+    size_t carry = 0;
+    uint64_t consumed = 0;
+    while (input) {
+        input.read(
+            reinterpret_cast<char*>(buffer.data() + carry),
+            CHUNK_SIZE);
+        const size_t received = static_cast<size_t>(input.gcount());
+        const size_t available = carry + received;
+        if (available < 4) {
+            break;
+        }
+
+        const uint64_t base = consumed >= carry ? consumed - carry : 0;
+        for (size_t index = 0; index + 48 <= available; ++index) {
+            if (buffer[index] != 'h' ||
+                buffer[index + 1] != 's' ||
+                buffer[index + 2] != 'q' ||
+                buffer[index + 3] != 's') {
+                continue;
+            }
+            const uint32_t block_size = little_endian_u32(buffer.data() + index + 12);
+            const uint16_t major = little_endian_u16(buffer.data() + index + 28);
+            const uint64_t bytes_used = little_endian_u64(buffer.data() + index + 40);
+            const uint64_t offset = base + index;
+            const bool valid_block_size =
+                block_size >= 4096 &&
+                block_size <= 1024 * 1024 &&
+                (block_size & (block_size - 1)) == 0;
+            if (major == 4 &&
+                valid_block_size &&
+                bytes_used >= 96 &&
+                offset + bytes_used <= file_size) {
+                return offset;
+            }
+        }
+
+        carry = std::min<size_t>(47, available);
+        std::memmove(
+            buffer.data(),
+            buffer.data() + available - carry,
+            carry);
+        consumed += received;
+    }
+    return 0;
+}
+
+static bool extract_appimage_member(
+    const std::string& appimage,
+    uint64_t squashfs_offset,
+    const std::string& member,
+    const std::string& working_directory) {
+    const std::string offset = std::to_string(squashfs_offset);
+    const std::string destination =
+        (std::filesystem::path(working_directory) / "squashfs-root").string();
+    gchar* argv[] = {
+        const_cast<gchar*>("unsquashfs"),
+        const_cast<gchar*>("-f"),
+        const_cast<gchar*>("-no-progress"),
+        const_cast<gchar*>("-o"),
+        const_cast<gchar*>(offset.c_str()),
+        const_cast<gchar*>("-d"),
+        const_cast<gchar*>(destination.c_str()),
+        const_cast<gchar*>(appimage.c_str()),
+        const_cast<gchar*>(member.c_str()),
+        nullptr
+    };
+    gint wait_status = 0;
+    GError* error = nullptr;
+    const GSpawnFlags flags = static_cast<GSpawnFlags>(
+        G_SPAWN_SEARCH_PATH |
+        G_SPAWN_STDOUT_TO_DEV_NULL |
+        G_SPAWN_STDERR_TO_DEV_NULL);
+    const bool spawned = g_spawn_sync(
+        working_directory.c_str(),
+        argv,
+        nullptr,
+        flags,
+        nullptr,
+        nullptr,
+        nullptr,
+        nullptr,
+        &wait_status,
+        &error);
+    if (error) {
+        g_error_free(error);
+        error = nullptr;
+    }
+    if (!spawned) {
+        return false;
+    }
+    const bool succeeded = g_spawn_check_wait_status(wait_status, &error);
+    if (error) {
+        g_error_free(error);
+    }
+    return succeeded;
+}
+
+static std::string cached_icon_in(const std::filesystem::path& cache_directory) {
+    const std::vector<std::string> suffixes = {".svg", ".png", ".xpm"};
+    for (const auto& suffix : suffixes) {
+        const std::filesystem::path candidate = cache_directory / ("icon" + suffix);
+        if (std::filesystem::is_regular_file(candidate)) {
+            return candidate.string();
+        }
+    }
+    return "";
+}
+
+static AppImageMetadata ensure_appimage_metadata(const std::string& location) {
+    namespace fs = std::filesystem;
+
+    AppImageMetadata metadata;
+    metadata.canonical_path = canonical_local_path(location);
+    if (metadata.canonical_path.empty() || !is_appimage(metadata.canonical_path)) {
+        return metadata;
+    }
+    metadata.cache_key = appimage_cache_key(metadata.canonical_path);
+    if (metadata.cache_key.empty()) {
+        return {};
+    }
+    const fs::path cache_directory =
+        fs::path(g_get_user_cache_dir()) / "milofiles/appimages" / metadata.cache_key;
+    const fs::path cached_desktop = cache_directory / "application.desktop";
+    metadata.icon_path = cached_icon_in(cache_directory);
+    if (!metadata.icon_path.empty() && fs::is_regular_file(cached_desktop)) {
+        metadata.desktop_path = cached_desktop.string();
+        return metadata;
+    }
+    const uint64_t squashfs_offset =
+        appimage_squashfs_offset(metadata.canonical_path);
+    gchar* unsquashfs = g_find_program_in_path("unsquashfs");
+    const bool can_extract = squashfs_offset != 0 && unsquashfs != nullptr;
+    g_free(unsquashfs);
+    if (!can_extract) {
+        return {};
+    }
+
+    std::error_code filesystem_error;
+    fs::create_directories(cache_directory, filesystem_error);
+    if (filesystem_error) {
+        return {};
+    }
+
+    GError* temporary_error = nullptr;
+    gchar* temporary_raw = g_dir_make_tmp("milofiles-appimage-XXXXXX", &temporary_error);
+    if (!temporary_raw) {
+        if (temporary_error) {
+            g_error_free(temporary_error);
+        }
+        return {};
+    }
+    const fs::path temporary_directory(temporary_raw);
+    g_free(temporary_raw);
+    const fs::path extracted_root = temporary_directory / "squashfs-root";
+
+    bool success = extract_appimage_member(
+        metadata.canonical_path,
+        squashfs_offset,
+        ".DirIcon",
+        temporary_directory.string());
+    fs::path icon_member;
+    if (success) {
+        const fs::path dir_icon = extracted_root / ".DirIcon";
+        if (fs::is_symlink(dir_icon)) {
+            icon_member = fs::read_symlink(dir_icon, filesystem_error);
+            if (filesystem_error) {
+                success = false;
+            }
+        } else if (fs::is_regular_file(dir_icon)) {
+            icon_member = ".DirIcon";
+        } else {
+            success = false;
+        }
+    }
+
+    const std::string icon_suffix = to_lower_copy(icon_member.extension().string());
+    if (success &&
+        (icon_member.is_absolute() ||
+         icon_member.has_parent_path() ||
+         (icon_suffix != ".svg" && icon_suffix != ".png" && icon_suffix != ".xpm"))) {
+        success = false;
+    }
+
+    if (success && icon_member != fs::path(".DirIcon")) {
+        success = extract_appimage_member(
+            metadata.canonical_path,
+            squashfs_offset,
+            icon_member.generic_string(),
+            temporary_directory.string());
+    }
+
+    const fs::path extracted_icon = extracted_root / icon_member;
+    if (success && fs::is_regular_file(extracted_icon)) {
+        const fs::path cached_icon = cache_directory / ("icon" + icon_suffix);
+        fs::copy_file(
+            extracted_icon,
+            cached_icon,
+            fs::copy_options::overwrite_existing,
+            filesystem_error);
+        success = !filesystem_error;
+        if (success) {
+            metadata.icon_path = cached_icon.string();
+        }
+    } else {
+        success = false;
+    }
+
+    if (success) {
+        const fs::path desktop_member = icon_member.stem().string() + ".desktop";
+        success = extract_appimage_member(
+            metadata.canonical_path,
+            squashfs_offset,
+            desktop_member.generic_string(),
+            temporary_directory.string());
+        const fs::path extracted_desktop = extracted_root / desktop_member;
+        if (success && fs::is_regular_file(extracted_desktop)) {
+            filesystem_error.clear();
+            fs::copy_file(
+                extracted_desktop,
+                cached_desktop,
+                fs::copy_options::overwrite_existing,
+                filesystem_error);
+            success = !filesystem_error;
+            if (success) {
+                metadata.desktop_path = cached_desktop.string();
+            }
+        } else {
+            success = false;
+        }
+    }
+
+    fs::remove_all(temporary_directory, filesystem_error);
+    if (!success) {
+        return {};
+    }
+    return metadata;
+}
+
+static std::string normalized_gtk_modules(const char* modules) {
+    std::vector<std::string> ordered;
+    auto add_module = [&ordered](const std::string& module) {
+        if (!module.empty() &&
+            std::find(ordered.begin(), ordered.end(), module) == ordered.end()) {
+            ordered.push_back(module);
+        }
+    };
+    add_module("appmenu-gtk-module");
+    std::stringstream stream(modules ? modules : "");
+    std::string module;
+    while (std::getline(stream, module, ':')) {
+        add_module(module);
+    }
+    std::string result;
+    for (const auto& item : ordered) {
+        if (!result.empty()) {
+            result += ":";
+        }
+        result += item;
+    }
+    return result;
+}
+
 std::string format_size(int64_t size) {
     if (size < 0) return "";
     
@@ -328,6 +670,136 @@ std::string get_custom_default_command(const std::string& path) {
     return "";
 }
 
+bool is_appimage(const std::string& location) {
+    const std::string path = canonical_local_path(location);
+    if (path.empty()) {
+        return false;
+    }
+    std::string filename = to_lower_copy(get_filename(path));
+    if (filename.size() < 9 ||
+        filename.compare(filename.size() - 9, 9, ".appimage") != 0) {
+        return false;
+    }
+
+    std::ifstream input(path, std::ios::binary);
+    unsigned char header[11] = {};
+    input.read(reinterpret_cast<char*>(header), sizeof(header));
+    return input.gcount() == static_cast<std::streamsize>(sizeof(header)) &&
+        header[0] == 0x7f &&
+        header[1] == 'E' &&
+        header[2] == 'L' &&
+        header[3] == 'F' &&
+        header[8] == 'A' &&
+        header[9] == 'I' &&
+        header[10] == 2;
+}
+
+std::string appimage_icon_path(const std::string& path) {
+    return ensure_appimage_metadata(path).icon_path;
+}
+
+std::string register_appimage(const std::string& path) {
+    const AppImageMetadata metadata = ensure_appimage_metadata(path);
+    if (metadata.canonical_path.empty() ||
+        metadata.desktop_path.empty() ||
+        metadata.icon_path.empty()) {
+        return "";
+    }
+
+    GKeyFile* desktop = g_key_file_new();
+    GError* error = nullptr;
+    if (!g_key_file_load_from_file(
+            desktop,
+            metadata.desktop_path.c_str(),
+            static_cast<GKeyFileFlags>(
+                G_KEY_FILE_KEEP_COMMENTS | G_KEY_FILE_KEEP_TRANSLATIONS),
+            &error)) {
+        if (error) {
+            g_error_free(error);
+        }
+        g_key_file_unref(desktop);
+        return "";
+    }
+
+    const std::string path_key = sha256(metadata.canonical_path);
+    const std::filesystem::path applications_directory =
+        std::filesystem::path(g_get_user_data_dir()) / "applications";
+    std::error_code filesystem_error;
+    std::filesystem::create_directories(applications_directory, filesystem_error);
+    if (filesystem_error) {
+        g_key_file_unref(desktop);
+        return "";
+    }
+    const std::filesystem::path registered_desktop =
+        applications_directory / ("milopkg-appimage-" + path_key + ".desktop");
+
+    if (!g_key_file_has_key(desktop, "Desktop Entry", "Name", nullptr)) {
+        std::string name = get_filename(metadata.canonical_path);
+        if (to_lower_copy(name).size() > 9) {
+            name.resize(name.size() - 9);
+        }
+        g_key_file_set_string(desktop, "Desktop Entry", "Name", name.c_str());
+    }
+    gchar* quoted_path = g_shell_quote(metadata.canonical_path.c_str());
+    g_key_file_set_string(desktop, "Desktop Entry", "Type", "Application");
+    g_key_file_set_string(desktop, "Desktop Entry", "Exec", quoted_path);
+    g_key_file_set_string(desktop, "Desktop Entry", "TryExec", metadata.canonical_path.c_str());
+    g_key_file_set_string(desktop, "Desktop Entry", "Icon", metadata.icon_path.c_str());
+    g_key_file_set_boolean(desktop, "Desktop Entry", "NoDisplay", false);
+    g_key_file_set_boolean(desktop, "Desktop Entry", "DBusActivatable", false);
+    g_key_file_set_string(
+        desktop, "Desktop Entry", "X-miloOS-AppImage", metadata.canonical_path.c_str());
+    g_key_file_set_string(
+        desktop, "Desktop Entry", "X-miloOS-AppImage-CacheKey", metadata.cache_key.c_str());
+    g_free(quoted_path);
+
+    gsize desktop_length = 0;
+    gchar* desktop_data = g_key_file_to_data(desktop, &desktop_length, &error);
+    bool written = desktop_data &&
+        g_file_set_contents(
+            registered_desktop.c_str(),
+            desktop_data,
+            static_cast<gssize>(desktop_length),
+            &error);
+    g_free(desktop_data);
+    g_key_file_unref(desktop);
+    if (error) {
+        g_error_free(error);
+    }
+    if (!written) {
+        return "";
+    }
+    g_chmod(registered_desktop.c_str(), 0644);
+    return registered_desktop.string();
+}
+
+bool launch_appimage(const std::string& path) {
+    const std::string desktop_path = register_appimage(path);
+    if (desktop_path.empty()) {
+        return false;
+    }
+
+    GDesktopAppInfo* app_info =
+        g_desktop_app_info_new_from_filename(desktop_path.c_str());
+    if (!app_info) {
+        return false;
+    }
+    GAppLaunchContext* context = g_app_launch_context_new();
+    const std::string gtk_modules = normalized_gtk_modules(g_getenv("GTK_MODULES"));
+    g_app_launch_context_setenv(context, "GTK_MODULES", gtk_modules.c_str());
+    g_app_launch_context_setenv(context, "UBUNTU_MENUPROXY", "1");
+    g_app_launch_context_setenv(context, "MILO_APPIMAGE_PATH", path.c_str());
+    GError* error = nullptr;
+    const bool launched =
+        g_app_info_launch(G_APP_INFO(app_info), nullptr, context, &error);
+    if (error) {
+        g_error_free(error);
+    }
+    g_object_unref(context);
+    g_object_unref(app_info);
+    return launched;
+}
+
 bool open_file(const std::string& path) {
     return open_files({path});
 }
@@ -346,9 +818,16 @@ bool open_files(const std::vector<std::string>& paths) {
 
     std::vector<CommandGroup> command_groups;
     std::vector<std::string> default_locations;
+    bool success = true;
 
     for (const auto& location : paths) {
         const std::string local_path = location_to_path(location);
+        if (!local_path.empty() && is_appimage(local_path)) {
+            if (!launch_appimage(local_path)) {
+                success = false;
+            }
+            continue;
+        }
         const std::string command = get_custom_default_command(location);
         if (command.empty() || local_path.empty()) {
             default_locations.push_back(location);
@@ -367,7 +846,6 @@ bool open_files(const std::vector<std::string>& paths) {
         }
     }
 
-    bool success = true;
     for (const auto& group : command_groups) {
         std::vector<std::string> argv = {group.command};
         if (group.command == "vlc") {
@@ -591,8 +1069,43 @@ bool rename_favorite(const std::string& uri, const std::string& new_label) {
     return true;
 }
 
+bool reorder_favorite(
+    const std::string& uri,
+    const std::string& target_uri,
+    bool after) {
+    if (uri.empty() || target_uri.empty() || uri == target_uri) {
+        return false;
+    }
+    std::vector<FavoriteItem> favorites = get_favorites();
+    auto source = std::find_if(
+        favorites.begin(), favorites.end(),
+        [&uri](const FavoriteItem& item) { return item.uri == uri; });
+    auto target = std::find_if(
+        favorites.begin(), favorites.end(),
+        [&target_uri](const FavoriteItem& item) { return item.uri == target_uri; });
+    if (source == favorites.end() || target == favorites.end()) {
+        return false;
+    }
+
+    FavoriteItem moved = *source;
+    favorites.erase(source);
+    target = std::find_if(
+        favorites.begin(), favorites.end(),
+        [&target_uri](const FavoriteItem& item) { return item.uri == target_uri; });
+    if (target == favorites.end()) {
+        return false;
+    }
+    if (after) {
+        ++target;
+    }
+    favorites.insert(target, std::move(moved));
+    save_favorites(favorites);
+    return true;
+}
+
 std::string get_file_type_description(const std::string& path, bool is_dir) {
     if (is_dir) return i18n::_("folder");
+    if (is_appimage(path)) return i18n::_("appimage_application");
     
     GFile* gfile = file_for_location(path);
     GFileInfo* info = g_file_query_info(gfile, G_FILE_ATTRIBUTE_STANDARD_CONTENT_TYPE, G_FILE_QUERY_INFO_NONE, NULL, NULL);

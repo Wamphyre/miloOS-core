@@ -10,6 +10,98 @@
 #include <cstring>
 #include <cctype>
 
+namespace {
+
+constexpr guint FAVORITE_DRAG_TARGET = 1;
+
+GtkTargetEntry* favorite_drag_targets() {
+    static GtkTargetEntry targets[] = {
+        {
+            const_cast<gchar*>("application/x-milofiles-favorite"),
+            GTK_TARGET_SAME_APP,
+            FAVORITE_DRAG_TARGET
+        }
+    };
+    return targets;
+}
+
+void clear_favorite_drop_indicator(GtkListBox* listbox) {
+    for (gint index = 0;; ++index) {
+        GtkListBoxRow* row =
+            gtk_list_box_get_row_at_index(listbox, index);
+        if (!row) break;
+
+        GtkStyleContext* context =
+            gtk_widget_get_style_context(GTK_WIDGET(row));
+        gtk_style_context_remove_class(
+            context,
+            "favorite-drop-before");
+        gtk_style_context_remove_class(
+            context,
+            "favorite-drop-after");
+    }
+}
+
+GtkListBoxRow* favorite_drop_target(
+    GtkListBox* listbox,
+    gint y,
+    bool* after) {
+    GtkListBoxRow* row =
+        gtk_list_box_get_row_at_y(listbox, y);
+    if (row) {
+        const char* favorite_uri = static_cast<const char*>(
+            g_object_get_data(G_OBJECT(row), "favorite-uri"));
+        if (favorite_uri) {
+            GtkAllocation allocation;
+            gtk_widget_get_allocation(GTK_WIDGET(row), &allocation);
+            *after = y >= allocation.y + allocation.height / 2;
+            return row;
+        }
+
+        const gint row_index = gtk_list_box_row_get_index(row);
+        for (gint index = row_index - 1; index >= 0; --index) {
+            GtkListBoxRow* previous_row =
+                gtk_list_box_get_row_at_index(listbox, index);
+            const char* previous_uri = static_cast<const char*>(
+                g_object_get_data(
+                    G_OBJECT(previous_row),
+                    "favorite-uri"));
+            if (previous_uri) {
+                *after = true;
+                return previous_row;
+            }
+        }
+    }
+
+    GtkListBoxRow* last_favorite = nullptr;
+    for (gint index = 0;; ++index) {
+        GtkListBoxRow* candidate =
+            gtk_list_box_get_row_at_index(listbox, index);
+        if (!candidate) break;
+        if (g_object_get_data(
+                G_OBJECT(candidate),
+                "favorite-uri")) {
+            last_favorite = candidate;
+        }
+    }
+    *after = true;
+    return last_favorite;
+}
+
+void update_favorite_drop_indicator(GtkListBox* listbox, gint y) {
+    clear_favorite_drop_indicator(listbox);
+    bool after = false;
+    GtkListBoxRow* row =
+        favorite_drop_target(listbox, y, &after);
+    if (!row) return;
+
+    gtk_style_context_add_class(
+        gtk_widget_get_style_context(GTK_WIDGET(row)),
+        after ? "favorite-drop-after" : "favorite-drop-before");
+}
+
+}
+
 static std::string sidebar_icon_for_path(const std::string& path) {
     if (utils::has_uri_scheme(path) && path.rfind("file://", 0) != 0) {
         return "folder-remote";
@@ -272,6 +364,19 @@ void Sidebar::add_sidebar_section(const std::string& section_title,
             g_object_ref(volume);
             g_object_set_data_full(G_OBJECT(row), "volume", volume, g_object_unref);
         }
+
+        const bool reorderable_favorite =
+            section_title == i18n::_("favorites") &&
+            name != i18n::_("trash") &&
+            !path.empty();
+        if (reorderable_favorite) {
+            const std::string favorite_uri = utils::location_to_uri(path);
+            g_object_set_data_full(
+                G_OBJECT(row),
+                "favorite-uri",
+                g_strdup(favorite_uri.c_str()),
+                g_free);
+        }
         
         GtkWidget* box = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 10);
         gtk_widget_set_margin_start(box, 12);
@@ -291,6 +396,62 @@ void Sidebar::add_sidebar_section(const std::string& section_title,
         GtkStyleContext* lbl_context = gtk_widget_get_style_context(name_lbl);
         gtk_style_context_add_class(lbl_context, "sidebar-label");
         gtk_box_pack_start(GTK_BOX(box), name_lbl, TRUE, TRUE, 0);
+
+        if (reorderable_favorite) {
+            GtkWidget* drag_handle = gtk_event_box_new();
+            gtk_event_box_set_visible_window(GTK_EVENT_BOX(drag_handle), FALSE);
+            gtk_widget_set_tooltip_text(
+                drag_handle,
+                i18n::_("drag_to_reorder").c_str());
+            gtk_widget_set_size_request(drag_handle, 24, 24);
+
+            GtkWidget* drag_icon = gtk_image_new_from_icon_name(
+                "open-menu-symbolic",
+                GTK_ICON_SIZE_MENU);
+            gtk_widget_set_opacity(drag_icon, 0.55);
+            gtk_container_add(GTK_CONTAINER(drag_handle), drag_icon);
+
+            const char* favorite_uri = static_cast<const char*>(
+                g_object_get_data(G_OBJECT(row), "favorite-uri"));
+            g_object_set_data_full(
+                G_OBJECT(drag_handle),
+                "favorite-uri",
+                g_strdup(favorite_uri),
+                g_free);
+            gtk_drag_source_set(
+                drag_handle,
+                GDK_BUTTON1_MASK,
+                favorite_drag_targets(),
+                1,
+                GDK_ACTION_MOVE);
+            g_signal_connect(
+                drag_handle,
+                "drag-data-get",
+                G_CALLBACK(+[](
+                    GtkWidget* source,
+                    GdkDragContext*,
+                    GtkSelectionData* selection,
+                    guint,
+                    guint,
+                    gpointer) {
+                    const char* uri = static_cast<const char*>(
+                        g_object_get_data(G_OBJECT(source), "favorite-uri"));
+                    if (!uri) return;
+                    gtk_selection_data_set(
+                        selection,
+                        gtk_selection_data_get_target(selection),
+                        8,
+                        reinterpret_cast<const guchar*>(uri),
+                        std::strlen(uri) + 1);
+                }),
+                nullptr);
+            gtk_box_pack_end(
+                GTK_BOX(box),
+                drag_handle,
+                FALSE,
+                FALSE,
+                0);
+        }
         
         // Eject button for dynamic mounts
         if (section_title == i18n::_("devices") && !path.empty() && 
@@ -311,6 +472,100 @@ void Sidebar::add_sidebar_section(const std::string& section_title,
         
         gtk_container_add(GTK_CONTAINER(row), box);
         gtk_container_add(GTK_CONTAINER(listbox), row);
+    }
+
+    if (section_title == i18n::_("favorites")) {
+        gtk_drag_dest_set(
+            listbox,
+            GTK_DEST_DEFAULT_DROP,
+            favorite_drag_targets(),
+            1,
+            GDK_ACTION_MOVE);
+        g_signal_connect(
+            listbox,
+            "drag-motion",
+            G_CALLBACK(+[](
+                GtkWidget* target,
+                GdkDragContext* context,
+                gint,
+                gint y,
+                guint time,
+                gpointer) -> gboolean {
+                update_favorite_drop_indicator(
+                    GTK_LIST_BOX(target),
+                    y);
+                gdk_drag_status(context, GDK_ACTION_MOVE, time);
+                return TRUE;
+            }),
+            nullptr);
+        g_signal_connect(
+            listbox,
+            "drag-leave",
+            G_CALLBACK(+[](
+                GtkWidget* target,
+                GdkDragContext*,
+                guint,
+                gpointer) {
+                clear_favorite_drop_indicator(
+                    GTK_LIST_BOX(target));
+            }),
+            nullptr);
+        g_signal_connect(
+            listbox,
+            "drag-data-received",
+            G_CALLBACK(+[](
+                GtkWidget* target,
+                GdkDragContext* context,
+                gint,
+                gint y,
+                GtkSelectionData* selection,
+                guint,
+                guint time,
+                gpointer user_data) {
+                auto* sidebar = static_cast<Sidebar*>(user_data);
+                const guchar* selection_data =
+                    gtk_selection_data_get_data(selection);
+                const gint selection_length =
+                    gtk_selection_data_get_length(selection);
+                bool reordered = false;
+
+                if (selection_data && selection_length > 1) {
+                    const std::string source_uri(
+                        reinterpret_cast<const char*>(selection_data),
+                        strnlen(
+                            reinterpret_cast<const char*>(selection_data),
+                            selection_length));
+                    GtkListBox* listbox = GTK_LIST_BOX(target);
+                    bool after = false;
+                    GtkListBoxRow* target_row =
+                        favorite_drop_target(listbox, y, &after);
+
+                    if (target_row) {
+                        const char* target_uri = static_cast<const char*>(
+                            g_object_get_data(
+                                G_OBJECT(target_row),
+                                "favorite-uri"));
+                        if (target_uri) {
+                            reordered = utils::reorder_favorite(
+                                source_uri,
+                                target_uri,
+                                after);
+                        }
+                    }
+                }
+
+                clear_favorite_drop_indicator(GTK_LIST_BOX(target));
+                gtk_drag_finish(context, reordered, FALSE, time);
+                if (reordered) {
+                    g_idle_add(
+                        +[](gpointer data) -> gboolean {
+                            static_cast<Sidebar*>(data)->reload();
+                            return G_SOURCE_REMOVE;
+                        },
+                        sidebar);
+                }
+            }),
+            this);
     }
     
     g_signal_connect(listbox, "row-activated", G_CALLBACK(on_row_activated), this);

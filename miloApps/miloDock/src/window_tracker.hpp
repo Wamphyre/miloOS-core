@@ -13,6 +13,8 @@ struct TrackedWindow {
     std::string wm_instance;
     std::string desktop_file;
     std::string gtk_application_id;
+    std::string appimage_path;
+    long pid = 0;
     int x = 0;
     int y = 0;
     int width = 0;

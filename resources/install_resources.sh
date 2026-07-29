@@ -1328,6 +1328,7 @@ MILOAPPS_INSTALL_ORDER=(
     "AudioMaster"
     "miloThemeDaemon"
     "miloFiles"
+    "miloPKG"
     "miloDock"
     "miloPanel"
 )
@@ -1506,6 +1507,19 @@ if [ -d "$CURRENT_DIR/miloApps/miloFiles" ]; then
     fi
 else
     log_warn "✗ miloFiles directory not found, skipping"
+fi
+
+# Install miloPKG application
+echo ""
+log_info "Installing miloPKG application..."
+if [ -d "$CURRENT_DIR/miloApps/miloPKG" ]; then
+    if bash "$CURRENT_DIR/miloApps/miloPKG/install.sh"; then
+        log_info "✓ miloPKG installed successfully"
+    else
+        log_warn "✗ miloPKG installation failed (non-critical)"
+    fi
+else
+    log_warn "✗ miloPKG directory not found, skipping"
 fi
 
 # Install miloDock application

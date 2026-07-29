@@ -12,6 +12,15 @@ int main(int argc, char* argv[]) {
     g_set_prgname("milofiles");
     g_set_application_name("miloFiles");
 
+    if (argc == 3 && std::string(argv[1]) == "--register-appimage") {
+        const std::string desktop_path = utils::register_appimage(argv[2]);
+        if (desktop_path.empty()) {
+            return 1;
+        }
+        std::cout << desktop_path << std::endl;
+        return 0;
+    }
+
     gtk_init(&argc, &argv);
     
     std::string initial_dir = "";

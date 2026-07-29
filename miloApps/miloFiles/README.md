@@ -61,10 +61,12 @@ The native application is organized as a modular C++17 codebase:
 6. **Favorites and Trash**
    - Favorites are stored in `~/.config/gtk-3.0/bookmarks`, so they stay compatible with GTK desktop apps.
    - Local directories and connected SMB/GVfs locations can be added to Favorites from the main file view.
-   - Favorite rows can be renamed or removed from the sidebar.
+   - Favorite rows can be reordered by dragging, renamed, or removed from the sidebar.
    - Trash can be emptied from the sidebar with confirmation.
 
 7. **Default app handling and Open With**
+   - miloPKG AppImages open directly on double-click and use their embedded `.DirIcon`.
+   - AppImage icons and desktop metadata are extracted safely through `unsquashfs`, cached, and registered locally for miloDock integration.
    - Uses optimized default handlers for common media and document types when available.
    - Sends a multi-file selection to each handler as one launch request instead of starting one process per file.
    - VLC launches use file-manager activation plus explicit single-instance mode, so an existing player window is reused for later files and multi-file selections become one playlist handoff.
@@ -88,6 +90,7 @@ The native application is organized as a modular C++17 codebase:
 ### Prerequisites
 
 - `make`
+- `squashfs-tools`
 - `g++` with C++17 support
 - `pkg-config`
 - Development headers for `gtk+-3.0`, `gio-2.0`, `gdk-pixbuf-2.0`, and `gio-unix-2.0`

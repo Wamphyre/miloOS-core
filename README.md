@@ -113,6 +113,9 @@ miloOS is **not a distribution**—it's a transformation kit. Install vanilla De
 **miloFiles** - Native Finder-style file manager
 - Pure C++17/GTK+ 3/GIO port of the production Python reference app
 - macOS Snow Leopard-inspired layout combined with flat miloOS aesthetics
+- Opens miloPKG AppImages directly and displays their embedded application icons
+- Registers AppImages locally so miloDock can identify and pin them
+- Supports drag-and-drop ordering of favorite folders
 - Devices, removable volumes, GVfs network mounts, Favorites, and Trash sidebar
 - Toggleable Grid/Icon and Details/List views with live search filtering
 - Interactive breadcrumb/location bar with `Ctrl+L`, local path support, and remote URI handling
@@ -126,6 +129,12 @@ miloOS is **not a distribution**—it's a transformation kit. Install vanilla De
 - Dynamic light/dark GTK theme styling, including `miloOS-Dark`
 - Bilingual interface (English/Spanish)
 
+**miloPKG** - Debian-to-AppImage creator
+- Searches configured APT repositories without installing the selected package
+- Builds portable AppImages with dependency resolution, desktop metadata, and embedded icons
+- Produces AppImages integrated with miloFiles, miloDock, and miloPanel Global Menu
+- Provides GTK and interactive terminal interfaces in Spanish and English
+
 **miloDock** - Native miloOS dock
 - C++17/GTK3 dock installed as the default miloOS dock
 - miloOS light/dark styling with a compact Snow Leopard-inspired surface
@@ -133,6 +142,7 @@ miloOS is **not a distribution**—it's a transformation kit. Install vanilla De
 - Reads launchers from `~/.config/miloDock/launchers`
 - Uses X11/EWMH to detect running windows, show indicators, activate existing apps, and close windows from the context menu
 - Shows running applications that are not pinned when their `.desktop` launcher can be matched
+- Recognizes running miloPKG AppImages, displays their embedded icon, and allows pinning them
 - Supports launcher reordering, dropping `.desktop` files, and add/remove launcher actions
 - Normalizes launcher cwd to the user's home folder so terminal windows do not inherit the repo path
 - Global Menu preferences for icon size, launcher spacing, auto-hide, effect mode (`magnify` or `none`), and theme mode
@@ -144,6 +154,7 @@ miloOS is **not a distribution**—it's a transformation kit. Install vanilla De
 - C++17/GTK3 top panel installed as the default miloOS panel, replacing `xfce4-panel`
 - Uses the native milo menu, global menu, XEmbed system tray, PulseAudio output/input controls, clock, and notification launcher
 - Hosts AppMenu/DBusMenu/GMenu data from GTK and Chromium-style apps while configuring GTK to hide local menubars and avoid duplicate menus
+- Supports AppMenu/DBusMenu/GMenu exported by applications packaged with miloPKG
 - Shows the real application display name from `.desktop` metadata when available
 - Shows a default desktop menu instead of exposing `xfdesktop` as the active app
 - Filters the tray to system-service/hardware indicators only, avoiding app status icons in the panel
@@ -186,7 +197,7 @@ The script will:
 2. Configure PipeWire and WirePlumber for real-time audio performance
 3. Install professional audio plugins
 4. Apply visual themes (including miloOS-Dark), icons, fonts, and native miloOS interface apps
-5. Install miloApps (AudioConfig, AudioMaster, SysStats, miloUpdater, miloThemeDaemon, miloFiles, miloDock, and miloPanel)
+5. Install miloApps (AudioConfig, AudioMaster, SysStats, miloUpdater, miloThemeDaemon, miloFiles, miloPKG, miloDock, and miloPanel)
 6. Configure XFCE session clients for `xfdesktop`, `milo-theme-daemon`, `milopanel --replace`, and `milodock --replace`, with legacy panel/dock autostarts disabled
 7. Configure user environment, AppMenu integration, and JACK library paths
 8. Optimize kernel parameters and system limits for audio production
