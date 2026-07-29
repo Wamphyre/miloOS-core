@@ -1207,20 +1207,220 @@ class AppImageBuilder:
         return candidates
 
     @staticmethod
-    def _icon_score(path: Path) -> tuple[int, int, int]:
+    def _active_icon_theme() -> str:
+        desktop = os.environ.get("XDG_CURRENT_DESKTOP", "").upper()
+        commands: list[list[str]] = [["gtk-query-settings", "gtk-icon-theme-name"]]
+        if "XFCE" in desktop:
+            commands.append(
+                ["xfconf-query", "-c", "xsettings", "-p", "/Net/IconThemeName"]
+            )
+        if "KDE" in desktop or "PLASMA" in desktop:
+            commands.extend(
+                [
+                    [
+                        "kreadconfig6",
+                        "--file",
+                        "kdeglobals",
+                        "--group",
+                        "Icons",
+                        "--key",
+                        "Theme",
+                    ],
+                    [
+                        "kreadconfig5",
+                        "--file",
+                        "kdeglobals",
+                        "--group",
+                        "Icons",
+                        "--key",
+                        "Theme",
+                    ],
+                ]
+            )
+        commands.extend(
+            [
+                ["gsettings", "get", "org.gnome.desktop.interface", "icon-theme"],
+                ["xfconf-query", "-c", "xsettings", "-p", "/Net/IconThemeName"],
+            ]
+        )
+
+        for command in commands:
+            if not shutil.which(command[0]):
+                continue
+            try:
+                result = subprocess.run(
+                    command,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.DEVNULL,
+                    text=True,
+                    errors="replace",
+                    timeout=2,
+                    check=False,
+                )
+            except (OSError, subprocess.TimeoutExpired):
+                continue
+            if result.returncode != 0:
+                continue
+            value = result.stdout.strip()
+            if command[0] == "gtk-query-settings" and ":" in value:
+                value = value.split(":", 1)[1].strip()
+            try:
+                parsed = shlex.split(value)
+            except ValueError:
+                parsed = []
+            theme = parsed[0].strip() if parsed else value.strip("'\" ")
+            if theme and theme not in {"(null)", "''", '""'}:
+                return theme
+
+        config_home = Path(
+            os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config")
+        ).expanduser()
+        for settings_path in (
+            config_home / "gtk-4.0/settings.ini",
+            config_home / "gtk-3.0/settings.ini",
+        ):
+            parser = configparser.ConfigParser(interpolation=None)
+            try:
+                parser.read(settings_path, encoding="utf-8")
+                theme = parser.get(
+                    "Settings", "gtk-icon-theme-name", fallback=""
+                ).strip("'\" ")
+            except (OSError, configparser.Error):
+                continue
+            if theme:
+                return theme
+        return "hicolor"
+
+    @staticmethod
+    def _icon_theme_roots() -> list[Path]:
+        data_home = Path(
+            os.environ.get("XDG_DATA_HOME", Path.home() / ".local/share")
+        ).expanduser()
+        data_directories = os.environ.get(
+            "XDG_DATA_DIRS", "/usr/local/share:/usr/share"
+        ).split(os.pathsep)
+        roots = [data_home / "icons", Path.home() / ".icons"]
+        roots.extend(
+            Path(directory).expanduser() / "icons"
+            for directory in data_directories
+            if directory
+        )
+        return list(dict.fromkeys(roots))
+
+    @staticmethod
+    def _theme_metadata(theme_path: Path) -> tuple[list[str], list[str]]:
+        parser = configparser.ConfigParser(
+            interpolation=None, strict=False, delimiters=("=",)
+        )
+        parser.optionxform = str
+        try:
+            parser.read(theme_path / "index.theme", encoding="utf-8")
+            section = parser["Icon Theme"]
+        except (OSError, configparser.Error, KeyError):
+            return [], []
+        directories: list[str] = []
+        for key in ("Directories", "ScaledDirectories"):
+            directories.extend(
+                value.strip()
+                for value in section.get(key, "").split(",")
+                if value.strip()
+            )
+        inherits = [
+            value.strip()
+            for value in section.get("Inherits", "").split(",")
+            if value.strip()
+        ]
+        return list(dict.fromkeys(directories)), inherits
+
+    @classmethod
+    def _icon_theme_order(
+        cls, theme: str, icon_roots: Sequence[Path]
+    ) -> list[str]:
+        ordered: list[str] = []
+
+        def add_theme(name: str) -> None:
+            if not name or name in ordered:
+                return
+            ordered.append(name)
+            for root in icon_roots:
+                theme_path = root / name
+                if not theme_path.is_dir():
+                    continue
+                _directories, inherits = cls._theme_metadata(theme_path)
+                for inherited in inherits:
+                    add_theme(inherited)
+                break
+
+        add_theme(theme)
+        add_theme("hicolor")
+        return ordered
+
+    @classmethod
+    def _system_icon_candidates(
+        cls,
+        icon_value: str,
+        theme: Optional[str] = None,
+        icon_roots: Optional[Sequence[Path]] = None,
+    ) -> list[Path]:
+        icon_value = icon_value.strip()
+        if not icon_value:
+            return []
+        icon_path = Path(icon_value)
+        icon_name = (
+            icon_path.stem
+            if icon_path.suffix.lower() in {".png", ".svg", ".xpm"}
+            else icon_path.name
+        )
+        if not icon_name:
+            return []
+
+        roots = list(icon_roots or cls._icon_theme_roots())
+        filenames = [
+            f"{icon_name}.svg",
+            f"{icon_name}.png",
+            f"{icon_name}.xpm",
+        ]
+        for theme_name in cls._icon_theme_order(
+            theme or cls._active_icon_theme(), roots
+        ):
+            candidates: list[Path] = []
+            for root in roots:
+                theme_path = root / theme_name
+                if not theme_path.is_dir():
+                    continue
+                directories, _inherits = cls._theme_metadata(theme_path)
+                search_directories = [theme_path]
+                search_directories.extend(
+                    theme_path / directory for directory in directories
+                )
+                for directory in search_directories:
+                    for filename in filenames:
+                        candidate = directory / filename
+                        if candidate.is_file() and candidate not in candidates:
+                            candidates.append(candidate)
+            if candidates:
+                return candidates
+        return []
+
+    @staticmethod
+    def _icon_score(path: Path) -> tuple[int, int, int, int]:
+        context_score = 1 if "apps" in path.parts else 0
+        regular_score = 0 if "symbolic" in path.name else 1
         suffix_score = {".svg": 3, ".png": 2, ".xpm": 1}.get(path.suffix.lower(), 0)
         size = 0
         for part in path.parts:
             match = re.fullmatch(r"(\d+)x(\d+)", part)
             if match:
                 size = max(size, int(match.group(1)) * int(match.group(2)))
-        symbolic_penalty = -1 if "symbolic" in path.name else 0
-        return suffix_score, size, symbolic_penalty
+        return context_score, regular_score, suffix_score, size
 
     def _install_icon(
         self, appdir: Path, desktop_entry: dict[str, str], icon_key: str
     ) -> Path:
-        candidates = self._icon_candidates(appdir, desktop_entry.get("Icon", ""))
+        icon_value = desktop_entry.get("Icon", "")
+        candidates = self._system_icon_candidates(icon_value)
+        if not candidates:
+            candidates = self._icon_candidates(appdir, icon_value)
         if candidates:
             source = max(candidates, key=self._icon_score)
             suffix = source.suffix.lower()

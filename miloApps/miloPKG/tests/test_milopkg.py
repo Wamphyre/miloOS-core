@@ -113,6 +113,91 @@ class MiloPKGTests(unittest.TestCase):
             candidates = builder._icon_candidates(appdir, "example")
             self.assertEqual(candidates, [icons / "example.svg"])
 
+    def test_system_theme_icon_precedes_package_icon(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            appdir = root / "Example.AppDir"
+            package_icons = (
+                appdir / "usr/share/icons/hicolor/scalable/apps"
+            )
+            package_icons.mkdir(parents=True)
+            (package_icons / "example.svg").write_text(
+                "package-icon",
+                encoding="utf-8",
+            )
+
+            icon_root = root / "icons"
+            themed_icons = icon_root / "TestTheme/apps/scalable"
+            themed_icons.mkdir(parents=True)
+            (icon_root / "TestTheme/index.theme").write_text(
+                "[Icon Theme]\n"
+                "Name=TestTheme\n"
+                "Directories=apps/scalable\n\n"
+                "[apps/scalable]\n"
+                "Size=64\n"
+                "Type=Scalable\n"
+                "Context=Applications\n",
+                encoding="utf-8",
+            )
+            themed_icon = themed_icons / "example.svg"
+            themed_icon.write_text("theme-icon", encoding="utf-8")
+
+            builder = milopkg.AppImageBuilder.__new__(
+                milopkg.AppImageBuilder
+            )
+            with patch.object(
+                milopkg.AppImageBuilder,
+                "_active_icon_theme",
+                return_value="TestTheme",
+            ), patch.object(
+                milopkg.AppImageBuilder,
+                "_icon_theme_roots",
+                return_value=[icon_root],
+            ):
+                installed = builder._install_icon(
+                    appdir,
+                    {"Icon": "example"},
+                    "example",
+                )
+            self.assertEqual(
+                installed.read_text(encoding="utf-8"),
+                "theme-icon",
+            )
+            self.assertEqual(
+                (appdir / ".DirIcon").resolve(),
+                installed.resolve(),
+            )
+
+    def test_system_icon_theme_inheritance(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            icon_root = Path(temporary) / "icons"
+            child = icon_root / "ChildTheme"
+            parent_icons = icon_root / "ParentTheme/apps/scalable"
+            child.mkdir(parents=True)
+            parent_icons.mkdir(parents=True)
+            (child / "index.theme").write_text(
+                "[Icon Theme]\n"
+                "Name=ChildTheme\n"
+                "Inherits=ParentTheme\n",
+                encoding="utf-8",
+            )
+            (icon_root / "ParentTheme/index.theme").write_text(
+                "[Icon Theme]\n"
+                "Name=ParentTheme\n"
+                "Directories=apps/scalable\n",
+                encoding="utf-8",
+            )
+            inherited = parent_icons / "example.svg"
+            inherited.write_text("<svg/>", encoding="utf-8")
+            self.assertEqual(
+                milopkg.AppImageBuilder._system_icon_candidates(
+                    "example",
+                    theme="ChildTheme",
+                    icon_roots=[icon_root],
+                ),
+                [inherited],
+            )
+
     def test_exec_command_behind_env(self):
         command = milopkg.AppImageBuilder._exec_command(
             "env FOO=bar /usr/bin/example --new-window %U"
