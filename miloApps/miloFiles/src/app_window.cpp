@@ -908,7 +908,7 @@ void AppWindow::update_path_recommendations() {
     std::vector<std::string> paths = {
         g_get_home_dir(),
         "/",
-        std::string(g_get_home_dir()) + "/.local/share/Trash/files"
+        utils::trash_location()
     };
 
     const GUserDirectory special_dirs[] = {
@@ -927,7 +927,11 @@ void AppWindow::update_path_recommendations() {
 
     std::vector<std::string> seen;
     for (const auto& p : paths) {
-        if (p.empty() || access(p.c_str(), F_OK) != 0) continue;
+        if (p.empty()) continue;
+        if (!utils::has_uri_scheme(p) &&
+            access(p.c_str(), F_OK) != 0) {
+            continue;
+        }
         if (std::find(seen.begin(), seen.end(), p) != seen.end()) continue;
         seen.push_back(p);
 
@@ -962,8 +966,11 @@ void AppWindow::navigate_from_location_text(const std::string& text) {
 
     if (value.empty()) return;
 
-    bool has_scheme = value.find("://") != std::string::npos && value.rfind("file://", 0) != 0;
-    if (has_scheme) {
+    bool has_scheme = value.find("://") != std::string::npos &&
+        value.rfind("file://", 0) != 0;
+    if (utils::is_trash_location(value)) {
+        load_directory(value);
+    } else if (has_scheme) {
         mount_network_share(value);
     } else {
         load_directory(value);

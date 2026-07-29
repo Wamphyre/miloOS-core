@@ -120,6 +120,7 @@ const std::unordered_map<std::string, std::unordered_map<std::string, std::strin
         {"remove_favorite", "Remove from Favorites"},
         {"drag_to_reorder", "Drag to reorder"},
         {"confirm_empty_trash", "Are you sure you want to empty the Trash?"},
+        {"empty_trash_error", "Some items could not be permanently deleted from the Trash."},
         {"add_to_favorites", "Add to Favorites"},
         {"mount_volume", "Mount Volume"},
         {"unmount_volume", "Unmount Volume"}
@@ -217,6 +218,7 @@ const std::unordered_map<std::string, std::unordered_map<std::string, std::strin
         {"remove_favorite", "Quitar de favoritos"},
         {"drag_to_reorder", "Arrastrar para reordenar"},
         {"confirm_empty_trash", "¿Está seguro de que desea vaciar la papelera?"},
+        {"empty_trash_error", "No se pudieron eliminar permanentemente algunos elementos de la papelera."},
         {"add_to_favorites", "Añadir a favoritos"},
         {"mount_volume", "Montar volumen"},
         {"unmount_volume", "Desmontar volumen"}

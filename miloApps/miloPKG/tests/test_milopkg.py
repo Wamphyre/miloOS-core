@@ -128,6 +128,24 @@ class MiloPKGTests(unittest.TestCase):
                 script,
             )
             subprocess.run(["sh", "-n", str(apprun)], check=True)
+            self.assertEqual(apprun.stat().st_mode & 0o777, 0o755)
+
+    def test_apprun_rewrites_absolute_runtime_library_paths(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            appdir = Path(temporary) / "example.AppDir"
+            private_lib = appdir / "usr/lib/example"
+            private_lib.mkdir(parents=True)
+            dynamic_section = (
+                " 0x000000000000001d (RUNPATH) "
+                "Library runpath: [/usr/lib/example:/outside:$ORIGIN]\n"
+            )
+            directories = (
+                milopkg.AppImageBuilder._internal_runtime_library_dirs(
+                    appdir,
+                    dynamic_section,
+                )
+            )
+            self.assertEqual(directories, ["usr/lib/example"])
 
 
 if __name__ == "__main__":

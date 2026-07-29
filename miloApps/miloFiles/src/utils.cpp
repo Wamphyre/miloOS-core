@@ -21,6 +21,7 @@
 #include <cerrno>
 #include <cctype>
 #include <stdexcept>
+#include <unordered_set>
 
 namespace utils {
 
@@ -920,30 +921,126 @@ bool is_dangerous_archive_path(const std::string& path) {
     return false;
 }
 
+std::string trash_location() {
+    return "trash:///";
+}
+
+bool is_trash_location(const std::string& location) {
+    if (location.empty()) return false;
+
+    GFile* file = file_for_location(location);
+    GFile* trash = g_file_new_for_uri(trash_location().c_str());
+    bool matches = g_file_equal(file, trash) ||
+        g_file_has_prefix(file, trash);
+    g_object_unref(trash);
+
+    if (!matches) {
+        const std::filesystem::path local_trash =
+            std::filesystem::path(g_get_user_data_dir()) / "Trash/files";
+        GFile* local = g_file_new_for_path(local_trash.c_str());
+        matches = g_file_equal(file, local) ||
+            g_file_has_prefix(file, local);
+        g_object_unref(local);
+    }
+
+    g_object_unref(file);
+    return matches;
+}
+
 bool empty_trash() {
-    std::string trash_path = std::string(g_get_user_data_dir()) + "/Trash";
-    std::string files_path = trash_path + "/files";
-    std::string info_path = trash_path + "/info";
-    
-    auto purge_dir = [](const std::string& dir_path) {
-        DIR* dir = opendir(dir_path.c_str());
-        if (!dir) return;
-        struct dirent* entry;
-        while ((entry = readdir(dir)) != NULL) {
-            std::string name = entry->d_name;
-            if (name == "." || name == "..") continue;
-            std::string full_path = dir_path + "/" + name;
-            
-            GFile* gfile = g_file_new_for_path(full_path.c_str());
-            g_file_delete(gfile, NULL, NULL);
-            g_object_unref(gfile);
+    bool success = true;
+
+    GFile* trash = g_file_new_for_uri(trash_location().c_str());
+    GError* error = nullptr;
+    GFileEnumerator* enumerator = g_file_enumerate_children(
+        trash,
+        G_FILE_ATTRIBUTE_STANDARD_NAME,
+        G_FILE_QUERY_INFO_NOFOLLOW_SYMLINKS,
+        nullptr,
+        &error);
+    if (enumerator) {
+        GFileInfo* info = nullptr;
+        while ((info = g_file_enumerator_next_file(
+                    enumerator,
+                    nullptr,
+                    &error)) != nullptr) {
+            const char* name = g_file_info_get_name(info);
+            GFile* child = name ? g_file_get_child(trash, name) : nullptr;
+            if (child) {
+                GError* delete_error = nullptr;
+                if (!g_file_delete(child, nullptr, &delete_error)) {
+                    success = false;
+                }
+                if (delete_error) g_error_free(delete_error);
+                g_object_unref(child);
+            }
+            g_object_unref(info);
         }
-        closedir(dir);
-    };
-    
-    purge_dir(files_path);
-    purge_dir(info_path);
-    return true;
+        if (error) {
+            success = false;
+            g_error_free(error);
+            error = nullptr;
+        }
+        g_object_unref(enumerator);
+    } else if (error) {
+        g_error_free(error);
+        error = nullptr;
+    }
+    g_object_unref(trash);
+
+    const std::filesystem::path trash_root =
+        std::filesystem::path(g_get_user_data_dir()) / "Trash";
+    const std::filesystem::path files_path = trash_root / "files";
+    const std::filesystem::path info_path = trash_root / "info";
+    std::unordered_set<std::string> failed_entries;
+    std::error_code filesystem_error;
+
+    if (std::filesystem::is_directory(files_path, filesystem_error)) {
+        std::filesystem::directory_iterator iterator(
+            files_path,
+            filesystem_error);
+        const std::filesystem::directory_iterator end;
+        while (!filesystem_error && iterator != end) {
+            const std::filesystem::path entry = iterator->path();
+            const std::string name = entry.filename().string();
+            iterator.increment(filesystem_error);
+            if (!delete_path_recursive(entry.string())) {
+                failed_entries.insert(name);
+                success = false;
+            }
+        }
+        if (filesystem_error) success = false;
+    }
+
+    filesystem_error.clear();
+    if (std::filesystem::is_directory(info_path, filesystem_error)) {
+        std::filesystem::directory_iterator iterator(
+            info_path,
+            filesystem_error);
+        const std::filesystem::directory_iterator end;
+        while (!filesystem_error && iterator != end) {
+            const std::filesystem::path entry = iterator->path();
+            std::string data_name = entry.filename().string();
+            iterator.increment(filesystem_error);
+            constexpr const char* suffix = ".trashinfo";
+            if (data_name.size() > std::strlen(suffix) &&
+                data_name.compare(
+                    data_name.size() - std::strlen(suffix),
+                    std::strlen(suffix),
+                    suffix) == 0) {
+                data_name.resize(data_name.size() - std::strlen(suffix));
+            }
+            if (failed_entries.find(data_name) != failed_entries.end()) {
+                continue;
+            }
+            if (!delete_path_recursive(entry.string())) {
+                success = false;
+            }
+        }
+        if (filesystem_error) success = false;
+    }
+
+    return success;
 }
 
 std::string get_bookmarks_path() {
@@ -1217,7 +1314,7 @@ bool delete_path_recursive(const std::string& path, GCancellable* cancellable) {
     GFileInfo* info = g_file_query_info(
         gfile,
         G_FILE_ATTRIBUTE_STANDARD_TYPE,
-        G_FILE_QUERY_INFO_NONE,
+        G_FILE_QUERY_INFO_NOFOLLOW_SYMLINKS,
         cancellable,
         &error);
 

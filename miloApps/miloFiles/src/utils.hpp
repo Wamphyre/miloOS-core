@@ -32,6 +32,8 @@ bool launch_appimage(const std::string& path);
 bool open_files(const std::vector<std::string>& paths);
 bool open_file(const std::string& path);
 bool is_dangerous_archive_path(const std::string& path);
+std::string trash_location();
+bool is_trash_location(const std::string& location);
 bool empty_trash();
 std::vector<FavoriteItem> get_favorites();
 bool add_favorite(const std::string& path, const std::string& label = "");

@@ -1259,11 +1259,62 @@ class AppImageBuilder:
                 return f'"$APPDIR/{token.lstrip("/")}"'
         return shlex.quote(token)
 
+    @staticmethod
+    def _internal_runtime_library_dirs(
+        appdir: Path,
+        dynamic_section: str,
+    ) -> list[str]:
+        directories: list[str] = []
+        for line in dynamic_section.splitlines():
+            if "(RPATH)" not in line and "(RUNPATH)" not in line:
+                continue
+            match = re.search(r"\[([^\]]*)\]", line)
+            if not match:
+                continue
+            for value in match.group(1).split(":"):
+                if not value.startswith("/"):
+                    continue
+                internal = appdir / value.lstrip("/")
+                if not internal.is_dir():
+                    continue
+                relative = internal.relative_to(appdir).as_posix()
+                if relative not in directories:
+                    directories.append(relative)
+        return directories
+
+    @classmethod
+    def _runtime_library_dirs(
+        cls,
+        appdir: Path,
+        executable: Optional[Path],
+    ) -> list[str]:
+        if executable is None or not executable.is_file():
+            return []
+        readelf = shutil.which("readelf")
+        if not readelf:
+            return []
+        try:
+            result = subprocess.run(
+                [readelf, "-d", str(executable)],
+                env={**os.environ, "LC_ALL": "C", "LANG": "C"},
+                stdout=subprocess.PIPE,
+                stderr=subprocess.DEVNULL,
+                text=True,
+                errors="replace",
+                check=False,
+            )
+        except OSError:
+            return []
+        if result.returncode != 0:
+            return []
+        return cls._internal_runtime_library_dirs(appdir, result.stdout)
+
     def _write_apprun(
         self,
         appdir: Path,
         argv: Sequence[str],
         desktop_name: str = "",
+        executable: Optional[Path] = None,
     ) -> None:
         triplet = multiarch_triplet()
         rendered = [self._apprun_argument(appdir, token) for token in argv]
@@ -1275,13 +1326,27 @@ class AppImageBuilder:
                 )
             )
         command = " ".join(rendered)
+        bundled_library_dirs = [
+            f"$APPDIR/usr/lib/{triplet}",
+            f"$APPDIR/lib/{triplet}",
+            "$APPDIR/usr/lib",
+            "$APPDIR/lib",
+        ]
+        bundled_library_dirs.extend(
+            f"$APPDIR/{directory}"
+            for directory in self._runtime_library_dirs(
+                appdir,
+                executable,
+            )
+        )
+        library_path = ":".join(dict.fromkeys(bundled_library_dirs))
         script = f"""#!/bin/sh
 set -eu
 
 APPDIR="${{APPDIR:-$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)}}"
 export APPDIR
 export PATH="$APPDIR/usr/bin:$APPDIR/usr/sbin:$APPDIR/usr/games:$APPDIR/bin:$APPDIR/sbin:${{PATH:-/usr/bin:/bin}}"
-export LD_LIBRARY_PATH="$APPDIR/usr/lib/{triplet}:$APPDIR/lib/{triplet}:$APPDIR/usr/lib:$APPDIR/lib${{LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}}"
+export LD_LIBRARY_PATH="{library_path}${{LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}}"
 export XDG_DATA_DIRS="$APPDIR/usr/local/share:$APPDIR/usr/share:${{XDG_DATA_DIRS:-/usr/local/share:/usr/share}}"
 export GSETTINGS_SCHEMA_DIR="$APPDIR/usr/share/glib-2.0/schemas"
 export GI_TYPELIB_PATH="$APPDIR/usr/lib/{triplet}/girepository-1.0:$APPDIR/usr/lib/girepository-1.0${{GI_TYPELIB_PATH:+:$GI_TYPELIB_PATH}}"
@@ -1492,7 +1557,7 @@ exec {command} "$@"
                     "Categories": "Utility;",
                     "Comment": info.description,
                 }
-            launcher_argv, _executable = self._launcher_argv(
+            launcher_argv, executable = self._launcher_argv(
                 appdir, desktop_entry, package_name, main_files
             )
             display_name = clean_display_name(
@@ -1503,7 +1568,10 @@ exec {command} "$@"
             icon_key = safe_icon_key(package_name)
             self._install_icon(appdir, desktop_entry, icon_key)
             self._write_apprun(
-                appdir, launcher_argv, f"{icon_key}.desktop"
+                appdir,
+                launcher_argv,
+                f"{icon_key}.desktop",
+                executable,
             )
             self._write_root_desktop(
                 appdir, desktop_entry, display_name, icon_key, info
@@ -1549,7 +1617,7 @@ exec {command} "$@"
                     )
             staged_output.chmod(0o755)
             os.replace(staged_output, target)
-            target.chmod(target.stat().st_mode | stat.S_IXUSR)
+            target.chmod(0o755)
 
         self._progress(
             "done",

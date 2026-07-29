@@ -313,7 +313,7 @@ void Sidebar::setup_sidebar() {
     }
     
     // Add Trash
-    std::string trash_path = std::string(g_get_home_dir()) + "/.local/share/Trash/files";
+    std::string trash_path = utils::trash_location();
     favorites.push_back({i18n::_("trash"), trash_path});
     fav_icons.push_back("user-trash");
     fav_volumes.push_back(nullptr);
@@ -730,7 +730,21 @@ void Sidebar::handle_empty_trash() {
     gtk_widget_destroy(dialog);
     
     if (response == GTK_RESPONSE_YES) {
-        utils::empty_trash();
+        const bool emptied = utils::empty_trash();
+        if (!emptied) {
+            GtkWidget* error = gtk_message_dialog_new(
+                parent,
+                GTK_DIALOG_MODAL,
+                GTK_MESSAGE_ERROR,
+                GTK_BUTTONS_OK,
+                "%s",
+                i18n::_("empty_trash_error").c_str());
+            gtk_window_set_title(
+                GTK_WINDOW(error),
+                i18n::_("delete_error").c_str());
+            gtk_dialog_run(GTK_DIALOG(error));
+            gtk_widget_destroy(error);
+        }
         reload();
     }
 }

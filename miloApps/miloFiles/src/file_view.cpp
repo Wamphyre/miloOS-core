@@ -1195,6 +1195,7 @@ void FileView::update_item_thumbnail(FileView* self,
 void FileView::show_context_menu(GdkEventButton* event, const std::vector<std::string>& selected_paths) {
     GtkWidget* menu = gtk_menu_new();
     bool is_item = !selected_paths.empty();
+    const bool viewing_trash = utils::is_trash_location(current_dir);
     
     if (is_item) {
         GtkWidget* item_open = gtk_menu_item_new_with_label(i18n::_("open").c_str());
@@ -1296,11 +1297,13 @@ void FileView::show_context_menu(GdkEventButton* event, const std::vector<std::s
         }), this);
         gtk_menu_shell_append(GTK_MENU_SHELL(menu), item_rename);
         
-        GtkWidget* item_trash = gtk_menu_item_new_with_label(i18n::_("trash_action").c_str());
-        g_signal_connect_swapped(item_trash, "activate", G_CALLBACK(+[](FileView* self) {
-            self->handle_trash(self->get_selected_paths());
-        }), this);
-        gtk_menu_shell_append(GTK_MENU_SHELL(menu), item_trash);
+        if (!viewing_trash) {
+            GtkWidget* item_trash = gtk_menu_item_new_with_label(i18n::_("trash_action").c_str());
+            g_signal_connect_swapped(item_trash, "activate", G_CALLBACK(+[](FileView* self) {
+                self->handle_trash(self->get_selected_paths());
+            }), this);
+            gtk_menu_shell_append(GTK_MENU_SHELL(menu), item_trash);
+        }
         
         GtkWidget* item_delete = gtk_menu_item_new_with_label(i18n::_("delete").c_str());
         g_signal_connect_swapped(item_delete, "activate", G_CALLBACK(+[](FileView* self) {
@@ -1743,6 +1746,10 @@ void FileView::handle_rename(const std::vector<std::string>& paths) {
 
 void FileView::handle_trash(const std::vector<std::string>& paths) {
     if (paths.empty()) return;
+    if (utils::is_trash_location(current_dir)) {
+        handle_delete(paths);
+        return;
+    }
     parent->start_trash_operation(paths, current_dir);
 }
 
