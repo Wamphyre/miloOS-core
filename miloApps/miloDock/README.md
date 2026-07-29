@@ -17,6 +17,7 @@
 - Uses X11/EWMH to detect running windows, show indicators, activate existing windows, and close windows from the context menu.
 - Shows running applications even when they are not pinned to the dock, when their `.desktop` launcher can be matched.
 - Resolves running miloPKG AppImages through their process identity and locally registered desktop metadata, including embedded icons and pinning.
+- Removes pinned launchers automatically when their Debian desktop entry or AppImage file no longer exists.
 - Shows a temporary running-window item when an unpinned app cannot be matched to a `.desktop` launcher, so unknown apps are still visible and activatable.
 - Left-click activates an existing window or launches the app; middle-click opens a new app instance.
 - Drag launchers inside the dock to reorder them.

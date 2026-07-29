@@ -276,6 +276,7 @@ void DockWindow::monitor_settings_file() {
 void DockWindow::reload_launchers() {
     desktop_cache_loaded_ = false;
     desktop_cache_.clear();
+    unavailable_checks_.clear();
     pinned_launchers_ = ::load_launchers();
     render_launchers(launchers_with_running_apps());
 }
@@ -626,6 +627,7 @@ std::vector<Launcher> DockWindow::launchers_with_running_apps(
 }
 
 bool DockWindow::update_running_state() {
+    const bool launchers_changed = prune_unavailable_launchers();
     const auto windows = tracked_windows();
     const int current_desktop = tracker_.current_desktop();
     std::vector<Launcher> desired = launchers_with_running_apps(windows, current_desktop);
@@ -637,11 +639,55 @@ bool DockWindow::update_running_state() {
     for (const auto& launcher : displayed_launchers_) {
         current_ids.push_back(launcher.desktop_id);
     }
-    if (desired_ids != current_ids) {
+    if (launchers_changed || desired_ids != current_ids) {
         render_launchers(desired);
         return true;
     }
     update_item_running_indicators(windows, current_desktop);
+    return true;
+}
+
+bool DockWindow::prune_unavailable_launchers() {
+    constexpr int UNAVAILABLE_CHECK_LIMIT = 2;
+    std::vector<Launcher> available;
+    std::set<std::string> current_keys;
+    bool removed = false;
+
+    for (const auto& launcher : pinned_launchers_) {
+        const std::string key =
+            launcher.desktop_id + "\n" + launcher.desktop_path;
+        current_keys.insert(key);
+        if (launcher_is_available(launcher)) {
+            unavailable_checks_.erase(key);
+            available.push_back(launcher);
+            continue;
+        }
+        int& checks = unavailable_checks_[key];
+        ++checks;
+        if (checks < UNAVAILABLE_CHECK_LIMIT) {
+            available.push_back(launcher);
+            continue;
+        }
+        unavailable_checks_.erase(key);
+        removed = true;
+    }
+
+    for (auto item = unavailable_checks_.begin();
+         item != unavailable_checks_.end();) {
+        if (!current_keys.count(item->first)) {
+            item = unavailable_checks_.erase(item);
+        } else {
+            ++item;
+        }
+    }
+
+    if (!removed) {
+        return false;
+    }
+    save_launcher_order(available);
+    pinned_launchers_ = std::move(available);
+    desktop_cache_loaded_ = false;
+    desktop_cache_.clear();
     return true;
 }
 
@@ -721,9 +767,7 @@ void DockWindow::remove_launcher_from_user_config(const Launcher& launcher) {
             launchers.push_back(item);
         }
     }
-    if (!launchers.empty()) {
-        persist_and_reload(launchers);
-    }
+    persist_and_reload(launchers);
 }
 
 void DockWindow::activate_or_launch(const Launcher& launcher, bool force_new) {

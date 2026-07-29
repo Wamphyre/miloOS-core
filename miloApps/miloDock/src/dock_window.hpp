@@ -6,6 +6,7 @@
 
 #include <gtk/gtk.h>
 
+#include <map>
 #include <set>
 #include <vector>
 
@@ -60,6 +61,7 @@ private:
     std::vector<Launcher> pinned_launchers_;
     std::vector<Launcher> displayed_launchers_;
     std::vector<Launcher> desktop_cache_;
+    std::map<std::string, int> unavailable_checks_;
 
     void build_ui();
     void load_css();
@@ -68,6 +70,7 @@ private:
     void update_item_visual(ItemData* item);
     void update_item_running_indicators();
     void update_item_running_indicators(const std::vector<TrackedWindow>& windows, int current_desktop);
+    bool prune_unavailable_launchers();
     bool update_running_state();
     std::vector<TrackedWindow> tracked_windows() const;
     std::vector<TrackedWindow> running_windows_for(const Launcher& launcher) const;

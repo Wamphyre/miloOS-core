@@ -18,6 +18,8 @@ installs the selected package on the host.
 - Embeds the icon in the AppImage through both the root icon and `.DirIcon`.
 - Integrates generated AppImages with miloFiles icons and launching, miloDock
   window matching and pinning, and miloPanel Global Menu.
+- Configures GIMP 3 data, plug-in, translation, GEGL and Babl paths for
+  portable execution without relying on a system GIMP installation.
 - Produces a clean, versionless filename such as `Audacity.appimage`.
 - Uses the official AppImage `appimagetool`; it is cached under
   `~/.cache/milopkg/tools/` after its first use.

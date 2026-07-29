@@ -328,6 +328,12 @@ def human_size(byte_count: int) -> str:
 
 def clean_display_name(name: str, package: str, version: str = "") -> str:
     """Return a readable app name without a package version or architecture."""
+    preferred_names = {
+        "gimp": "GIMP",
+    }
+    package_base = base_package_name(package)
+    if package_base in preferred_names:
+        return preferred_names[package_base]
     value = re.sub(r"\s+", " ", (name or "").strip())
     if not value:
         value = package.replace("-", " ").strip().title()
@@ -1605,6 +1611,27 @@ class AppImageBuilder:
     ) -> None:
         if executable is None or not executable.is_file():
             return
+        if executable.name == "gimp" or executable.name.startswith("gimp-"):
+            plugin_root = (
+                appdir
+                / "usr/lib"
+                / multiarch_triplet()
+                / "gimp/3.0"
+            )
+            if plugin_root.is_dir():
+                for script in plugin_root.rglob("*.py"):
+                    try:
+                        content = script.read_bytes()
+                    except OSError:
+                        continue
+                    if not content.startswith(b"#!/usr/bin/python3"):
+                        continue
+                    newline = content.find(b"\n")
+                    remainder = content[newline:] if newline >= 0 else b"\n"
+                    try:
+                        script.write_bytes(b"#!/usr/bin/env python3" + remainder)
+                    except OSError:
+                        continue
         packaged_data = (
             appdir / "usr/share" / executable.name / "data"
         )
@@ -1673,6 +1700,14 @@ export GTK_PATH="$APPDIR/usr/lib/{triplet}/gtk-3.0:$APPDIR/usr/lib/gtk-3.0${{GTK
 export QT_PLUGIN_PATH="$APPDIR/usr/lib/{triplet}/qt5/plugins:$APPDIR/usr/lib/{triplet}/qt6/plugins${{QT_PLUGIN_PATH:+:$QT_PLUGIN_PATH}}"
 export QML2_IMPORT_PATH="$APPDIR/usr/lib/{triplet}/qt5/qml:$APPDIR/usr/lib/{triplet}/qt6/qml${{QML2_IMPORT_PATH:+:$QML2_IMPORT_PATH}}"
 export PYTHONPATH="$APPDIR/usr/lib/python3/dist-packages:$APPDIR/usr/local/lib/python3/dist-packages${{PYTHONPATH:+:$PYTHONPATH}}"
+if [ -d "$APPDIR/usr/share/gimp/3.0" ]; then
+    export GIMP3_DATADIR="$APPDIR/usr/share/gimp/3.0"
+    export GIMP3_LOCALEDIR="$APPDIR/usr/share/locale"
+    export GIMP3_PLUGINDIR="$APPDIR/usr/lib/{triplet}/gimp/3.0"
+    export GIMP3_SYSCONFDIR="$APPDIR/etc/gimp/3.0"
+    export GEGL_PATH="$APPDIR/usr/lib/{triplet}/gegl-0.4"
+    export BABL_PATH="$APPDIR/usr/lib/{triplet}/babl-0.1"
+fi
 MLT_REPOSITORY_DIR="$(find "$APPDIR/usr/lib/{triplet}" "$APPDIR/usr/lib" -maxdepth 1 -type d -name 'mlt-*' -print -quit 2>/dev/null || true)"
 MLT_DATA_DIR="$(find "$APPDIR/usr/share" -maxdepth 1 -type d -name 'mlt-*' -print -quit 2>/dev/null || true)"
 FREI0R_DIR="$(find "$APPDIR/usr/lib/{triplet}" "$APPDIR/usr/lib" -maxdepth 1 -type d -name 'frei0r-*' -print -quit 2>/dev/null || true)"

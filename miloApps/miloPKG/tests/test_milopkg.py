@@ -79,6 +79,14 @@ class MiloPKGTests(unittest.TestCase):
         self.assertEqual(
             milopkg.safe_output_filename(name), "Example.appimage"
         )
+        self.assertEqual(
+            milopkg.clean_display_name(
+                "GNU Image Manipulation Program",
+                "gimp",
+                "3.0.4",
+            ),
+            "GIMP",
+        )
 
     def test_package_validation(self):
         self.assertEqual(
@@ -350,6 +358,59 @@ class MiloPKGTests(unittest.TestCase):
             self.assertIn(
                 ' --data "$APPDIR/usr/share/hydrogen/data/" "$@"',
                 (appdir / "AppRun").read_text(encoding="utf-8"),
+            )
+
+    def test_gimp_runtime_uses_packaged_resources(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            appdir = Path(temporary) / "gimp.AppDir"
+            executable = appdir / "usr/bin/gimp-3.0"
+            plugin = (
+                appdir
+                / "usr/lib"
+                / milopkg.multiarch_triplet()
+                / "gimp/3.0/plug-ins/example/example.py"
+            )
+            executable.parent.mkdir(parents=True)
+            executable.touch()
+            plugin.parent.mkdir(parents=True)
+            plugin.write_text(
+                "#!/usr/bin/python3\nprint('example')\n",
+                encoding="utf-8",
+            )
+            (appdir / "usr/share/gimp/3.0").mkdir(parents=True)
+
+            milopkg.AppImageBuilder._prepare_runtime_layout(
+                appdir,
+                executable,
+            )
+            self.assertTrue(
+                plugin.read_text(encoding="utf-8").startswith(
+                    "#!/usr/bin/env python3\n"
+                )
+            )
+
+            builder = milopkg.AppImageBuilder.__new__(
+                milopkg.AppImageBuilder
+            )
+            builder._write_apprun(
+                appdir,
+                [str(executable)],
+                executable=executable,
+            )
+            script = (appdir / "AppRun").read_text(encoding="utf-8")
+            self.assertIn(
+                'GIMP3_DATADIR="$APPDIR/usr/share/gimp/3.0"',
+                script,
+            )
+            self.assertIn(
+                f'GIMP3_PLUGINDIR="$APPDIR/usr/lib/'
+                f'{milopkg.multiarch_triplet()}/gimp/3.0"',
+                script,
+            )
+            self.assertIn(
+                f'GEGL_PATH="$APPDIR/usr/lib/'
+                f'{milopkg.multiarch_triplet()}/gegl-0.4"',
+                script,
             )
 
 

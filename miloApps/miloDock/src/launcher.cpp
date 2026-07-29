@@ -131,6 +131,10 @@ fs::path executable_dir() {
     return fs::path(buffer).parent_path();
 }
 
+fs::path user_launcher_dir() {
+    return fs::path(g_get_user_config_dir()) / "miloDock/launchers";
+}
+
 std::string find_desktop_path(const std::string& ref) {
     if (ref.empty()) {
         return "";
@@ -306,7 +310,7 @@ Launcher registered_launcher_for_appimage(const std::string& appimage_path) {
 
 std::vector<fs::path> launcher_dirs() {
     std::vector<fs::path> dirs = {
-        fs::path(g_get_user_config_dir()) / "miloDock/launchers",
+        user_launcher_dir(),
         fs::path("/etc/xdg/miloDock/launchers"),
     };
 
@@ -415,9 +419,40 @@ Launcher::~Launcher() {
     }
 }
 
+bool launcher_is_available(const Launcher& launcher) {
+    std::error_code error;
+    if (launcher.desktop_path.empty() ||
+        !fs::exists(launcher.desktop_path, error)) {
+        return false;
+    }
+
+    const std::string appimage_path =
+        desktop_key(launcher.desktop_path, "X-miloOS-AppImage");
+    if (!appimage_path.empty()) {
+        error.clear();
+        return fs::exists(appimage_path, error);
+    }
+
+    const std::string try_exec =
+        desktop_key(launcher.desktop_path, "TryExec");
+    if (try_exec.empty()) {
+        return true;
+    }
+    if (fs::path(try_exec).is_absolute()) {
+        error.clear();
+        return fs::exists(try_exec, error);
+    }
+    char* executable = g_find_program_in_path(try_exec.c_str());
+    const bool available = executable != nullptr;
+    g_free(executable);
+    return available;
+}
+
 std::vector<Launcher> load_launchers() {
     std::vector<Launcher> launchers;
     std::set<std::string> seen;
+    bool configuration_found = false;
+    const fs::path user_directory = user_launcher_dir();
 
     for (const auto& dir : launcher_dirs()) {
         if (!fs::exists(dir)) {
@@ -435,33 +470,52 @@ std::vector<Launcher> load_launchers() {
             }
         }
         std::sort(files.begin(), files.end());
+        if (files.empty()) {
+            if (dir == user_directory) {
+                configuration_found = true;
+                break;
+            }
+            continue;
+        }
+        configuration_found = true;
 
         for (const auto& file : files) {
             std::string ref = file.extension() == ".dockitem" ? read_dockitem_launcher(file) : file.string();
             std::string desktop_path = find_desktop_path(ref);
             if (desktop_path.empty()) {
+                if (dir == user_directory) {
+                    std::error_code error;
+                    fs::remove(file, error);
+                }
                 continue;
             }
             Launcher launcher = launcher_from_desktop_path(desktop_path, true);
-            if (!launcher.app_info || seen.count(launcher.desktop_id)) {
+            if (!launcher.app_info || !launcher_is_available(launcher)) {
+                if (dir == user_directory) {
+                    std::error_code error;
+                    fs::remove(file, error);
+                }
+                continue;
+            }
+            if (seen.count(launcher.desktop_id)) {
                 continue;
             }
             seen.insert(launcher.desktop_id);
             launchers.push_back(std::move(launcher));
         }
-        if (!launchers.empty()) {
-            break;
-        }
+        break;
     }
 
-    if (launchers.empty()) {
+    if (!configuration_found && launchers.empty()) {
         for (const auto& desktop_id : DEFAULT_DESKTOP_IDS) {
             std::string desktop_path = find_desktop_path(desktop_id);
             if (desktop_path.empty()) {
                 continue;
             }
             Launcher launcher = launcher_from_desktop_path(desktop_path);
-            if (launcher.app_info && !seen.count(launcher.desktop_id)) {
+            if (launcher.app_info &&
+                launcher_is_available(launcher) &&
+                !seen.count(launcher.desktop_id)) {
                 seen.insert(launcher.desktop_id);
                 launchers.push_back(std::move(launcher));
             }
@@ -483,7 +537,9 @@ std::vector<Launcher> all_desktop_launchers() {
                 continue;
             }
             Launcher launcher = launcher_from_desktop_path(entry.path().string(), true);
-            if (!launcher.app_info || seen.count(launcher.desktop_id)) {
+            if (!launcher.app_info ||
+                !launcher_is_available(launcher) ||
+                seen.count(launcher.desktop_id)) {
                 continue;
             }
             seen.insert(launcher.desktop_id);
