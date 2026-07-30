@@ -281,6 +281,75 @@ static std::string appimage_cache_key(const std::string& path) {
     return sha256(identity.str());
 }
 
+static std::string desktop_exec_argument(const std::string& value) {
+    std::string quoted = "\"";
+    for (const char character : value) {
+        if (character == '"' ||
+            character == '`' ||
+            character == '$' ||
+            character == '\\') {
+            quoted += '\\';
+        }
+        quoted += character;
+    }
+    quoted += '"';
+    return quoted;
+}
+
+static std::string desktop_file_argument_code(GKeyFile* desktop) {
+    gchar* raw_exec =
+        g_key_file_get_string(desktop, "Desktop Entry", "Exec", nullptr);
+    if (!raw_exec) {
+        return "";
+    }
+
+    const std::string exec = raw_exec;
+    g_free(raw_exec);
+    size_t selected_position = std::string::npos;
+    std::string selected_code;
+    for (const char* code : {"%f", "%F", "%u", "%U"}) {
+        const size_t position = exec.find(code);
+        if (position < selected_position) {
+            selected_position = position;
+            selected_code = code;
+        }
+    }
+    return selected_code;
+}
+
+static void refresh_desktop_database(
+    const std::filesystem::path& applications_directory) {
+    gchar* updater = g_find_program_in_path("update-desktop-database");
+    if (!updater) {
+        return;
+    }
+    std::string directory = applications_directory.string();
+    gchar* argv[] = {
+        updater,
+        const_cast<gchar*>(directory.c_str()),
+        nullptr
+    };
+    gint wait_status = 0;
+    GError* error = nullptr;
+    g_spawn_sync(
+        nullptr,
+        argv,
+        nullptr,
+        static_cast<GSpawnFlags>(
+            G_SPAWN_STDOUT_TO_DEV_NULL |
+            G_SPAWN_STDERR_TO_DEV_NULL),
+        nullptr,
+        nullptr,
+        nullptr,
+        nullptr,
+        &wait_status,
+        &error);
+    if (error) {
+        g_error_free(error);
+    }
+    g_free(updater);
+}
+
 static uint16_t little_endian_u16(const unsigned char* bytes) {
     return static_cast<uint16_t>(bytes[0]) |
         (static_cast<uint16_t>(bytes[1]) << 8);
@@ -613,6 +682,168 @@ std::string get_mime_type(const std::string& path) {
     return mime;
 }
 
+enum class PreferredContentHandler {
+    None,
+    Vlc,
+    Ristretto
+};
+
+static PreferredContentHandler preferred_content_handler(
+    const std::string& path) {
+    const std::string filename = get_filename(path);
+    const size_t dot_position = filename.find_last_of('.');
+    const std::string extension = dot_position == std::string::npos
+        ? ""
+        : to_lower_copy(filename.substr(dot_position));
+    const std::string mime = get_mime_type(path);
+    const std::unordered_set<std::string> audio_extensions = {
+        ".mp3", ".wav", ".ogg", ".flac", ".m4a", ".aac",
+        ".wma", ".opus", ".mid", ".midi", ".mka"
+    };
+    const std::unordered_set<std::string> video_extensions = {
+        ".mp4", ".mkv", ".avi", ".mov", ".wmv", ".flv",
+        ".webm", ".mpeg", ".mpg", ".m4v"
+    };
+    const std::unordered_set<std::string> image_extensions = {
+        ".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp",
+        ".svg", ".tiff", ".ico"
+    };
+
+    if (audio_extensions.count(extension) > 0 ||
+        video_extensions.count(extension) > 0 ||
+        mime.rfind("audio/", 0) == 0 ||
+        mime.rfind("video/", 0) == 0) {
+        return PreferredContentHandler::Vlc;
+    }
+    if (image_extensions.count(extension) > 0 ||
+        mime.rfind("image/", 0) == 0) {
+        return PreferredContentHandler::Ristretto;
+    }
+    return PreferredContentHandler::None;
+}
+
+static bool app_info_executable_exists(GAppInfo* app_info) {
+    const char* executable = g_app_info_get_executable(app_info);
+    if (!executable || !*executable) {
+        return false;
+    }
+    if (g_path_is_absolute(executable)) {
+        return g_file_test(executable, G_FILE_TEST_IS_EXECUTABLE);
+    }
+    gchar* resolved = g_find_program_in_path(executable);
+    const bool exists = resolved != nullptr;
+    g_free(resolved);
+    return exists;
+}
+
+static GAppInfo* desktop_app_info_for_id(const std::string& desktop_id) {
+    GDesktopAppInfo* desktop_info =
+        g_desktop_app_info_new(desktop_id.c_str());
+    if (!desktop_info) {
+        return nullptr;
+    }
+    if (!app_info_executable_exists(G_APP_INFO(desktop_info))) {
+        g_object_unref(desktop_info);
+        return nullptr;
+    }
+    return G_APP_INFO(desktop_info);
+}
+
+static GAppInfo* registered_appimage_for_package(
+    const std::string& package) {
+    namespace fs = std::filesystem;
+
+    const fs::path applications =
+        fs::path(g_get_user_data_dir()) / "applications";
+    std::error_code filesystem_error;
+    if (!fs::is_directory(applications, filesystem_error)) {
+        return nullptr;
+    }
+
+    std::vector<fs::path> desktop_paths;
+    for (fs::directory_iterator iterator(applications, filesystem_error), end;
+         !filesystem_error && iterator != end;
+         iterator.increment(filesystem_error)) {
+        if (iterator->is_regular_file(filesystem_error) &&
+            iterator->path().filename().string().rfind(
+                "milopkg-appimage-", 0) == 0 &&
+            iterator->path().extension() == ".desktop") {
+            desktop_paths.push_back(iterator->path());
+        }
+    }
+    std::sort(desktop_paths.begin(), desktop_paths.end());
+
+    for (const auto& desktop_path : desktop_paths) {
+        GKeyFile* desktop = g_key_file_new();
+        if (!g_key_file_load_from_file(
+                desktop,
+                desktop_path.c_str(),
+                G_KEY_FILE_NONE,
+                nullptr)) {
+            g_key_file_unref(desktop);
+            continue;
+        }
+
+        gchar* raw_package = g_key_file_get_string(
+            desktop, "Desktop Entry", "X-miloPKG-Package", nullptr);
+        gchar* raw_appimage = g_key_file_get_string(
+            desktop, "Desktop Entry", "X-miloOS-AppImage", nullptr);
+        const std::string packaged = raw_package
+            ? to_lower_copy(raw_package)
+            : "";
+        const std::string appimage = raw_appimage ? raw_appimage : "";
+        g_free(raw_package);
+        g_free(raw_appimage);
+        g_key_file_unref(desktop);
+
+        if (packaged != package &&
+            packaged.rfind(package + ":", 0) != 0) {
+            continue;
+        }
+        if (appimage.empty() ||
+            !g_file_test(appimage.c_str(), G_FILE_TEST_IS_EXECUTABLE)) {
+            continue;
+        }
+
+        GDesktopAppInfo* desktop_info =
+            g_desktop_app_info_new_from_filename(desktop_path.c_str());
+        if (!desktop_info) {
+            continue;
+        }
+        if (!app_info_executable_exists(G_APP_INFO(desktop_info))) {
+            g_object_unref(desktop_info);
+            continue;
+        }
+        return G_APP_INFO(desktop_info);
+    }
+    return nullptr;
+}
+
+static GAppInfo* preferred_app_info(PreferredContentHandler handler) {
+    std::string package;
+    std::vector<std::string> desktop_ids;
+    if (handler == PreferredContentHandler::Vlc) {
+        package = "vlc";
+        desktop_ids = {"vlc.desktop", "org.videolan.VLC.desktop"};
+    } else if (handler == PreferredContentHandler::Ristretto) {
+        package = "ristretto";
+        desktop_ids = {
+            "org.xfce.ristretto.desktop",
+            "ristretto.desktop"
+        };
+    } else {
+        return nullptr;
+    }
+
+    for (const auto& desktop_id : desktop_ids) {
+        GAppInfo* app_info = desktop_app_info_for_id(desktop_id);
+        if (app_info) {
+            return app_info;
+        }
+    }
+    return registered_appimage_for_package(package);
+}
+
 std::string get_custom_default_command(const std::string& path) {
     std::string filename = get_filename(path);
     std::string ext = "";
@@ -640,21 +871,12 @@ std::string get_custom_default_command(const std::string& path) {
         }
     }
     
-    // 2. Audio files compatible with VLC
-    const std::vector<std::string> audio_extensions = {".mp3", ".wav", ".ogg", ".flac", ".m4a", ".aac", ".wma", ".opus", ".mid", ".midi", ".mka"};
-    if (std::find(audio_extensions.begin(), audio_extensions.end(), ext) != audio_extensions.end() || mime.rfind("audio/", 0) == 0) {
+    const PreferredContentHandler preferred_handler =
+        preferred_content_handler(path);
+    if (preferred_handler == PreferredContentHandler::Vlc) {
         if (which("vlc")) return "vlc";
     }
-    
-    // 3. Video files: VLC
-    const std::vector<std::string> video_extensions = {".mp4", ".mkv", ".avi", ".mov", ".wmv", ".flv", ".webm", ".mpeg", ".mpg", ".m4v"};
-    if (std::find(video_extensions.begin(), video_extensions.end(), ext) != video_extensions.end() || mime.rfind("video/", 0) == 0) {
-        if (which("vlc")) return "vlc";
-    }
-    
-    // 4. Image files: ristretto
-    const std::vector<std::string> image_extensions = {".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".svg", ".tiff", ".ico"};
-    if (std::find(image_extensions.begin(), image_extensions.end(), ext) != image_extensions.end() || mime.rfind("image/", 0) == 0) {
+    if (preferred_handler == PreferredContentHandler::Ristretto) {
         if (which("ristretto")) return "ristretto";
     }
     
@@ -741,18 +963,29 @@ std::string register_appimage(const std::string& path) {
         }
         g_key_file_set_string(desktop, "Desktop Entry", "Name", name.c_str());
     }
-    gchar* quoted_path = g_shell_quote(metadata.canonical_path.c_str());
+    const std::string file_argument_code =
+        desktop_file_argument_code(desktop);
+    std::string launch_command =
+        "milofiles --launch-appimage " +
+        desktop_exec_argument(metadata.canonical_path);
+    if (!file_argument_code.empty()) {
+        launch_command += " " + file_argument_code;
+    }
     g_key_file_set_string(desktop, "Desktop Entry", "Type", "Application");
-    g_key_file_set_string(desktop, "Desktop Entry", "Exec", quoted_path);
-    g_key_file_set_string(desktop, "Desktop Entry", "TryExec", metadata.canonical_path.c_str());
+    g_key_file_set_string(
+        desktop, "Desktop Entry", "Exec", launch_command.c_str());
+    g_key_file_set_string(
+        desktop, "Desktop Entry", "TryExec", "milofiles");
     g_key_file_set_string(desktop, "Desktop Entry", "Icon", metadata.icon_path.c_str());
+    g_key_file_set_boolean(desktop, "Desktop Entry", "Hidden", false);
     g_key_file_set_boolean(desktop, "Desktop Entry", "NoDisplay", false);
     g_key_file_set_boolean(desktop, "Desktop Entry", "DBusActivatable", false);
+    g_key_file_remove_key(desktop, "Desktop Entry", "OnlyShowIn", nullptr);
+    g_key_file_remove_key(desktop, "Desktop Entry", "NotShowIn", nullptr);
     g_key_file_set_string(
         desktop, "Desktop Entry", "X-miloOS-AppImage", metadata.canonical_path.c_str());
     g_key_file_set_string(
         desktop, "Desktop Entry", "X-miloOS-AppImage-CacheKey", metadata.cache_key.c_str());
-    g_free(quoted_path);
 
     gsize desktop_length = 0;
     gchar* desktop_data = g_key_file_to_data(desktop, &desktop_length, &error);
@@ -771,7 +1004,57 @@ std::string register_appimage(const std::string& path) {
         return "";
     }
     g_chmod(registered_desktop.c_str(), 0644);
+    refresh_desktop_database(applications_directory);
     return registered_desktop.string();
+}
+
+bool run_appimage(
+    const std::string& path,
+    const std::vector<std::string>& arguments) {
+    const std::string canonical_path = canonical_local_path(path);
+    if (canonical_path.empty() || !is_appimage(canonical_path)) {
+        return false;
+    }
+
+    std::vector<std::string> command = {canonical_path};
+    command.insert(command.end(), arguments.begin(), arguments.end());
+    gchar** spawn_argv = g_new0(gchar*, command.size() + 1);
+    for (size_t index = 0; index < command.size(); ++index) {
+        spawn_argv[index] = g_strdup(command[index].c_str());
+    }
+
+    gchar** spawn_environment = g_get_environ();
+    const std::string gtk_modules =
+        normalized_gtk_modules(g_getenv("GTK_MODULES"));
+    spawn_environment = g_environ_setenv(
+        spawn_environment, "GTK_MODULES", gtk_modules.c_str(), TRUE);
+    spawn_environment = g_environ_setenv(
+        spawn_environment, "UBUNTU_MENUPROXY", "1", TRUE);
+    spawn_environment = g_environ_setenv(
+        spawn_environment,
+        "MILO_APPIMAGE_PATH",
+        canonical_path.c_str(),
+        TRUE);
+
+    GError* error = nullptr;
+    const bool launched = g_spawn_async(
+        nullptr,
+        spawn_argv,
+        spawn_environment,
+        G_SPAWN_SEARCH_PATH,
+        nullptr,
+        nullptr,
+        nullptr,
+        &error);
+    if (error) {
+        g_error_free(error);
+    }
+    g_strfreev(spawn_environment);
+    for (size_t index = 0; index < command.size(); ++index) {
+        g_free(spawn_argv[index]);
+    }
+    g_free(spawn_argv);
+    return launched;
 }
 
 bool launch_appimage(const std::string& path) {
@@ -815,11 +1098,38 @@ bool open_files(const std::vector<std::string>& paths) {
     struct AppGroup {
         GAppInfo* app = nullptr;
         std::vector<std::string> locations;
+        bool strict = false;
     };
 
     std::vector<CommandGroup> command_groups;
+    std::vector<AppGroup> app_groups;
     std::vector<std::string> default_locations;
+    GAppInfo* vlc_app =
+        preferred_app_info(PreferredContentHandler::Vlc);
+    GAppInfo* ristretto_app =
+        preferred_app_info(PreferredContentHandler::Ristretto);
     bool success = true;
+
+    auto add_app_location = [&app_groups](
+        GAppInfo* app,
+        const std::string& location,
+        bool strict) {
+        auto group = std::find_if(
+            app_groups.begin(), app_groups.end(),
+            [app](const AppGroup& candidate) {
+                return g_app_info_equal(candidate.app, app);
+            });
+        if (group == app_groups.end()) {
+            app_groups.push_back({
+                G_APP_INFO(g_object_ref(app)),
+                {location},
+                strict
+            });
+        } else {
+            group->locations.push_back(location);
+            group->strict = group->strict || strict;
+        }
+    };
 
     for (const auto& location : paths) {
         const std::string local_path = location_to_path(location);
@@ -830,20 +1140,33 @@ bool open_files(const std::vector<std::string>& paths) {
             continue;
         }
         const std::string command = get_custom_default_command(location);
-        if (command.empty() || local_path.empty()) {
-            default_locations.push_back(location);
+        if (!command.empty() && !local_path.empty()) {
+            auto group = std::find_if(
+                command_groups.begin(), command_groups.end(),
+                [&command](const CommandGroup& candidate) {
+                    return candidate.command == command;
+                });
+            if (group == command_groups.end()) {
+                command_groups.push_back({command, {local_path}});
+            } else {
+                group->paths.push_back(local_path);
+            }
             continue;
         }
 
-        auto group = std::find_if(
-            command_groups.begin(), command_groups.end(),
-            [&command](const CommandGroup& candidate) {
-                return candidate.command == command;
-            });
-        if (group == command_groups.end()) {
-            command_groups.push_back({command, {local_path}});
+        const PreferredContentHandler preferred_handler =
+            preferred_content_handler(location);
+        GAppInfo* preferred_app = nullptr;
+        if (preferred_handler == PreferredContentHandler::Vlc) {
+            preferred_app = vlc_app;
+        } else if (
+            preferred_handler == PreferredContentHandler::Ristretto) {
+            preferred_app = ristretto_app;
+        }
+        if (preferred_app) {
+            add_app_location(preferred_app, location, true);
         } else {
-            group->paths.push_back(local_path);
+            default_locations.push_back(location);
         }
     }
 
@@ -859,7 +1182,6 @@ bool open_files(const std::vector<std::string>& paths) {
         if (!run_command_async(argv)) success = false;
     }
 
-    std::vector<AppGroup> app_groups;
     std::vector<std::string> fallback_locations;
     for (const auto& location : default_locations) {
         GFile* file = file_for_location(location);
@@ -872,18 +1194,8 @@ bool open_files(const std::vector<std::string>& paths) {
             fallback_locations.push_back(location);
             continue;
         }
-
-        auto group = std::find_if(
-            app_groups.begin(), app_groups.end(),
-            [app](const AppGroup& candidate) {
-                return g_app_info_equal(candidate.app, app);
-            });
-        if (group == app_groups.end()) {
-            app_groups.push_back({app, {location}});
-        } else {
-            group->locations.push_back(location);
-            g_object_unref(app);
-        }
+        add_app_location(app, location, false);
+        g_object_unref(app);
     }
 
     for (auto& group : app_groups) {
@@ -894,13 +1206,24 @@ bool open_files(const std::vector<std::string>& paths) {
 
         GError* error = nullptr;
         if (!g_app_info_launch(group.app, files, nullptr, &error)) {
-            fallback_locations.insert(
-                fallback_locations.end(),
-                group.locations.begin(), group.locations.end());
+            if (group.strict) {
+                success = false;
+            } else {
+                fallback_locations.insert(
+                    fallback_locations.end(),
+                    group.locations.begin(),
+                    group.locations.end());
+            }
         }
         if (error) g_error_free(error);
         g_list_free_full(files, g_object_unref);
         g_object_unref(group.app);
+    }
+    if (vlc_app) {
+        g_object_unref(vlc_app);
+    }
+    if (ristretto_app) {
+        g_object_unref(ristretto_app);
     }
 
     for (const auto& location : fallback_locations) {

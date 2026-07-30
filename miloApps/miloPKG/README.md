@@ -8,6 +8,10 @@ installs the selected package on the host.
 
 - GTK 3 interface with repository search, package list, destination picker,
   progress and detailed build output.
+- Explicit full-row result selection with keyboard search, sortable columns
+  and clear hover/selection feedback.
+- Checks registered miloPKG AppImages against current Debian repository
+  versions and rebuilds every available update in place.
 - Interactive terminal mode for scripts and systems without a graphical
   session.
 - Downloads the selected package and its required dependency closure with
@@ -18,8 +22,17 @@ installs the selected package on the host.
 - Embeds the icon in the AppImage through both the root icon and `.DirIcon`.
 - Integrates generated AppImages with miloFiles icons and launching, miloDock
   window matching and pinning, and miloPanel Global Menu.
+- Registers each successful build immediately in the user application menu
+  through miloFiles, without requiring a first launch.
 - Configures GIMP 3 data, plug-in, translation, GEGL and Babl paths for
   portable execution without relying on a system GIMP installation.
+- Runs GParted through the host PolicyKit helper, preserving safe X11 display
+  access while keeping its executable and resources inside the AppImage.
+- Supports Google Chrome without embedding its unusable setuid sandbox helper;
+  Chrome uses the host kernel's unprivileged user namespace sandbox and the
+  configured system language instead.
+- Relocates Guitarix data paths and exposes packaged LADSPA and LV2 plug-ins so
+  it can load its interface, skins, factory presets and effects.
 - Produces a clean, versionless filename such as `Audacity.appimage`.
 - Uses the official AppImage `appimagetool`; it is cached under
   `~/.cache/milopkg/tools/` after its first use.
@@ -39,6 +52,12 @@ in the desktop menu. Building an AppImage itself does not need root privileges.
 
 Open **miloPKG** from the applications menu, enter an application name, select a
 result, choose a destination folder and press **Create AppImage**.
+
+Use **Check updates** to refresh APT metadata and compare the AppImages already
+registered by miloFiles. The system authentication dialog is shown only for
+the repository refresh. Approved updates are rebuilt as the normal user and
+replace the previous AppImage atomically at the same path, preserving miloFiles
+and miloDock integration.
 
 Terminal mode:
 
@@ -66,7 +85,8 @@ milopkg --package audacity -o "$HOME/Applications" --force
 3. `apt-get download` stores all selected `.deb` files in a temporary directory.
 4. `dpkg-deb -x` assembles an AppDir without installing anything.
 5. miloPKG chooses the package's primary desktop entry and executable, copies
-   its highest-quality icon and creates a relocatable `AppRun`.
+   its highest-quality icon, records the source package/version and creates a
+   relocatable `AppRun`.
 6. The official `appimagetool` creates a type-2 AppImage and miloPKG moves it
    atomically to the requested destination.
 

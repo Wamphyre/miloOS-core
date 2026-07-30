@@ -96,6 +96,225 @@ class MiloPKGTests(unittest.TestCase):
         with self.assertRaises(milopkg.MiloPKGError):
             milopkg.normalize_package("../../bad")
 
+    def test_managed_appimages_support_current_and_legacy_metadata(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            data_home = root / "data"
+            cache_home = root / "cache"
+            applications = data_home / "applications"
+            applications.mkdir(parents=True)
+
+            legacy_appimage = root / "Firefox ESR.appimage"
+            legacy_appimage.touch()
+            (applications / "milopkg-appimage-legacy.desktop").write_text(
+                "[Desktop Entry]\n"
+                "Name=Firefox ESR\n"
+                f"X-miloOS-AppImage={legacy_appimage}\n"
+                "X-miloOS-AppImage-CacheKey=legacy-key\n"
+                "X-AppImage-Version=128.0-1\n",
+                encoding="utf-8",
+            )
+            cached = (
+                cache_home
+                / "milofiles/appimages/legacy-key/application.desktop"
+            )
+            cached.parent.mkdir(parents=True)
+            cached.write_text(
+                "[Desktop Entry]\n"
+                "Icon=firefox-esr\n"
+                "X-AppImage-Version=128.0-1\n",
+                encoding="utf-8",
+            )
+
+            current_appimage = root / "GIMP.appimage"
+            current_appimage.touch()
+            (applications / "milopkg-appimage-current.desktop").write_text(
+                "[Desktop Entry]\n"
+                "Name=GIMP\n"
+                f"X-miloOS-AppImage={current_appimage}\n"
+                "X-AppImage-Version=3.0.4-1\n"
+                "X-miloPKG-Package=gimp\n",
+                encoding="utf-8",
+            )
+            (applications / "milopkg-appimage-stale.desktop").write_text(
+                "[Desktop Entry]\n"
+                f"X-miloOS-AppImage={root / 'missing.appimage'}\n"
+                "X-AppImage-Version=1\n"
+                "X-miloPKG-Package=missing\n",
+                encoding="utf-8",
+            )
+
+            apps = milopkg.discover_managed_appimages(
+                data_home=data_home,
+                cache_home=cache_home,
+            )
+            self.assertEqual(
+                [(app.package, app.version) for app in apps],
+                [
+                    ("firefox-esr", "128.0-1"),
+                    ("gimp", "3.0.4-1"),
+                ],
+            )
+
+    def test_debian_versions_and_update_detection(self):
+        self.assertTrue(
+            milopkg.debian_version_is_newer("1:2.0-1", "2.0-9")
+        )
+        self.assertFalse(
+            milopkg.debian_version_is_newer("2.0-1", "2.0-1")
+        )
+
+        root = Path("/tmp")
+        apps = [
+            milopkg.ManagedAppImage(
+                path=root / "Example.appimage",
+                package="example",
+                version="1.0-1",
+                display_name="Example",
+                desktop_path=root / "example.desktop",
+            ),
+            milopkg.ManagedAppImage(
+                path=root / "Current.appimage",
+                package="current",
+                version="2.0-1",
+                display_name="Current",
+                desktop_path=root / "current.desktop",
+            ),
+        ]
+
+        class Repository:
+            @staticmethod
+            def details(package):
+                versions = {"example": "1.1-1", "current": "2.0-1"}
+                return milopkg.PackageInfo(
+                    package=package,
+                    version=versions[package],
+                )
+
+        updates = milopkg.find_appimage_updates(Repository(), apps)
+        self.assertEqual(len(updates), 1)
+        self.assertEqual(updates[0].app.package, "example")
+        self.assertEqual(updates[0].available.version, "1.1-1")
+
+    def test_root_desktop_records_milopkg_package(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            appdir = Path(temporary)
+            desktop = milopkg.AppImageBuilder._write_root_desktop(
+                appdir,
+                {"Exec": "example %U", "Categories": "Utility;"},
+                "Example",
+                "example",
+                milopkg.PackageInfo(
+                    package="example",
+                    version="2.4-1",
+                    architecture="amd64",
+                ),
+            )
+            entry = milopkg.read_desktop_entry(desktop)
+            self.assertEqual(entry["X-miloPKG-Package"], "example")
+            self.assertEqual(entry["X-miloPKG-Format"], "1")
+            self.assertEqual(entry["X-AppImage-Version"], "2.4-1")
+
+    def test_update_rebuilds_in_place_and_refreshes_registration(self):
+        path = Path("/tmp/Example.appimage")
+        update = milopkg.AppImageUpdate(
+            app=milopkg.ManagedAppImage(
+                path=path,
+                package="example",
+                version="1.0-1",
+                display_name="Example",
+                desktop_path=Path("/tmp/example.desktop"),
+            ),
+            available=milopkg.PackageInfo(
+                package="example",
+                version="1.1-1",
+            ),
+        )
+        expected = milopkg.BuildResult(
+            path=path,
+            display_name="Example",
+            package="example",
+            version="1.1-1",
+            bundled_packages=4,
+        )
+
+        class Builder:
+            def build(self, *args, **kwargs):
+                self.args = args
+                self.kwargs = kwargs
+                return expected
+
+        builder = Builder()
+        with patch.object(
+            milopkg,
+            "refresh_appimage_registration",
+            return_value=True,
+        ) as refresh:
+            result, registered = milopkg.rebuild_appimage_update(
+                builder,
+                update,
+            )
+        self.assertEqual(result, expected)
+        self.assertTrue(registered)
+        self.assertEqual(builder.args, ("example", path.parent))
+        self.assertEqual(
+            builder.kwargs,
+            {"overwrite": True, "target_path": path},
+        )
+        refresh.assert_called_once_with(path)
+
+    def test_registration_uses_milofiles_command(self):
+        path = Path("/tmp/Application with spaces.appimage")
+        completed = subprocess.CompletedProcess(
+            args=[],
+            returncode=0,
+        )
+        with patch.object(
+            milopkg.shutil,
+            "which",
+            return_value="/usr/local/bin/milofiles",
+        ), patch.object(
+            milopkg.subprocess,
+            "run",
+            return_value=completed,
+        ) as run:
+            self.assertTrue(
+                milopkg.refresh_appimage_registration(path)
+            )
+        self.assertEqual(
+            run.call_args.args[0],
+            [
+                "/usr/local/bin/milofiles",
+                "--register-appimage",
+                str(path.resolve()),
+            ],
+        )
+
+    def test_repository_refresh_uses_system_authentication(self):
+        class Process:
+            stdout = iter(["Hit: repository\n"])
+
+            @staticmethod
+            def wait():
+                return 0
+
+        logs = []
+        with patch.object(
+            milopkg.shutil,
+            "which",
+            side_effect=lambda command: f"/usr/bin/{command}",
+        ), patch.object(
+            milopkg.subprocess,
+            "Popen",
+            return_value=Process(),
+        ) as popen:
+            milopkg.refresh_repository_indexes(logs.append)
+        self.assertEqual(logs, ["Hit: repository"])
+        self.assertEqual(
+            popen.call_args.args[0],
+            ["/usr/bin/pkexec", "/usr/bin/apt-get", "update"],
+        )
+
     def test_desktop_and_icon_selection(self):
         with tempfile.TemporaryDirectory() as temporary:
             appdir = Path(temporary)
@@ -234,6 +453,9 @@ class MiloPKGTests(unittest.TestCase):
             "data",
         )
 
+    def test_privileged_helpers_stay_on_host(self):
+        self.assertIn("pkexec", milopkg.HOST_RUNTIME_PACKAGES)
+
     def test_apprun_rewrites_build_directory(self):
         with tempfile.TemporaryDirectory() as temporary:
             appdir = Path(temporary) / "example.AppDir"
@@ -266,6 +488,7 @@ class MiloPKGTests(unittest.TestCase):
             self.assertIn("UBUNTU_MENUPROXY=1", script)
             self.assertIn('export MLT_REPOSITORY="', script)
             self.assertIn('export MLT_DATA="', script)
+            self.assertIn('export LV2_PATH="', script)
             self.assertIn(
                 'GIO_LAUNCHED_DESKTOP_FILE="$APPDIR/example.desktop"',
                 script,
@@ -358,6 +581,145 @@ class MiloPKGTests(unittest.TestCase):
             self.assertIn(
                 ' --data "$APPDIR/usr/share/hydrogen/data/" "$@"',
                 (appdir / "AppRun").read_text(encoding="utf-8"),
+            )
+
+    def test_gparted_uses_host_pkexec_and_packaged_binary(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            appdir = Path(temporary) / "gparted.AppDir"
+            executable = appdir / "usr/sbin/gparted"
+            binary = appdir / "usr/libexec/gpartedbin"
+            executable.parent.mkdir(parents=True)
+            binary.parent.mkdir(parents=True)
+            executable.write_text(
+                '#!/bin/sh\n'
+                'BASE_CMD="/usr/libexec/gpartedbin $*"\n'
+                "ENABLE_XHOST_ROOT=no\n"
+                "pkexec --disable-internal-agent "
+                "'/usr/sbin/gparted' \"$@\"\n",
+                encoding="utf-8",
+            )
+            binary.touch()
+
+            milopkg.AppImageBuilder._prepare_runtime_layout(
+                appdir,
+                executable,
+            )
+            wrapper = executable.read_text(encoding="utf-8")
+            self.assertIn(
+                'BASE_CMD="${APPDIR}/usr/libexec/gpartedbin $*"',
+                wrapper,
+            )
+            self.assertIn(
+                '/usr/bin/pkexec --disable-internal-agent '
+                '/usr/bin/env DISPLAY="${DISPLAY:-}" '
+                'XAUTHORITY="${XAUTHORITY:-}" GDK_BACKEND=x11 '
+                '"${APPIMAGE:-$0}" --milopkg-gparted-root "$@"',
+                wrapper,
+            )
+            self.assertIn("ENABLE_XHOST_ROOT=yes", wrapper)
+
+            builder = milopkg.AppImageBuilder.__new__(
+                milopkg.AppImageBuilder
+            )
+            builder._write_apprun(
+                appdir,
+                [str(executable)],
+                executable=executable,
+            )
+            script = (appdir / "AppRun").read_text(encoding="utf-8")
+            self.assertIn(
+                '[ "${1:-}" = "--milopkg-gparted-root" ]',
+                script,
+            )
+            subprocess.run(
+                ["sh", "-n", str(appdir / "AppRun")],
+                check=True,
+            )
+
+    def test_chrome_uses_namespace_sandbox(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            appdir = Path(temporary) / "chrome.AppDir"
+            executable = appdir / "usr/bin/google-chrome-stable"
+            chrome = appdir / "opt/google/chrome/chrome"
+            sandbox = appdir / "opt/google/chrome/chrome-sandbox"
+            executable.parent.mkdir(parents=True)
+            chrome.parent.mkdir(parents=True)
+            executable.touch()
+            chrome.touch()
+            sandbox.touch()
+
+            milopkg.AppImageBuilder._prepare_runtime_layout(
+                appdir,
+                executable,
+            )
+            self.assertFalse(sandbox.exists())
+
+            builder = milopkg.AppImageBuilder.__new__(
+                milopkg.AppImageBuilder
+            )
+            builder._write_apprun(
+                appdir,
+                [str(executable)],
+                executable=executable,
+            )
+            script = (appdir / "AppRun").read_text(encoding="utf-8")
+            self.assertNotIn("--no-sandbox", script)
+            self.assertIn(
+                'set -- "--lang=$MILO_CHROME_LOCALE" "$@"',
+                script,
+            )
+            self.assertIn(
+                '""|C|C.*|POSIX) continue',
+                script,
+            )
+
+    def test_guitarix_uses_packaged_resources_and_plugins(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            appdir = Path(temporary) / "guitarix.AppDir"
+            executable = appdir / "usr/bin/guitarix"
+            data = appdir / "usr/share/gx_head"
+            executable.parent.mkdir(parents=True)
+            (data / "builder").mkdir(parents=True)
+            (data / "skins").mkdir()
+            executable.write_bytes(
+                b"prefix:/usr/share/gx_head/skins:suffix"
+            )
+
+            milopkg.AppImageBuilder._prepare_runtime_layout(
+                appdir,
+                executable,
+            )
+            self.assertIn(
+                b"usr/share//gx_head/skins",
+                executable.read_bytes(),
+            )
+            self.assertNotIn(
+                b"/usr/share/gx_head",
+                executable.read_bytes(),
+            )
+
+            builder = milopkg.AppImageBuilder.__new__(
+                milopkg.AppImageBuilder
+            )
+            builder._write_apprun(
+                appdir,
+                [str(executable)],
+                executable=executable,
+            )
+            script = (appdir / "AppRun").read_text(encoding="utf-8")
+            self.assertIn(
+                '--builder-dir="$APPDIR/usr/share/gx_head/builder"',
+                script,
+            )
+            self.assertIn(
+                '--style-dir="$APPDIR/usr/share/gx_head/skins"',
+                script,
+            )
+            self.assertIn('\ncd "$APPDIR"\n', script)
+            self.assertIn('export LV2_PATH="', script)
+            subprocess.run(
+                ["sh", "-n", str(appdir / "AppRun")],
+                check=True,
             )
 
     def test_gimp_runtime_uses_packaged_resources(self):

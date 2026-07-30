@@ -2,6 +2,7 @@
 #include <gio/gio.h>
 #include <iostream>
 #include <string>
+#include <vector>
 #include <locale.h>
 #include <sys/stat.h>
 #include "app_window.hpp"
@@ -19,6 +20,14 @@ int main(int argc, char* argv[]) {
         }
         std::cout << desktop_path << std::endl;
         return 0;
+    }
+
+    if (argc >= 3 && std::string(argv[1]) == "--launch-appimage") {
+        std::vector<std::string> arguments;
+        for (int index = 3; index < argc; ++index) {
+            arguments.emplace_back(argv[index]);
+        }
+        return utils::run_appimage(argv[2], arguments) ? 0 : 1;
     }
 
     gtk_init(&argc, &argv);

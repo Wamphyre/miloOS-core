@@ -28,6 +28,9 @@ std::string get_custom_default_command(const std::string& path);
 bool is_appimage(const std::string& path);
 std::string appimage_icon_path(const std::string& path);
 std::string register_appimage(const std::string& path);
+bool run_appimage(
+    const std::string& path,
+    const std::vector<std::string>& arguments = {});
 bool launch_appimage(const std::string& path);
 bool open_files(const std::vector<std::string>& paths);
 bool open_file(const std::string& path);

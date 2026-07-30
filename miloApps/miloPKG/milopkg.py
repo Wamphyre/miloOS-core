@@ -30,7 +30,7 @@ from pathlib import Path
 from typing import Callable, Iterable, Optional, Sequence
 
 
-APP_VERSION = "1.0.0"
+APP_VERSION = "1.1.0"
 APPIMAGETOOL_URL = (
     "https://github.com/AppImage/appimagetool/releases/download/continuous/"
     "appimagetool-{arch}.AppImage"
@@ -70,6 +70,7 @@ HOST_RUNTIME_PACKAGES = {
     "ncurses-base",
     "passwd",
     "perl-base",
+    "pkexec",
     "sed",
     "systemd",
     "systemd-sysv",
@@ -126,6 +127,22 @@ TRANSLATIONS = {
         "existing": "The destination file already exists. Remove it or choose another folder.",
         "selected": "{package} · {version} · {size}",
         "log": "Packaging details",
+        "check_updates": "Check updates",
+        "checking_updates": "Refreshing repositories and checking AppImages…",
+        "update_auth": "Administrator authentication is required to refresh the repositories.",
+        "no_managed_apps_title": "No managed AppImages",
+        "no_managed_apps": "Open an AppImage created by miloPKG in miloFiles first so it can be registered.",
+        "no_updates_title": "Everything is up to date",
+        "no_updates": "{count} managed AppImages were checked.",
+        "updates_title": "Updates available",
+        "updates_found": "{count} AppImages can be rebuilt with newer repository packages:",
+        "update_all": "Update all",
+        "updating_apps": "Updating managed AppImages…",
+        "updates_complete_title": "Updates completed",
+        "updates_complete": "{updated} AppImages were updated.",
+        "updates_failed": "{failed} updates failed. See the packaging details.",
+        "update_cancelled": "AppImage updates were cancelled.",
+        "repository_refresh_failed": "Could not refresh the Debian repositories.",
     },
     "es": {
         "window_title": "miloPKG",
@@ -156,6 +173,22 @@ TRANSLATIONS = {
         "existing": "El archivo de destino ya existe. Elimínalo o elige otra carpeta.",
         "selected": "{package} · {version} · {size}",
         "log": "Detalles del empaquetado",
+        "check_updates": "Buscar actualizaciones",
+        "checking_updates": "Actualizando repositorios y comprobando AppImages…",
+        "update_auth": "Se necesita autenticación de administrador para actualizar los repositorios.",
+        "no_managed_apps_title": "No hay AppImages gestionados",
+        "no_managed_apps": "Abre primero en miloFiles algún AppImage creado por miloPKG para que quede registrado.",
+        "no_updates_title": "Todo está actualizado",
+        "no_updates": "Se han comprobado {count} AppImages gestionados.",
+        "updates_title": "Actualizaciones disponibles",
+        "updates_found": "{count} AppImages pueden reconstruirse con paquetes más recientes:",
+        "update_all": "Actualizar todo",
+        "updating_apps": "Actualizando AppImages gestionados…",
+        "updates_complete_title": "Actualizaciones completadas",
+        "updates_complete": "Se han actualizado {updated} AppImages.",
+        "updates_failed": "Han fallado {failed} actualizaciones. Revisa los detalles del empaquetado.",
+        "update_cancelled": "Se cancelaron las actualizaciones de AppImages.",
+        "repository_refresh_failed": "No se pudieron actualizar los repositorios Debian.",
     },
 }
 
@@ -274,6 +307,21 @@ class BuildResult:
     bundled_packages: int
 
 
+@dataclass(frozen=True)
+class ManagedAppImage:
+    path: Path
+    package: str
+    version: str
+    display_name: str
+    desktop_path: Path
+
+
+@dataclass(frozen=True)
+class AppImageUpdate:
+    app: ManagedAppImage
+    available: PackageInfo
+
+
 def parse_deb822(text: str) -> list[dict[str, str]]:
     """Parse the subset of Debian control syntax returned by apt-cache."""
     records: list[dict[str, str]] = []
@@ -365,6 +413,218 @@ def safe_icon_key(package: str) -> str:
     return key.strip(".-") or "application"
 
 
+def _xdg_home(variable: str, fallback: Path) -> Path:
+    configured = os.environ.get(variable)
+    return Path(configured).expanduser() if configured else fallback
+
+
+def read_desktop_entry(path: Path) -> dict[str, str]:
+    entry: dict[str, str] = {}
+    in_desktop_entry = False
+    try:
+        lines = Path(path).read_text(
+            encoding="utf-8", errors="replace"
+        ).splitlines()
+    except OSError:
+        return entry
+    for line in lines:
+        stripped = line.strip()
+        if stripped.startswith("[") and stripped.endswith("]"):
+            in_desktop_entry = stripped == "[Desktop Entry]"
+            continue
+        if not in_desktop_entry or not stripped or stripped.startswith("#"):
+            continue
+        if "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        entry[key.strip()] = value.strip()
+    return entry
+
+
+def discover_managed_appimages(
+    data_home: Optional[Path] = None,
+    cache_home: Optional[Path] = None,
+) -> list[ManagedAppImage]:
+    user_data = Path(data_home) if data_home else _xdg_home(
+        "XDG_DATA_HOME", Path.home() / ".local/share"
+    )
+    user_cache = Path(cache_home) if cache_home else _xdg_home(
+        "XDG_CACHE_HOME", Path.home() / ".cache"
+    )
+    applications = user_data / "applications"
+    if not applications.is_dir():
+        return []
+
+    managed: list[ManagedAppImage] = []
+    seen: set[Path] = set()
+    for desktop_path in sorted(
+        applications.glob("milopkg-appimage-*.desktop")
+    ):
+        registered = read_desktop_entry(desktop_path)
+        raw_path = registered.get("X-miloOS-AppImage", "")
+        if not raw_path:
+            continue
+        appimage_path = Path(raw_path).expanduser()
+        try:
+            appimage_path = appimage_path.resolve()
+        except OSError:
+            continue
+        if (
+            appimage_path in seen
+            or not appimage_path.is_file()
+            or appimage_path.suffix.lower() != ".appimage"
+        ):
+            continue
+
+        cache_key = registered.get(
+            "X-miloOS-AppImage-CacheKey", ""
+        )
+        cached_entry = read_desktop_entry(
+            user_cache
+            / "milofiles/appimages"
+            / cache_key
+            / "application.desktop"
+        )
+        package = (
+            registered.get("X-miloPKG-Package", "")
+            or cached_entry.get("X-miloPKG-Package", "")
+        ).lower()
+        if not package:
+            icon_key = cached_entry.get("Icon", "").lower()
+            if PACKAGE_RE.fullmatch(icon_key):
+                package = icon_key
+        version = (
+            registered.get("X-AppImage-Version", "")
+            or cached_entry.get("X-AppImage-Version", "")
+        )
+        if not package or not version:
+            continue
+        try:
+            package = normalize_package(package)
+        except MiloPKGError:
+            continue
+
+        display_name = (
+            registered.get("Name", "")
+            or cached_entry.get("Name", "")
+            or appimage_path.stem
+        )
+        managed.append(
+            ManagedAppImage(
+                path=appimage_path,
+                package=package,
+                version=version,
+                display_name=display_name,
+                desktop_path=desktop_path.resolve(),
+            )
+        )
+        seen.add(appimage_path)
+    return sorted(
+        managed,
+        key=lambda app: (app.display_name.casefold(), app.package),
+    )
+
+
+def debian_version_is_newer(candidate: str, installed: str) -> bool:
+    if not candidate or not installed or candidate == installed:
+        return False
+    try:
+        result = subprocess.run(
+            ["dpkg", "--compare-versions", candidate, "gt", installed],
+            check=False,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+    except OSError as error:
+        raise MiloPKGError(str(error)) from error
+    if result.returncode not in {0, 1}:
+        raise MiloPKGError(
+            localized(
+                "No se pudieron comparar las versiones Debian.",
+                "Could not compare Debian versions.",
+            )
+        )
+    return result.returncode == 0
+
+
+def refresh_repository_indexes(
+    log: Optional[Callable[[str], None]] = None,
+) -> None:
+    pkexec = shutil.which("pkexec")
+    apt_get = shutil.which("apt-get")
+    if not pkexec or not apt_get:
+        raise MiloPKGError(tr("repository_refresh_failed"))
+    environment = os.environ.copy()
+    environment.update({"LC_ALL": "C", "LANG": "C"})
+    try:
+        process = subprocess.Popen(
+            [pkexec, apt_get, "update"],
+            env=environment,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            errors="replace",
+        )
+    except OSError as error:
+        raise MiloPKGError(
+            f"{tr('repository_refresh_failed')}\n\n{error}"
+        ) from error
+    assert process.stdout is not None
+    for line in process.stdout:
+        if log:
+            log(line.rstrip())
+    return_code = process.wait()
+    if return_code != 0:
+        raise MiloPKGError(tr("repository_refresh_failed"))
+
+
+def find_appimage_updates(
+    repository: "AptRepository",
+    apps: Sequence[ManagedAppImage],
+) -> list[AppImageUpdate]:
+    updates: list[AppImageUpdate] = []
+    for app in apps:
+        try:
+            available = repository.details(app.package)
+        except MiloPKGError:
+            continue
+        if debian_version_is_newer(available.version, app.version):
+            updates.append(
+                AppImageUpdate(app=app, available=available)
+            )
+    return updates
+
+
+def refresh_appimage_registration(path: Path) -> bool:
+    milofiles = shutil.which("milofiles")
+    if not milofiles:
+        return False
+    try:
+        result = subprocess.run(
+            [milofiles, "--register-appimage", str(Path(path).resolve())],
+            check=False,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+    except OSError:
+        return False
+    return result.returncode == 0
+
+
+def rebuild_appimage_update(
+    builder: "AppImageBuilder",
+    update: AppImageUpdate,
+) -> tuple[BuildResult, bool]:
+    result = builder.build(
+        update.app.package,
+        update.app.path.parent,
+        overwrite=True,
+        target_path=update.app.path,
+    )
+    return result, refresh_appimage_registration(result.path)
+
+
 def appimage_arch() -> str:
     machine = platform.machine().lower()
     mapping = {
@@ -430,6 +690,10 @@ class AptRepository:
             ).strip()
         except MiloPKGError:
             self._host_architecture = ""
+
+    def invalidate_cache(self) -> None:
+        self._control_cache.clear()
+        self._provider_cache.clear()
 
     @staticmethod
     def _capture(args: Sequence[str], cwd: Optional[Path] = None) -> str:
@@ -1493,6 +1757,8 @@ class AppImageBuilder:
                 f"X-AppImage-Name={display_name}",
                 f"X-AppImage-Version={package.version}",
                 f"X-AppImage-Arch={package.architecture}",
+                f"X-miloPKG-Package={package.package}",
+                "X-miloPKG-Format=1",
             ]
         )
         # Keep one copy of keys that may have existed in the source entry.
@@ -1611,6 +1877,48 @@ class AppImageBuilder:
     ) -> None:
         if executable is None or not executable.is_file():
             return
+        gparted_wrapper = appdir / "usr/sbin/gparted"
+        gparted_binary = appdir / "usr/libexec/gpartedbin"
+        if gparted_wrapper.is_file() and gparted_binary.is_file():
+            try:
+                content = gparted_wrapper.read_text(encoding="utf-8")
+                content = content.replace(
+                    'BASE_CMD="/usr/libexec/gpartedbin $*"',
+                    'BASE_CMD="${APPDIR}/usr/libexec/gpartedbin $*"',
+                )
+                content = content.replace(
+                    "ENABLE_XHOST_ROOT=no",
+                    "ENABLE_XHOST_ROOT=yes",
+                )
+                content = content.replace(
+                    "pkexec --disable-internal-agent "
+                    "'/usr/sbin/gparted' \"$@\"",
+                    "/usr/bin/pkexec --disable-internal-agent /usr/bin/env "
+                    'DISPLAY="${DISPLAY:-}" '
+                    'XAUTHORITY="${XAUTHORITY:-}" GDK_BACKEND=x11 '
+                    '"${APPIMAGE:-$0}" --milopkg-gparted-root "$@"',
+                )
+                gparted_wrapper.write_text(content, encoding="utf-8")
+            except (OSError, UnicodeError):
+                pass
+        chrome_directory = appdir / "opt/google/chrome"
+        chrome_sandbox = chrome_directory / "chrome-sandbox"
+        if (chrome_directory / "chrome").is_file():
+            try:
+                chrome_sandbox.unlink(missing_ok=True)
+            except OSError:
+                pass
+        if executable.name == "guitarix":
+            try:
+                content = executable.read_bytes()
+                relocated = content.replace(
+                    b"/usr/share/",
+                    b"usr/share//",
+                )
+                if relocated != content:
+                    executable.write_bytes(relocated)
+            except OSError:
+                pass
         if executable.name == "gimp" or executable.name.startswith("gimp-"):
             plugin_root = (
                 appdir
@@ -1672,6 +1980,18 @@ class AppImageBuilder:
             and (appdir / "usr/share/hydrogen/data").is_dir()
         ):
             command += ' --data "$APPDIR/usr/share/hydrogen/data/"'
+        guitarix_data = appdir / "usr/share/gx_head"
+        guitarix_runtime = (
+            executable is not None
+            and executable.name == "guitarix"
+            and guitarix_data.is_dir()
+        )
+        if guitarix_runtime:
+            command += (
+                ' --builder-dir="$APPDIR/usr/share/gx_head/builder"'
+                ' --style-dir="$APPDIR/usr/share/gx_head/skins"'
+            )
+        working_directory = '\ncd "$APPDIR"\n' if guitarix_runtime else ""
         bundled_library_dirs = [
             f"$APPDIR/usr/lib/{triplet}",
             f"$APPDIR/lib/{triplet}",
@@ -1700,6 +2020,26 @@ export GTK_PATH="$APPDIR/usr/lib/{triplet}/gtk-3.0:$APPDIR/usr/lib/gtk-3.0${{GTK
 export QT_PLUGIN_PATH="$APPDIR/usr/lib/{triplet}/qt5/plugins:$APPDIR/usr/lib/{triplet}/qt6/plugins${{QT_PLUGIN_PATH:+:$QT_PLUGIN_PATH}}"
 export QML2_IMPORT_PATH="$APPDIR/usr/lib/{triplet}/qt5/qml:$APPDIR/usr/lib/{triplet}/qt6/qml${{QML2_IMPORT_PATH:+:$QML2_IMPORT_PATH}}"
 export PYTHONPATH="$APPDIR/usr/lib/python3/dist-packages:$APPDIR/usr/local/lib/python3/dist-packages${{PYTHONPATH:+:$PYTHONPATH}}"
+if [ -x "$APPDIR/opt/google/chrome/chrome" ]; then
+    MILO_CHROME_LOCALE=""
+    for candidate in "${{LC_ALL:-}}" "${{LC_MESSAGES:-}}" "${{LANGUAGE:-}}" "${{LANG:-}}"; do
+        case "$candidate" in
+            ""|C|C.*|POSIX) continue ;;
+        esac
+        MILO_CHROME_LOCALE="${{candidate%%:*}}"
+        break
+    done
+    if [ -n "$MILO_CHROME_LOCALE" ]; then
+        MILO_CHROME_LOCALE="${{MILO_CHROME_LOCALE%%.*}}"
+        MILO_CHROME_LOCALE="${{MILO_CHROME_LOCALE%%@*}}"
+        MILO_CHROME_LOCALE="$(printf '%s' "$MILO_CHROME_LOCALE" | tr '_' '-')"
+        export LANGUAGE="$MILO_CHROME_LOCALE${{LANGUAGE:+:$LANGUAGE}}"
+        set -- "--lang=$MILO_CHROME_LOCALE" "$@"
+    fi
+fi
+if [ -x "$APPDIR/usr/libexec/gpartedbin" ] && [ "${{1:-}}" = "--milopkg-gparted-root" ]; then
+    shift
+fi
 if [ -d "$APPDIR/usr/share/gimp/3.0" ]; then
     export GIMP3_DATADIR="$APPDIR/usr/share/gimp/3.0"
     export GIMP3_LOCALEDIR="$APPDIR/usr/share/locale"
@@ -1712,6 +2052,7 @@ MLT_REPOSITORY_DIR="$(find "$APPDIR/usr/lib/{triplet}" "$APPDIR/usr/lib" -maxdep
 MLT_DATA_DIR="$(find "$APPDIR/usr/share" -maxdepth 1 -type d -name 'mlt-*' -print -quit 2>/dev/null || true)"
 FREI0R_DIR="$(find "$APPDIR/usr/lib/{triplet}" "$APPDIR/usr/lib" -maxdepth 1 -type d -name 'frei0r-*' -print -quit 2>/dev/null || true)"
 LADSPA_DIR="$(find "$APPDIR/usr/lib/{triplet}" "$APPDIR/usr/lib" -maxdepth 1 -type d -name 'ladspa' -print -quit 2>/dev/null || true)"
+LV2_DIR="$(find "$APPDIR/usr/lib/{triplet}" "$APPDIR/usr/lib" -maxdepth 1 -type d -name 'lv2' -print -quit 2>/dev/null || true)"
 if [ -n "$MLT_REPOSITORY_DIR" ]; then
     export MLT_REPOSITORY="$MLT_REPOSITORY_DIR"
 fi
@@ -1723,6 +2064,9 @@ if [ -n "$FREI0R_DIR" ]; then
 fi
 if [ -n "$LADSPA_DIR" ]; then
     export LADSPA_PATH="$LADSPA_DIR${{LADSPA_PATH:+:$LADSPA_PATH}}"
+fi
+if [ -n "$LV2_DIR" ]; then
+    export LV2_PATH="$LV2_DIR${{LV2_PATH:+:$LV2_PATH}}"
 fi
 case ":${{GTK_MODULES:-}}:" in
     *:appmenu-gtk-module:*) ;;
@@ -1753,6 +2097,7 @@ if [ -n "$PIXBUF_DIR" ] && [ -x "$PIXBUF_QUERY" ]; then
     fi
 fi
 
+{working_directory}
 exec {command} "$@"
 """
         path = appdir / "AppRun"
@@ -1853,6 +2198,7 @@ exec {command} "$@"
         output_directory: Path,
         *,
         overwrite: bool = False,
+        target_path: Optional[Path] = None,
     ) -> BuildResult:
         package_name = normalize_package(package_name)
         output_directory = Path(output_directory).expanduser().resolve()
@@ -1949,7 +2295,22 @@ exec {command} "$@"
             )
             self._compile_schemas(appdir)
 
-            target = output_directory / safe_output_filename(display_name)
+            if target_path is None:
+                target = (
+                    output_directory / safe_output_filename(display_name)
+                )
+            else:
+                target = Path(target_path).expanduser().resolve()
+                if (
+                    target.parent != output_directory
+                    or target.suffix.lower() != ".appimage"
+                ):
+                    raise MiloPKGError(
+                        localized(
+                            "La ruta del AppImage que se actualizará no es válida.",
+                            "The AppImage update target is invalid.",
+                        )
+                    )
             if target.exists() and not overwrite:
                 raise OutputExists(f"{tr('existing')}\n\n{target}")
 
@@ -1990,6 +2351,22 @@ exec {command} "$@"
             os.replace(staged_output, target)
             target.chmod(0o755)
 
+        if refresh_appimage_registration(target):
+            self._log(
+                localized(
+                    f"Lanzador de escritorio registrado para {target.name}.",
+                    f"Desktop launcher registered for {target.name}.",
+                )
+            )
+        else:
+            self._log(
+                localized(
+                    "miloFiles no está disponible; el lanzador se registrará "
+                    "al abrir el AppImage por primera vez.",
+                    "miloFiles is unavailable; the launcher will be registered "
+                    "when the AppImage is opened for the first time.",
+                )
+            )
         self._progress(
             "done",
             1.0,
@@ -2048,6 +2425,7 @@ def run_gui(initial_query: str = "", output: Optional[Path] = None) -> int:
             border = "#3d3d3d" if dark else "#dfe2e8"
             text = "#f5f6fa" if dark else "#243042"
             muted = "#a0a0a0" if dark else "#6f7785"
+            hover = "#353b48" if dark else "#e8f1ff"
             css = f"""
                 window {{ background: {background}; }}
                 .hero-title {{ color: {text}; font-size: 23px; font-weight: 700; }}
@@ -2070,6 +2448,12 @@ def run_gui(initial_query: str = "", output: Optional[Path] = None) -> int:
                 button {{ border-radius: 8px; padding: 7px 13px; }}
                 entry {{ border-radius: 8px; padding: 8px; }}
                 treeview {{ background: {card}; color: {text}; }}
+                treeview.view:hover {{ background: {hover}; }}
+                treeview.view:selected,
+                treeview.view:selected:focus {{
+                    color: white;
+                    background: #007aff;
+                }}
                 textview {{ background: {card}; color: {text}; }}
             """
             provider = Gtk.CssProvider()
@@ -2106,8 +2490,18 @@ def run_gui(initial_query: str = "", output: Optional[Path] = None) -> int:
             self.store = Gtk.ListStore(str, str, str, str, object)
             self.tree = Gtk.TreeView(model=self.store)
             self.tree.set_headers_visible(True)
-            self.tree.get_selection().connect("changed", self.on_selection_changed)
+            self.tree.set_enable_search(True)
+            self.tree.set_search_column(0)
+            self.tree.set_grid_lines(Gtk.TreeViewGridLines.HORIZONTAL)
+            self.tree.set_activate_on_single_click(False)
+            self.tree.set_tooltip_column(3)
+            selection = self.tree.get_selection()
+            selection.set_mode(Gtk.SelectionMode.SINGLE)
+            selection.connect("changed", self.on_selection_changed)
             self.tree.connect("row-activated", self.on_row_activated)
+            self.tree.connect(
+                "button-press-event", self.on_tree_button_press
+            )
             columns = (
                 (tr("package"), 0, 180),
                 (tr("version"), 1, 125),
@@ -2117,11 +2511,13 @@ def run_gui(initial_query: str = "", output: Optional[Path] = None) -> int:
             for heading, model_column, width in columns:
                 renderer = Gtk.CellRendererText()
                 renderer.set_property("ellipsize", 3)
+                renderer.set_property("ypad", 6)
                 column = Gtk.TreeViewColumn(
                     heading, renderer, text=model_column
                 )
                 column.set_resizable(True)
                 column.set_min_width(width)
+                column.set_sort_column_id(model_column)
                 if model_column == 3:
                     column.set_expand(True)
                 self.tree.append_column(column)
@@ -2175,16 +2571,26 @@ def run_gui(initial_query: str = "", output: Optional[Path] = None) -> int:
             buttons = Gtk.Box(
                 orientation=Gtk.Orientation.HORIZONTAL, spacing=9
             )
-            buttons.set_halign(Gtk.Align.END)
+            self.update_button = Gtk.Button(label=tr("check_updates"))
+            self.update_button.connect("clicked", self.on_check_updates)
+            buttons.pack_start(self.update_button, False, False, 0)
+            action_buttons = Gtk.Box(
+                orientation=Gtk.Orientation.HORIZONTAL, spacing=9
+            )
+            buttons.pack_end(action_buttons, False, False, 0)
             self.cancel_button = Gtk.Button(label=tr("cancel"))
             self.cancel_button.set_no_show_all(True)
             self.cancel_button.connect("clicked", self.on_cancel)
-            buttons.pack_start(self.cancel_button, False, False, 0)
+            action_buttons.pack_start(
+                self.cancel_button, False, False, 0
+            )
             self.convert_button = Gtk.Button(label=tr("convert"))
             self.convert_button.set_sensitive(False)
             self.convert_button.get_style_context().add_class("primary")
             self.convert_button.connect("clicked", self.on_convert)
-            buttons.pack_start(self.convert_button, False, False, 0)
+            action_buttons.pack_start(
+                self.convert_button, False, False, 0
+            )
             root.pack_start(buttons, False, False, 0)
 
         def set_busy(self, busy: bool, cancellable: bool = False) -> None:
@@ -2193,6 +2599,7 @@ def run_gui(initial_query: str = "", output: Optional[Path] = None) -> int:
             self.search_button.set_sensitive(not busy)
             self.tree.set_sensitive(not busy)
             self.choose_button.set_sensitive(not busy)
+            self.update_button.set_sensitive(not busy)
             self.convert_button.set_sensitive(not busy and self.selected is not None)
             if busy and cancellable:
                 self.cancel_button.show()
@@ -2208,6 +2615,7 @@ def run_gui(initial_query: str = "", output: Optional[Path] = None) -> int:
             self.set_busy(True)
             self.store.clear()
             self.selected = None
+            self.selection_label.set_text(tr("select_package"))
             self.progress.set_fraction(0.0)
             self.progress.set_text(tr("searching"))
 
@@ -2240,9 +2648,6 @@ def run_gui(initial_query: str = "", output: Optional[Path] = None) -> int:
                 )
             if results:
                 self.progress.set_text(tr("results", count=len(results)))
-                first = self.store.get_iter_first()
-                if first:
-                    self.tree.get_selection().select_iter(first)
             else:
                 self.progress.set_text(tr("no_results"))
             return False
@@ -2268,7 +2673,19 @@ def run_gui(initial_query: str = "", output: Optional[Path] = None) -> int:
                 not self.busy and self.selected is not None
             )
 
-        def on_row_activated(self, _tree, _path, _column) -> None:
+        def on_tree_button_press(self, tree, event) -> bool:
+            if (
+                event.button == 1
+                and tree.get_path_at_pos(
+                    int(event.x), int(event.y)
+                ) is None
+            ):
+                tree.get_selection().unselect_all()
+            return False
+
+        def on_row_activated(self, tree, path, _column) -> None:
+            tree.get_selection().select_path(path)
+            tree.set_cursor(path)
             if self.selected and not self.busy:
                 self.on_convert()
 
@@ -2306,6 +2723,205 @@ def run_gui(initial_query: str = "", output: Optional[Path] = None) -> int:
             self.progress.set_text(message)
             return False
 
+        def on_check_updates(self, _button=None) -> None:
+            if self.busy:
+                return
+            self.log_view.get_buffer().set_text("")
+            self.set_busy(True)
+            self.progress.set_fraction(0.0)
+            self.progress.set_text(tr("checking_updates"))
+            self.append_log(tr("update_auth"))
+
+            def worker() -> None:
+                try:
+                    apps = discover_managed_appimages()
+                    if apps:
+                        refresh_repository_indexes(
+                            log=lambda message: GLib.idle_add(
+                                self.append_log, message
+                            )
+                        )
+                        self.repository.invalidate_cache()
+                        updates = find_appimage_updates(
+                            self.repository, apps
+                        )
+                    else:
+                        updates = []
+                    GLib.idle_add(
+                        self.finish_update_check,
+                        apps,
+                        updates,
+                        None,
+                    )
+                except Exception as error:
+                    GLib.idle_add(
+                        self.finish_update_check,
+                        [],
+                        [],
+                        error,
+                    )
+
+            threading.Thread(target=worker, daemon=True).start()
+
+        def finish_update_check(
+            self,
+            apps: list[ManagedAppImage],
+            updates: list[AppImageUpdate],
+            error: Optional[Exception],
+        ) -> bool:
+            self.set_busy(False)
+            self.progress.set_fraction(0.0)
+            self.progress.set_text(tr("ready"))
+            if error:
+                self.show_error(str(error))
+                return False
+            if not apps:
+                self.show_information(
+                    tr("no_managed_apps_title"),
+                    tr("no_managed_apps"),
+                )
+                return False
+            if not updates:
+                self.show_information(
+                    tr("no_updates_title"),
+                    tr("no_updates", count=len(apps)),
+                )
+                return False
+
+            update_lines = [
+                (
+                    f"• {update.app.display_name}: "
+                    f"{update.app.version} → {update.available.version}"
+                )
+                for update in updates
+            ]
+            dialog = Gtk.MessageDialog(
+                transient_for=self,
+                modal=True,
+                message_type=Gtk.MessageType.QUESTION,
+                buttons=Gtk.ButtonsType.NONE,
+                text=tr("updates_title"),
+            )
+            dialog.format_secondary_text(
+                tr("updates_found", count=len(updates))
+                + "\n\n"
+                + "\n".join(update_lines)
+            )
+            dialog.add_button(tr("cancel"), Gtk.ResponseType.CANCEL)
+            dialog.add_button(tr("update_all"), 1)
+            response = dialog.run()
+            dialog.destroy()
+            if response == 1:
+                self.start_updates(updates)
+            return False
+
+        def start_updates(
+            self, updates: Sequence[AppImageUpdate]
+        ) -> None:
+            self.cancel_event = threading.Event()
+            self.set_busy(True, cancellable=True)
+            self.progress.set_fraction(0.0)
+            self.progress.set_text(tr("updating_apps"))
+            self.append_log("")
+
+            def worker() -> None:
+                updated: list[BuildResult] = []
+                failed: list[tuple[str, str]] = []
+                cancelled = False
+                total = len(updates)
+                for index, update in enumerate(updates):
+                    assert self.cancel_event is not None
+                    if self.cancel_event.is_set():
+                        cancelled = True
+                        break
+
+                    def progress(
+                        stage: str,
+                        fraction: float,
+                        message: str,
+                    ) -> None:
+                        overall = (index + fraction) / total
+                        GLib.idle_add(
+                            self.update_progress,
+                            stage,
+                            overall,
+                            f"{update.app.display_name}: {message}",
+                        )
+
+                    self.builder = AppImageBuilder(
+                        repository=self.repository,
+                        progress=progress,
+                        log=lambda message: GLib.idle_add(
+                            self.append_log, message
+                        ),
+                        cancel_event=self.cancel_event,
+                    )
+                    try:
+                        result, registered = rebuild_appimage_update(
+                            self.builder,
+                            update,
+                        )
+                    except BuildCancelled:
+                        cancelled = True
+                        break
+                    except Exception as error:
+                        failed.append(
+                            (update.app.display_name, str(error))
+                        )
+                        GLib.idle_add(
+                            self.append_log,
+                            f"{update.app.display_name}: {error}",
+                        )
+                        continue
+                    if not registered:
+                        GLib.idle_add(
+                            self.append_log,
+                            localized(
+                                f"Aviso: miloFiles no pudo volver a registrar {result.path.name}.",
+                                f"Warning: miloFiles could not re-register {result.path.name}.",
+                            ),
+                        )
+                    updated.append(result)
+                self.builder = None
+                GLib.idle_add(
+                    self.finish_updates,
+                    updated,
+                    failed,
+                    cancelled,
+                )
+
+            threading.Thread(target=worker, daemon=False).start()
+
+        def finish_updates(
+            self,
+            updated: list[BuildResult],
+            failed: list[tuple[str, str]],
+            cancelled: bool,
+        ) -> bool:
+            self.builder = None
+            self.cancel_event = None
+            self.set_busy(False)
+            self.progress.set_fraction(1.0 if updated else 0.0)
+            if cancelled:
+                self.progress.set_text(tr("update_cancelled"))
+            else:
+                self.progress.set_text(tr("ready"))
+            summary = tr("updates_complete", updated=len(updated))
+            if failed:
+                summary += "\n\n" + tr(
+                    "updates_failed", failed=len(failed)
+                )
+                summary += "\n" + "\n".join(
+                    f"• {name}" for name, _message in failed
+                )
+            if cancelled:
+                summary += "\n\n" + tr("update_cancelled")
+            self.show_information(
+                tr("updates_complete_title"),
+                summary,
+            )
+            return False
+
         def on_convert(self, _button=None) -> None:
             if self.busy or self.selected is None:
                 return
@@ -2339,6 +2955,8 @@ def run_gui(initial_query: str = "", output: Optional[Path] = None) -> int:
             threading.Thread(target=worker, daemon=False).start()
 
         def on_cancel(self, _button) -> None:
+            if self.cancel_event:
+                self.cancel_event.set()
             if self.builder:
                 self.builder.cancel()
             self.progress.set_text(tr("cancel"))
@@ -2387,6 +3005,18 @@ def run_gui(initial_query: str = "", output: Optional[Path] = None) -> int:
                     pass
             return False
 
+        def show_information(self, title: str, message: str) -> None:
+            dialog = Gtk.MessageDialog(
+                transient_for=self,
+                modal=True,
+                message_type=Gtk.MessageType.INFO,
+                buttons=Gtk.ButtonsType.CLOSE,
+                text=title,
+            )
+            dialog.format_secondary_text(message)
+            dialog.run()
+            dialog.destroy()
+
         def show_error(self, message: str) -> None:
             dialog = Gtk.MessageDialog(
                 transient_for=self,
@@ -2400,6 +3030,8 @@ def run_gui(initial_query: str = "", output: Optional[Path] = None) -> int:
             dialog.destroy()
 
         def on_destroy(self, _widget) -> None:
+            if self.cancel_event:
+                self.cancel_event.set()
             if self.builder:
                 self.builder.cancel()
             Gtk.main_quit()
