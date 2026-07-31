@@ -46,6 +46,23 @@ install -m 755 src/milodock-bin /usr/local/bin/milodock
 echo "Installing desktop entry..."
 install -m 644 milodock.desktop /usr/share/applications/milodock.desktop
 
+if [ -n "$SUDO_USER" ]; then
+    USER_HOME="$(getent passwd "$SUDO_USER" | cut -d: -f6)"
+    LEGACY_DESKTOP="$USER_HOME/.local/share/applications/milodock.desktop"
+    LEGACY_BINARY="$USER_HOME/.local/bin/milodock"
+    if [ -f "$LEGACY_DESKTOP" ] && grep -Eq '^Exec=.*/\.local/bin/milodock([[:space:]]|$)' "$LEGACY_DESKTOP"; then
+        rm -f "$LEGACY_DESKTOP"
+    fi
+    if [ -L "$LEGACY_BINARY" ]; then
+        LEGACY_TARGET="$(readlink "$LEGACY_BINARY")"
+        case "$LEGACY_TARGET" in
+            */miloApps/miloDock/src/milodock-bin)
+                rm -f "$LEGACY_BINARY"
+                ;;
+        esac
+    fi
+fi
+
 if [ -f "milodock.svg" ]; then
     echo "Installing icon..."
     mkdir -p /usr/share/icons/hicolor/scalable/apps
@@ -69,6 +86,9 @@ fi
 
 if command -v update-desktop-database >/dev/null 2>&1; then
     update-desktop-database /usr/share/applications 2>/dev/null || true
+    if [ -n "$SUDO_USER" ] && [ -d "$USER_HOME/.local/share/applications" ]; then
+        sudo -u "$SUDO_USER" update-desktop-database "$USER_HOME/.local/share/applications" 2>/dev/null || true
+    fi
 fi
 
 echo "Installation complete."

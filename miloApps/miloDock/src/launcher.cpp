@@ -275,8 +275,16 @@ Launcher launcher_from_desktop_path(const std::string& desktop_path, bool includ
     add_tokens(launcher.match_tokens, fs::path(desktop_path).stem().string());
     add_tokens(launcher.match_tokens, launcher.name);
     add_tokens(launcher.match_tokens, desktop_key(desktop_path, "StartupWMClass"));
-    add_tokens(launcher.match_tokens, command_basename(g_app_info_get_commandline(G_APP_INFO(app_info))));
-    add_tokens(launcher.match_tokens, desktop_key(desktop_path, "X-miloOS-AppImage"));
+    const std::string appimage_path =
+        desktop_key(desktop_path, "X-miloOS-AppImage");
+    if (appimage_path.empty()) {
+        add_tokens(
+            launcher.match_tokens,
+            command_basename(
+                g_app_info_get_commandline(G_APP_INFO(app_info))));
+    } else {
+        add_tokens(launcher.match_tokens, appimage_path);
+    }
 
     return launcher;
 }
