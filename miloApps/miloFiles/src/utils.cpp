@@ -317,6 +317,264 @@ static std::string desktop_file_argument_code(GKeyFile* desktop) {
     return selected_code;
 }
 
+static bool desktop_list_contains(
+    GKeyFile* desktop,
+    const char* key,
+    const char* expected_value) {
+    gsize value_count = 0;
+    gchar** values = g_key_file_get_string_list(
+        desktop,
+        "Desktop Entry",
+        key,
+        &value_count,
+        nullptr);
+    if (!values) {
+        return false;
+    }
+
+    bool found = false;
+    for (gsize index = 0; index < value_count; ++index) {
+        if (g_strcmp0(values[index], expected_value) == 0) {
+            found = true;
+            break;
+        }
+    }
+    g_strfreev(values);
+    return found;
+}
+
+static std::vector<std::string> xfce_helper_categories(GKeyFile* desktop) {
+    std::vector<std::string> categories;
+    if (desktop_list_contains(desktop, "Categories", "WebBrowser") ||
+        desktop_list_contains(desktop, "MimeType", "x-scheme-handler/http") ||
+        desktop_list_contains(desktop, "MimeType", "x-scheme-handler/https")) {
+        categories.emplace_back("WebBrowser");
+    }
+    if (desktop_list_contains(desktop, "Categories", "Email") ||
+        desktop_list_contains(desktop, "MimeType", "x-scheme-handler/mailto")) {
+        categories.emplace_back("MailReader");
+    }
+    if (desktop_list_contains(desktop, "Categories", "FileManager") ||
+        desktop_list_contains(desktop, "MimeType", "inode/directory")) {
+        categories.emplace_back("FileManager");
+    }
+    if (desktop_list_contains(desktop, "Categories", "TerminalEmulator")) {
+        categories.emplace_back("TerminalEmulator");
+    }
+    return categories;
+}
+
+static void copy_appimage_helper_names(
+    GKeyFile* source,
+    GKeyFile* helper) {
+    gsize key_count = 0;
+    gchar** keys = g_key_file_get_keys(
+        source, "Desktop Entry", &key_count, nullptr);
+    bool copied_name = false;
+    for (gsize index = 0; keys && index < key_count; ++index) {
+        const char* key = keys[index];
+        if (g_strcmp0(key, "Name") != 0 &&
+            !g_str_has_prefix(key, "Name[")) {
+            continue;
+        }
+        gchar* raw_name = g_key_file_get_string(
+            source, "Desktop Entry", key, nullptr);
+        if (!raw_name || !*raw_name) {
+            g_free(raw_name);
+            continue;
+        }
+        const std::string name = std::string(raw_name) + " (AppImage)";
+        g_key_file_set_string(helper, "Desktop Entry", key, name.c_str());
+        copied_name = copied_name || g_strcmp0(key, "Name") == 0;
+        g_free(raw_name);
+    }
+    g_strfreev(keys);
+
+    if (!copied_name) {
+        g_key_file_set_string(
+            helper, "Desktop Entry", "Name", "AppImage application");
+    }
+}
+
+static void remove_stale_xfce_appimage_helpers(
+    const std::filesystem::path& helpers_directory) {
+    std::error_code filesystem_error;
+    for (std::filesystem::directory_iterator iterator(
+             helpers_directory, filesystem_error), end;
+         !filesystem_error && iterator != end;
+         iterator.increment(filesystem_error)) {
+        const std::filesystem::path helper_path = iterator->path();
+        const std::string filename = helper_path.filename().string();
+        if (!iterator->is_regular_file() ||
+            filename.rfind("milopkg-appimage-", 0) != 0 ||
+            helper_path.extension() != ".desktop") {
+            continue;
+        }
+
+        GKeyFile* helper = g_key_file_new();
+        if (!g_key_file_load_from_file(
+                helper, helper_path.c_str(), G_KEY_FILE_NONE, nullptr)) {
+            g_key_file_unref(helper);
+            continue;
+        }
+        gchar* appimage_path = g_key_file_get_string(
+            helper, "Desktop Entry", "X-miloOS-AppImage", nullptr);
+        const bool appimage_exists = appimage_path &&
+            g_file_test(appimage_path, G_FILE_TEST_IS_REGULAR);
+        g_free(appimage_path);
+        g_key_file_unref(helper);
+        if (!appimage_exists) {
+            g_remove(helper_path.c_str());
+        }
+    }
+}
+
+static bool remove_xfce_appimage_helpers(
+    const std::string& appimage_path,
+    const std::string& desktop_id) {
+    const std::filesystem::path helpers_directory =
+        std::filesystem::path(g_get_user_data_dir()) / "xfce4" / "helpers";
+    std::error_code filesystem_error;
+    if (!std::filesystem::is_directory(helpers_directory, filesystem_error)) {
+        return false;
+    }
+
+    const std::string canonical_appimage =
+        canonical_local_path(appimage_path);
+    bool removed = false;
+    for (std::filesystem::directory_iterator iterator(
+             helpers_directory, filesystem_error), end;
+         !filesystem_error && iterator != end;
+         iterator.increment(filesystem_error)) {
+        const std::filesystem::path helper_path = iterator->path();
+        const std::string filename = helper_path.filename().string();
+        if (!iterator->is_regular_file() ||
+            filename.rfind("milopkg-appimage-", 0) != 0 ||
+            helper_path.extension() != ".desktop") {
+            continue;
+        }
+
+        GKeyFile* helper = g_key_file_new();
+        if (!g_key_file_load_from_file(
+                helper, helper_path.c_str(), G_KEY_FILE_NONE, nullptr)) {
+            g_key_file_unref(helper);
+            continue;
+        }
+        gchar* raw_appimage = g_key_file_get_string(
+            helper, "Desktop Entry", "X-miloOS-AppImage", nullptr);
+        gchar* raw_desktop_id = g_key_file_get_string(
+            helper, "Desktop Entry", "X-miloOS-DesktopId", nullptr);
+        const bool path_matches = !canonical_appimage.empty() && raw_appimage &&
+            canonical_local_path(raw_appimage) == canonical_appimage;
+        const bool desktop_matches = !desktop_id.empty() &&
+            g_strcmp0(raw_desktop_id, desktop_id.c_str()) == 0;
+        g_free(raw_appimage);
+        g_free(raw_desktop_id);
+        g_key_file_unref(helper);
+        if ((path_matches || desktop_matches) &&
+            g_remove(helper_path.c_str()) == 0) {
+            removed = true;
+        }
+    }
+    return removed;
+}
+
+static void write_xfce_appimage_helpers(
+    GKeyFile* desktop,
+    const AppImageMetadata& metadata,
+    const std::string& path_key,
+    const std::filesystem::path& registered_desktop) {
+    const std::filesystem::path helpers_directory =
+        std::filesystem::path(g_get_user_data_dir()) / "xfce4" / "helpers";
+    if (g_mkdir_with_parents(helpers_directory.c_str(), 0700) != 0) {
+        return;
+    }
+
+    remove_stale_xfce_appimage_helpers(helpers_directory);
+    const std::string helper_prefix = "milopkg-appimage-" + path_key + "-";
+    std::error_code filesystem_error;
+    for (std::filesystem::directory_iterator iterator(
+             helpers_directory, filesystem_error), end;
+         !filesystem_error && iterator != end;
+         iterator.increment(filesystem_error)) {
+        const std::filesystem::path helper_path = iterator->path();
+        if (helper_path.filename().string().rfind(helper_prefix, 0) == 0 &&
+            helper_path.extension() == ".desktop") {
+            std::filesystem::remove(helper_path, filesystem_error);
+            filesystem_error.clear();
+        }
+    }
+
+    gchar* raw_icon = g_key_file_get_string(
+        desktop, "Desktop Entry", "Icon", nullptr);
+    const std::string icon = raw_icon ? raw_icon : metadata.icon_path;
+    g_free(raw_icon);
+    const bool startup_notify = g_key_file_get_boolean(
+        desktop, "Desktop Entry", "StartupNotify", nullptr);
+    const std::string launch_command =
+        "%B --launch-appimage " +
+        desktop_exec_argument(metadata.canonical_path);
+
+    for (const std::string& category : xfce_helper_categories(desktop)) {
+        GKeyFile* helper = g_key_file_new();
+        g_key_file_set_string(helper, "Desktop Entry", "Version", "1.0");
+        g_key_file_set_string(
+            helper, "Desktop Entry", "Type", "X-XFCE-Helper");
+        copy_appimage_helper_names(desktop, helper);
+        g_key_file_set_string(
+            helper, "Desktop Entry", "Icon", icon.c_str());
+        g_key_file_set_boolean(
+            helper, "Desktop Entry", "NoDisplay", true);
+        g_key_file_set_boolean(
+            helper, "Desktop Entry", "StartupNotify", startup_notify);
+        g_key_file_set_string(
+            helper, "Desktop Entry", "X-XFCE-Binaries", "milofiles;");
+        g_key_file_set_string(
+            helper, "Desktop Entry", "X-XFCE-Category", category.c_str());
+        g_key_file_set_string(
+            helper,
+            "Desktop Entry",
+            "X-XFCE-Commands",
+            (launch_command + ";").c_str());
+        g_key_file_set_string(
+            helper,
+            "Desktop Entry",
+            "X-XFCE-CommandsWithParameter",
+            (launch_command + " \"%s\";").c_str());
+        g_key_file_set_string(
+            helper,
+            "Desktop Entry",
+            "X-miloOS-AppImage",
+            metadata.canonical_path.c_str());
+        g_key_file_set_string(
+            helper,
+            "Desktop Entry",
+            "X-miloOS-DesktopId",
+            registered_desktop.filename().c_str());
+
+        gsize helper_length = 0;
+        GError* error = nullptr;
+        gchar* helper_data =
+            g_key_file_to_data(helper, &helper_length, &error);
+        const std::filesystem::path helper_path =
+            helpers_directory /
+            (helper_prefix + category + ".desktop");
+        if (helper_data &&
+            g_file_set_contents(
+                helper_path.c_str(),
+                helper_data,
+                static_cast<gssize>(helper_length),
+                &error)) {
+            g_chmod(helper_path.c_str(), 0644);
+        }
+        g_free(helper_data);
+        if (error) {
+            g_error_free(error);
+        }
+        g_key_file_unref(helper);
+    }
+}
+
 static void refresh_desktop_database(
     const std::filesystem::path& applications_directory) {
     gchar* updater = g_find_program_in_path("update-desktop-database");
@@ -348,6 +606,162 @@ static void refresh_desktop_database(
         g_error_free(error);
     }
     g_free(updater);
+}
+
+static bool appimage_registration_values(
+    const std::filesystem::path& desktop_path,
+    std::string& appimage_path,
+    std::string& package) {
+    GKeyFile* desktop = g_key_file_new();
+    if (!g_key_file_load_from_file(
+            desktop, desktop_path.c_str(), G_KEY_FILE_NONE, nullptr)) {
+        g_key_file_unref(desktop);
+        return false;
+    }
+    gchar* raw_appimage = g_key_file_get_string(
+        desktop, "Desktop Entry", "X-miloOS-AppImage", nullptr);
+    gchar* raw_package = g_key_file_get_string(
+        desktop, "Desktop Entry", "X-miloPKG-Package", nullptr);
+    appimage_path = raw_appimage ? canonical_local_path(raw_appimage) : "";
+    package = raw_package ? to_lower_copy(trim_copy(raw_package)) : "";
+    g_free(raw_appimage);
+    g_free(raw_package);
+    g_key_file_unref(desktop);
+    return !appimage_path.empty();
+}
+
+void cleanup_appimage_registrations() {
+    const std::filesystem::path applications_directory =
+        std::filesystem::path(g_get_user_data_dir()) / "applications";
+    const std::filesystem::path helpers_directory =
+        std::filesystem::path(g_get_user_data_dir()) / "xfce4" / "helpers";
+    std::error_code filesystem_error;
+    if (!std::filesystem::is_directory(
+            applications_directory, filesystem_error)) {
+        remove_stale_xfce_appimage_helpers(helpers_directory);
+        return;
+    }
+
+    bool removed = false;
+    for (std::filesystem::directory_iterator iterator(
+             applications_directory, filesystem_error), end;
+         !filesystem_error && iterator != end;
+         iterator.increment(filesystem_error)) {
+        const std::filesystem::path desktop_path = iterator->path();
+        const std::string filename = desktop_path.filename().string();
+        if (!iterator->is_regular_file() ||
+            filename.rfind("milopkg-appimage-", 0) != 0 ||
+            desktop_path.extension() != ".desktop") {
+            continue;
+        }
+
+        std::string appimage_path;
+        std::string package;
+        const bool valid_registration = appimage_registration_values(
+            desktop_path, appimage_path, package);
+        const bool appimage_exists = valid_registration &&
+            g_file_test(appimage_path.c_str(), G_FILE_TEST_IS_REGULAR);
+        if (appimage_exists) {
+            continue;
+        }
+
+        remove_xfce_appimage_helpers(appimage_path, filename);
+        if (g_remove(desktop_path.c_str()) == 0) {
+            removed = true;
+        }
+    }
+
+    if (std::filesystem::is_directory(helpers_directory, filesystem_error)) {
+        remove_stale_xfce_appimage_helpers(helpers_directory);
+    }
+    if (removed) {
+        refresh_desktop_database(applications_directory);
+    }
+}
+
+bool unregister_appimage(const std::string& path) {
+    const std::string canonical_path = canonical_local_path(path);
+    if (canonical_path.empty()) {
+        return false;
+    }
+
+    const std::filesystem::path applications_directory =
+        std::filesystem::path(g_get_user_data_dir()) / "applications";
+    std::error_code filesystem_error;
+    bool removed = false;
+    if (std::filesystem::is_directory(
+            applications_directory, filesystem_error)) {
+        for (std::filesystem::directory_iterator iterator(
+                 applications_directory, filesystem_error), end;
+             !filesystem_error && iterator != end;
+             iterator.increment(filesystem_error)) {
+            const std::filesystem::path desktop_path = iterator->path();
+            const std::string filename = desktop_path.filename().string();
+            if (!iterator->is_regular_file() ||
+                filename.rfind("milopkg-appimage-", 0) != 0 ||
+                desktop_path.extension() != ".desktop") {
+                continue;
+            }
+
+            std::string registered_path;
+            std::string package;
+            if (!appimage_registration_values(
+                    desktop_path, registered_path, package) ||
+                registered_path != canonical_path) {
+                continue;
+            }
+            remove_xfce_appimage_helpers(registered_path, filename);
+            if (g_remove(desktop_path.c_str()) == 0) {
+                removed = true;
+            }
+        }
+    }
+    remove_xfce_appimage_helpers(canonical_path, "");
+    if (removed) {
+        refresh_desktop_database(applications_directory);
+    }
+    return removed;
+}
+
+static void remove_duplicate_appimage_registrations(
+    const std::filesystem::path& applications_directory,
+    const std::filesystem::path& registered_desktop,
+    const std::string& canonical_path,
+    const std::string& package) {
+    std::error_code filesystem_error;
+    bool removed = false;
+    for (std::filesystem::directory_iterator iterator(
+             applications_directory, filesystem_error), end;
+         !filesystem_error && iterator != end;
+         iterator.increment(filesystem_error)) {
+        const std::filesystem::path desktop_path = iterator->path();
+        const std::string filename = desktop_path.filename().string();
+        if (desktop_path == registered_desktop ||
+            !iterator->is_regular_file() ||
+            filename.rfind("milopkg-appimage-", 0) != 0 ||
+            desktop_path.extension() != ".desktop") {
+            continue;
+        }
+
+        std::string other_path;
+        std::string other_package;
+        if (!appimage_registration_values(
+                desktop_path, other_path, other_package)) {
+            continue;
+        }
+        const bool same_path = other_path == canonical_path;
+        const bool same_package = !package.empty() && package == other_package;
+        if (!same_path && !same_package) {
+            continue;
+        }
+        remove_xfce_appimage_helpers("", filename);
+        if (g_remove(desktop_path.c_str()) == 0) {
+            removed = true;
+        }
+    }
+    if (removed) {
+        refresh_desktop_database(applications_directory);
+    }
 }
 
 static uint16_t little_endian_u16(const unsigned char* bytes) {
@@ -922,6 +1336,7 @@ std::string appimage_icon_path(const std::string& path) {
 }
 
 std::string register_appimage(const std::string& path) {
+    cleanup_appimage_registrations();
     const AppImageMetadata metadata = ensure_appimage_metadata(path);
     if (metadata.canonical_path.empty() ||
         metadata.desktop_path.empty() ||
@@ -986,6 +1401,11 @@ std::string register_appimage(const std::string& path) {
         desktop, "Desktop Entry", "X-miloOS-AppImage", metadata.canonical_path.c_str());
     g_key_file_set_string(
         desktop, "Desktop Entry", "X-miloOS-AppImage-CacheKey", metadata.cache_key.c_str());
+    gchar* raw_package = g_key_file_get_string(
+        desktop, "Desktop Entry", "X-miloPKG-Package", nullptr);
+    const std::string package =
+        raw_package ? to_lower_copy(trim_copy(raw_package)) : "";
+    g_free(raw_package);
 
     gsize desktop_length = 0;
     gchar* desktop_data = g_key_file_to_data(desktop, &desktop_length, &error);
@@ -996,14 +1416,22 @@ std::string register_appimage(const std::string& path) {
             static_cast<gssize>(desktop_length),
             &error);
     g_free(desktop_data);
-    g_key_file_unref(desktop);
     if (error) {
         g_error_free(error);
     }
     if (!written) {
+        g_key_file_unref(desktop);
         return "";
     }
     g_chmod(registered_desktop.c_str(), 0644);
+    write_xfce_appimage_helpers(
+        desktop, metadata, path_key, registered_desktop);
+    g_key_file_unref(desktop);
+    remove_duplicate_appimage_registrations(
+        applications_directory,
+        registered_desktop,
+        metadata.canonical_path,
+        package);
     refresh_desktop_database(applications_directory);
     return registered_desktop.string();
 }
@@ -1865,12 +2293,17 @@ void copy_path_recursive(const std::string& src, const std::string& dest, GCance
 bool move_path(const std::string& src, const std::string& dest, GCancellable* cancellable) {
     if (cancellable && g_cancellable_is_cancelled(cancellable)) return false;
 
+    const bool moving_appimage = is_appimage(src);
+
     GFile* src_file = file_for_location(src);
     GFile* dest_file = file_for_location(dest);
     GError* error = NULL;
     if (g_file_move(src_file, dest_file, G_FILE_COPY_NONE, cancellable, NULL, NULL, &error)) {
         g_object_unref(src_file);
         g_object_unref(dest_file);
+        if (moving_appimage) {
+            register_appimage(dest);
+        }
         return true;
     }
     if (error) {
@@ -1882,7 +2315,11 @@ bool move_path(const std::string& src, const std::string& dest, GCancellable* ca
 
     try {
         copy_path_recursive(src, dest, cancellable);
-        return delete_path_recursive(src, cancellable);
+        const bool deleted = delete_path_recursive(src, cancellable);
+        if (deleted && moving_appimage) {
+            register_appimage(dest);
+        }
+        return deleted;
     } catch (...) {
         return false;
     }

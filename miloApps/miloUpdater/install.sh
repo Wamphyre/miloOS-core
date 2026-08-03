@@ -22,12 +22,19 @@ if ! python3 -c "import gi; gi.require_version('Vte', '2.91')" 2>/dev/null; then
         apt-get install -y python3-gi gir1.2-vte-2.90 2>/dev/null || true
     }
 fi
+if [ ! -x /usr/bin/pkexec ]; then
+    apt-get install -y pkexec
+fi
 
 # Install the Python script
 echo "[INFO] Installing miloupdate script..."
 cp "$SCRIPT_DIR/miloupdate.py" /usr/bin/miloupdate
 chmod 755 /usr/bin/miloupdate
 chown root:root /usr/bin/miloupdate
+
+echo "[INFO] Installing privileged helper..."
+install -d -m 755 /usr/libexec
+install -m 755 "$SCRIPT_DIR/miloupdater-helper" /usr/libexec/miloupdater-helper
 
 # Install icon
 if [ -f "$SCRIPT_DIR/miloupdate.svg" ]; then
@@ -49,9 +56,7 @@ chown root:root /usr/share/applications/miloupdate.desktop
 
 # Install PolicyKit policy
 echo "[INFO] Installing PolicyKit policy..."
-cp "$SCRIPT_DIR/org.milos.updater.policy" /usr/share/polkit-1/actions/
-chmod 644 /usr/share/polkit-1/actions/org.milos.updater.policy
-chown root:root /usr/share/polkit-1/actions/org.milos.updater.policy
+install -m 644 "$SCRIPT_DIR/org.milos.updater.policy" /usr/share/polkit-1/actions/org.milos.updater.policy
 
 # Update desktop database
 if command -v update-desktop-database &> /dev/null; then

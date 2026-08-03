@@ -28,6 +28,8 @@ std::string get_custom_default_command(const std::string& path);
 bool is_appimage(const std::string& path);
 std::string appimage_icon_path(const std::string& path);
 std::string register_appimage(const std::string& path);
+bool unregister_appimage(const std::string& path);
+void cleanup_appimage_registrations();
 bool run_appimage(
     const std::string& path,
     const std::vector<std::string>& arguments = {});

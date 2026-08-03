@@ -4,8 +4,8 @@ Simple and elegant system updater for miloOS.
 
 ## Features
 
-- Check for system updates (`apt update`)
-- Install system updates (`apt upgrade`)
+- Check for system updates (`apt-get update`)
+- Install system updates (`apt-get upgrade`)
 - Clean terminal output interface
 - Bilingual support (English/Spanish)
 - PolicyKit integration for secure privilege escalation
@@ -34,14 +34,15 @@ Launch from:
 
 ## How it works
 
-1. Click "Check for Updates" to run `apt update`
+1. Click "Check for Updates" to authenticate through PolicyKit and run `apt-get update`
 2. If updates are available, the "Install Updates" button becomes active
-3. Click "Install Updates" to run `apt upgrade -y`
-4. All operations use PolicyKit for secure authentication
+3. Click "Install Updates" to authenticate through PolicyKit and run `apt-get upgrade -y`
+4. The privileged helper only accepts repository refresh and package upgrade operations
 
 ## Files
 
 - `miloupdate.py` - Main application
+- `miloupdater-helper` - Restricted privileged APT helper
 - `miloupdate.desktop` - Desktop entry
 - `org.milos.updater.policy` - PolicyKit policy
 - `install.sh` - Installation script

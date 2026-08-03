@@ -67,6 +67,9 @@ The native application is organized as a modular C++17 codebase:
 7. **Default app handling and Open With**
    - miloPKG AppImages open directly on double-click and use their embedded `.DirIcon`.
    - AppImage icons and desktop metadata are extracted safely through `unsquashfs`, cached, and registered locally with valid launchers for application menus and miloDock integration, including AppImage filenames containing spaces.
+   - Registered AppImages are exposed to the desktop's default-application selector, including XFCE preferred browser, mail, file manager, and terminal categories when supported by their metadata.
+   - Desktop launchers and XFCE helpers are removed when their AppImage is deleted or moved to Trash; moving or renaming an AppImage recreates one launcher for its new location.
+   - Re-registering or updating a miloPKG AppImage replaces launchers for the same Debian package instead of creating duplicate application-menu entries.
    - Always routes audio and video through VLC and images through Ristretto, resolving either Debian installations or miloPKG AppImage registrations before consulting generic MIME defaults.
    - Sends a multi-file selection to each handler as one launch request instead of starting one process per file.
    - VLC launches use file-manager activation plus explicit single-instance mode, so an existing player window is reused for later files and multi-file selections become one playlist handoff.

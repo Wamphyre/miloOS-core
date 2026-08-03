@@ -28,6 +28,9 @@ TRANSLATIONS = {
         'close': 'Close',
         'output': 'Output',
         'ready': 'Ready to check for updates',
+        'auth_cancelled': 'Administrator authentication was cancelled',
+        'refresh_failed': 'Could not update the package repositories',
+        'upgrade_failed': 'Could not install the available updates',
     },
     'es': {
         'title': 'Actualizador del Sistema',
@@ -42,6 +45,9 @@ TRANSLATIONS = {
         'close': 'Cerrar',
         'output': 'Salida',
         'ready': 'Listo para buscar actualizaciones',
+        'auth_cancelled': 'Se canceló la autenticación de administrador',
+        'refresh_failed': 'No se pudieron actualizar los repositorios de paquetes',
+        'upgrade_failed': 'No se pudieron instalar las actualizaciones disponibles',
     }
 }
 
@@ -231,7 +237,7 @@ class UpdaterWindow(Gtk.Window):
             Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION
         )
     
-    def run_command_in_terminal(self, command, callback=None):
+    def run_command_in_terminal(self, argv, callback=None):
         """Run command in VTE terminal"""
         handler_id = None
         
@@ -245,15 +251,27 @@ class UpdaterWindow(Gtk.Window):
                 GLib.idle_add(callback, status)
         
         handler_id = self.terminal.connect('child-exited', on_child_exited)
-        self.terminal.spawn_sync(
-            Vte.PtyFlags.DEFAULT,
-            os.environ['HOME'],
-            ['/bin/bash', '-c', command],
-            [],
-            GLib.SpawnFlags.DO_NOT_REAP_CHILD,
-            None,
-            None,
-        )
+        try:
+            self.terminal.spawn_sync(
+                Vte.PtyFlags.DEFAULT,
+                os.environ.get('HOME', GLib.get_home_dir()),
+                argv,
+                GLib.get_environ(),
+                GLib.SpawnFlags.DO_NOT_REAP_CHILD,
+                None,
+                None,
+            )
+        except GLib.Error:
+            if handler_id is not None:
+                self.terminal.disconnect(handler_id)
+                handler_id = None
+            if callback:
+                GLib.idle_add(callback, 127)
+
+    def privileged_error(self, status, fallback_key):
+        if status == 126:
+            return self.t['auth_cancelled']
+        return self.t[fallback_key]
     
     def on_check_updates(self, button):
         """Check for available updates"""
@@ -262,10 +280,18 @@ class UpdaterWindow(Gtk.Window):
         self.status_label.set_markup(f'<span size="large">{self.t["checking"]}</span>')
         
         def check_finished(status):
+            if status != 0:
+                message = self.privileged_error(status, 'refresh_failed')
+                self.status_label.set_markup(
+                    f'<span size="large" foreground="#dc3545">{message}</span>'
+                )
+                self.check_button.set_sensitive(True)
+                return
+
             # Count upgradable packages
             try:
                 result = subprocess.run(
-                    ['apt', 'list', '--upgradable'],
+                    ['/usr/bin/apt', 'list', '--upgradable'],
                     capture_output=True,
                     text=True
                 )
@@ -289,9 +315,14 @@ class UpdaterWindow(Gtk.Window):
             
             self.check_button.set_sensitive(True)
         
-        # Run apt update with pkexec
-        command = 'pkexec apt update'
-        self.run_command_in_terminal(command, check_finished)
+        self.run_command_in_terminal(
+            [
+                '/usr/bin/pkexec',
+                '/usr/libexec/miloupdater-helper',
+                'refresh',
+            ],
+            check_finished,
+        )
     
     def on_install_updates(self, button):
         """Install available updates"""
@@ -305,16 +336,22 @@ class UpdaterWindow(Gtk.Window):
                     f'<span size="large" foreground="#28a745">{self.t["success"]}</span>'
                 )
             else:
+                message = self.privileged_error(status, 'upgrade_failed')
                 self.status_label.set_markup(
-                    f'<span size="large" foreground="#dc3545">{self.t["error"]}</span>'
+                    f'<span size="large" foreground="#dc3545">{message}</span>'
                 )
             
             self.check_button.set_sensitive(True)
             self.updates_count = 0
         
-        # Run apt upgrade with pkexec
-        command = 'pkexec apt upgrade -y'
-        self.run_command_in_terminal(command, update_finished)
+        self.run_command_in_terminal(
+            [
+                '/usr/bin/pkexec',
+                '/usr/libexec/miloupdater-helper',
+                'upgrade',
+            ],
+            update_finished,
+        )
 
 def main():
     window = UpdaterWindow()

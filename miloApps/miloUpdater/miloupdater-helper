@@ -1,0 +1,16 @@
+#!/bin/sh
+
+set -eu
+
+case "${1:-}" in
+    refresh)
+        exec /usr/bin/apt-get update
+        ;;
+    upgrade)
+        exec /usr/bin/apt-get upgrade -y
+        ;;
+    *)
+        echo "Usage: miloupdater-helper {refresh|upgrade}" >&2
+        exit 64
+        ;;
+esac

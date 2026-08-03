@@ -1803,6 +1803,7 @@ void AppWindow::start_delete_operation(const std::vector<std::string>& paths, co
                 if (!control->cancelled.load()) failed.push_back(path);
             }
         }
+        utils::cleanup_appimage_registrations();
 
         struct CompletionData {
             AppWindow* self;
@@ -1864,6 +1865,7 @@ void AppWindow::start_trash_operation(const std::vector<std::string>& paths, con
             if (error) g_error_free(error);
             g_object_unref(file);
         }
+        utils::cleanup_appimage_registrations();
 
         struct CompletionData {
             AppWindow* self;
